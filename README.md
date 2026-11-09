@@ -2,46 +2,57 @@
 
 Gerenciador local de bibliotecas digitais para Linux, desenvolvido com **Tauri 2, Rust, React e TypeScript**.
 
-O Acervo substitui a parte de **organização de arquivos e catálogo** do antigo Minha Biblioteca. Ele não pretende ser outro leitor de EPUB/PDF: o usuário pode continuar lendo no aplicativo que preferir.
+O Acervo organiza **arquivos físicos e listas de obras**. Não pretende substituir leitores de EPUB/PDF: a leitura pode continuar nos aplicativos de sua preferência.
 
-## O que esta versão faz
+## Recursos atuais
 
-- Abre uma pasta existente e indexa arquivos PDF, EPUB, MOBI, AZW3 e DJVU sem renomeá-los.
-- Lê o banco legado `99 - Catálogo/Catalogo_Conhecimento.db` em modo somente leitura.
-- Exibe arquivos, pastas e obras pendentes, com pesquisa e filtros.
-- Cria pastas, move livros por arrastar/soltar mediante confirmação e sincroniza referências no catálogo SQLite.
-- Mostra o destino planejado para obras ainda não encontradas.
-- Gera um prompt para solicitar a uma IA listas em JSON; valida preliminarmente o texto importado.
-- Abre uma busca externa para encontrar uma edição, com filtros de formato e idioma.
-- Oferece paletas de cores e lê um arquivo JSON de cores do Noctalia, caso configurado.
+- Seleção da raiz da biblioteca pelo explorador nativo, com indexação de PDF, EPUB, MOBI, AZW3 e DJVU.
+- **Biblioteca:** árvore de pastas, redimensionamento da lateral, arrastar/soltar arquivos com prévia de conflitos, filtros, sugestões de busca e agrupamentos. Apenas arquivos reais aparecem na raiz.
+- Miniaturas de capas EPUB extraídas do arquivo e primeiras páginas de PDF (usa Poppler/`pdftoppm` no Linux), com cache e carregamento gradual.
+- **Catálogo:** central separada para obras cadastradas, disponíveis, faltantes e arquivos sem ficha.
+- Leitura do banco legado `99 - Catálogo/Catalogo_Conhecimento.db`, mantendo o SQLite original em modo somente leitura para consultas.
+- Importação persistente de listas JSON em `99 - Catálogo/Acervo_Listas.json`, com validação, escrita atômica, backup anterior e proteção contra duplicatas exatas. Exportação das listas pelo botão **Copiar JSON**.
+- Geração de prompts de IA com a estrutura de pastas existente para produzir listas JSON compatíveis.
+- Aparência Liquid Glass e Material 3, paletas manuais e sincronização das cores com o Noctalia (mediante a configuração do template em `integrations/noctalia`).
 
-> **Versão experimental:** antes de reorganizar um acervo real, mantenha backup do banco de dados e dos livros. A importação JSON ainda não é persistida; o gerenciador de downloads e a sincronização automática com Noctalia são entregas futuras.
+> **Versão alpha:** a organização de arquivos pode mover documentos e atualizar referências legadas quando você confirmar uma movimentação. Mantenha backup. O gestor de downloads, a pesquisa em múltiplas fontes e a importação CSV ainda estão em desenvolvimento.
 
-## Desenvolvimento
+## Instalação no CachyOS / Linux
 
-Requisitos: Node.js, npm, Rust/Cargo e dependências Linux do [Tauri 2](https://v2.tauri.app/start/prerequisites/).
+Requisitos: Node.js/npm, Rust/Cargo, dependências do [Tauri 2](https://v2.tauri.app/start/prerequisites/) e Poppler para prévias PDF.
 
-```sh
+```bash
+npm ci
+./scripts/install-desktop.sh
+```
+
+O instalador compila em modo de produção, instala o executável em `~/.local/opt/acervo` e registra um atalho em `~/.local/share/applications/acervo.desktop`, sem precisar de `sudo`. A instalação anterior fica em `acervo.previous`.
+
+Se você já compilou a versão release, execute `./scripts/install-desktop.sh --skip-build`. O app aparece no menu de aplicativos do Niri/Noctalia como **Acervo**.
+
+## Desenvolvimento e testes
+
+```bash
 npm ci
 npm run build
-cd src-tauri && cargo test && cd ..
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 npm run tauri dev
 ```
 
-Os caminhos de acervo são informados pelo usuário; o projeto não copia automaticamente os livros da pasta antiga. Os dados pessoais e arquivos de catálogo não são versionados no Git.
+Os caminhos do acervo são escolhidos pelo usuário; o projeto não copia livros para dentro do repositório. Dados pessoais e arquivos de catálogo não são versionados no Git.
 
-## Repositório e contribuições
+## Contribuições e versionamento
 
-- `main`: versões integradas e testadas.
-- `feat/*`, `fix/*`, `chore/*`: alterações isoladas por objetivo.
-- PR antes de integrar na `main`, preferencialmente squash merge.
-- Pre-releases `0.1.0-alpha.N` não prometem compatibilidade de formato ou funcionamento completo.
+- `main`: versão integrada e verificada por CI.
+- `feat/*`, `fix/*`, `chore/*`: entregas isoladas em branches.
+- Pull requests revisados e integrados na ordem das dependências, preservando o histórico de commits.
+- Pré-lançamentos `0.1.0-alpha.N` não garantem estabilidade completa.
 
 Consulte [VERSIONING.md](VERSIONING.md) e [CHANGELOG.md](CHANGELOG.md).
 
-## Próximas prioridades
+## Próximos passos
 
-1. Importação e exportação reais de JSON/CSV com validação, preview e backup.
-2. Gerenciamento de arquivos com operações seguras (prévia, desfazer e conflitos).
-3. Integração nativa com Noctalia e acessibilidade/UX refinadas.
-4. Fila de downloads com escolha de origem legal e pasta de destino planejada.
+1. Provedores de pesquisa independentes, no estilo Mihon/Komikku, com busca agregada e filtros.
+2. Gestor de downloads com fila, verificação de arquivos e destino relativo à biblioteca.
+3. Importação/exportação de CSV com prévia de diferenças e edição das fichas do catálogo.
+4. Mais operações seguras para arquivos em massa, incluindo desfazer quando possível.

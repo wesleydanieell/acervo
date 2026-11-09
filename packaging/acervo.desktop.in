@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Acervo
+GenericName=Gerenciador de biblioteca
+Comment=Organize pastas, livros e listas do seu acervo
+Exec="@ACERVO_BINARY@"
+Icon=@ACERVO_ICON@
+Terminal=false
+Categories=Office;
+Keywords=biblioteca;livros;catálogo;
+StartupNotify=true
+StartupWMClass=acervo
