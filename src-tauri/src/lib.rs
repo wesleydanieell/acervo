@@ -359,6 +359,88 @@ fn move_book(root: String, relative_path: String, destination: String) -> Result
 }
 
 #[tauri::command]
+fn move_books(
+    root: String,
+    relative_paths: Vec<String>,
+    destination: String,
+) -> Result<Vec<String>, String> {
+    if relative_paths.is_empty() || relative_paths.len() > 100 {
+        return Err("Selecione entre 1 e 100 livros por operação.".into());
+    }
+    let canonical_root = fs::canonicalize(&root).map_err(|error| error.to_string())?;
+    if !canonical_root.is_dir() {
+        return Err("Biblioteca inválida.".into());
+    }
+    let target_dir = resolve_inside(&canonical_root, &destination)?;
+    if !target_dir.is_dir() {
+        return Err("Selecione uma pasta de destino válida.".into());
+    }
+    let mut sources = HashSet::new();
+    let mut filenames = HashSet::new();
+    let mut prepared = Vec::new();
+    for relative in relative_paths {
+        let source = resolve_inside(&canonical_root, &relative)?;
+        if !source.is_file()
+            || !is_book(&source)
+            || source.starts_with(canonical_root.join("99 - Catálogo"))
+        {
+            return Err(format!("Arquivo não pode ser movido: {relative}"));
+        }
+        let filename = source
+            .file_name()
+            .ok_or("Nome de arquivo inválido.")?
+            .to_os_string();
+        let target = target_dir.join(&filename);
+        if source == target {
+            return Err(format!("O livro já está nessa pasta: {relative}"));
+        }
+        if target.exists() {
+            return Err(format!(
+                "Conflito: já existe {} no destino. Nada foi movido.",
+                filename.to_string_lossy()
+            ));
+        }
+        if !sources.insert(source.clone()) || !filenames.insert(filename) {
+            return Err("Há livros repetidos ou nomes iguais na seleção. Nada foi movido.".into());
+        }
+        let old = source
+            .strip_prefix(&canonical_root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        prepared.push(old);
+    }
+    let mut done: Vec<(String, String)> = Vec::new();
+    let root_text = canonical_root.to_string_lossy().to_string();
+    for old in prepared {
+        match move_book(root_text.clone(), old.clone(), destination.clone()) {
+            Ok(new) => done.push((old, new)),
+            Err(error) => {
+                let mut rollback_errors = Vec::new();
+                for (original, moved) in done.iter().rev() {
+                    let original_parent = Path::new(original).parent().unwrap_or(Path::new(""));
+                    if let Err(recovery) = move_book(
+                        root_text.clone(),
+                        moved.clone(),
+                        original_parent.to_string_lossy().to_string(),
+                    ) {
+                        rollback_errors.push(format!("{moved}: {recovery}"));
+                    }
+                }
+                if rollback_errors.is_empty() {
+                    return Err(format!("{error} A operação foi revertida."));
+                }
+                return Err(format!(
+                    "{error} Reversão parcial: {}. Verifique esses arquivos.",
+                    rollback_errors.join("; ")
+                ));
+            }
+        }
+    }
+    Ok(done.into_iter().map(|(_, new)| new).collect())
+}
+
+#[tauri::command]
 fn read_noctalia_colors() -> Option<serde_json::Value> {
     let base = std::env::var("XDG_CONFIG_HOME")
         .ok()
@@ -403,6 +485,7 @@ pub fn run() {
             load_collection,
             create_folder,
             move_book,
+            move_books,
             read_noctalia_colors
         ])
         .run(tauri::generate_context!())
@@ -470,6 +553,90 @@ mod tests {
         assert_eq!(destination, "Destino");
         let result = move_book(path, "Origem/Livro.epub".into(), "Destino".into());
         assert!(result.is_err());
+        drop(conn);
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn bulk_move_rejects_collisions_before_touching_files() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("acervo-bulk-fixture-{}-{seed}", std::process::id()));
+        for folder in ["A", "B", "Destino"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        fs::write(root.join("A/Livro.pdf"), b"first").unwrap();
+        fs::write(root.join("B/Livro.pdf"), b"second").unwrap();
+        let result = move_books(
+            root.to_string_lossy().to_string(),
+            vec!["A/Livro.pdf".into(), "B/Livro.pdf".into()],
+            "Destino".into(),
+        );
+        assert!(result.unwrap_err().contains("nomes iguais"));
+        assert_eq!(fs::read(root.join("A/Livro.pdf")).unwrap(), b"first");
+        assert_eq!(fs::read(root.join("B/Livro.pdf")).unwrap(), b"second");
+        assert!(!root.join("Destino/Livro.pdf").exists());
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn bulk_move_updates_all_catalog_references() {
+        use rusqlite::Connection;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "acervo-multi-fixture-{}-{seed}",
+            std::process::id()
+        ));
+        for folder in ["A", "B", "Destino", "99 - Catálogo"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        fs::write(root.join("A/Um.epub"), b"one").unwrap();
+        fs::write(root.join("B/Dois.pdf"), b"two").unwrap();
+        let conn = Connection::open(root.join("99 - Catálogo/Catalogo_Conhecimento.db")).unwrap();
+        conn.execute_batch("CREATE TABLE livros (id INTEGER PRIMARY KEY, arquivos_encontrados TEXT, local_indicado TEXT);").unwrap();
+        conn.execute(
+            "INSERT INTO livros VALUES(1, ?1, 'A')",
+            [r#"["A/Um.epub"]"#],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO livros VALUES(2, ?1, 'B')",
+            [r#"["B/Dois.pdf"]"#],
+        )
+        .unwrap();
+        drop(conn);
+        let paths = move_books(
+            root.to_string_lossy().to_string(),
+            vec!["A/Um.epub".into(), "B/Dois.pdf".into()],
+            "Destino".into(),
+        )
+        .unwrap();
+        assert_eq!(paths, vec!["Destino/Um.epub", "Destino/Dois.pdf"]);
+        assert!(!root.join("A/Um.epub").exists());
+        assert!(!root.join("B/Dois.pdf").exists());
+        assert_eq!(fs::read(root.join("Destino/Um.epub")).unwrap(), b"one");
+        assert_eq!(fs::read(root.join("Destino/Dois.pdf")).unwrap(), b"two");
+        let conn = Connection::open(root.join("99 - Catálogo/Catalogo_Conhecimento.db")).unwrap();
+        for (id, expected) in [(1, "Destino/Um.epub"), (2, "Destino/Dois.pdf")] {
+            let (linked, location): (String, String) = conn
+                .query_row(
+                    "SELECT arquivos_encontrados, local_indicado FROM livros WHERE id=?1",
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(
+                serde_json::from_str::<Vec<String>>(&linked).unwrap(),
+                vec![expected]
+            );
+            assert_eq!(location, "Destino");
+        }
         drop(conn);
         fs::remove_dir_all(&root).unwrap();
     }

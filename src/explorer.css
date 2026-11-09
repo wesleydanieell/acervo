@@ -1,0 +1,45 @@
+/* Efficient file navigation and reversible-operation preview */
+.folder-row[role="treeitem"]{padding-top:2px;padding-bottom:2px;gap:2px;min-height:36px}
+.folder-expander,.folder-expander-spacer{display:grid;place-items:center;flex:none;width:18px;height:28px}
+.folder-expander{padding:0;border:0;border-radius:7px;background:transparent;color:var(--text-muted)}
+.folder-expander:hover{color:var(--accent);background:color-mix(in srgb,var(--accent) 11%,transparent)}
+.folder-select{display:flex;align-items:center;gap:8px;flex:1;min-width:0;height:32px;padding:0 6px;background:transparent;color:inherit;border:0;text-align:left}
+.folder-select svg{flex:none}
+.folder-select span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.folder-row.drop-target .folder-select{color:var(--accent)}
+.selection-toggle{display:flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 12px;border-radius:11px;border:1px solid var(--stroke);background:color-mix(in srgb,var(--glass-strong) 43%,transparent);color:var(--text-muted);font-size:11px;font-weight:700}
+.selection-toggle:hover,.selection-toggle.active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.bulk-toolbar{display:flex;align-items:center;gap:14px;border-radius:15px;padding:12px 16px;margin:0 0 20px}
+.bulk-toolbar>div{display:flex;align-items:center;gap:9px;flex:1;min-width:0}
+.bulk-toolbar>div>svg{color:var(--accent)}
+.bulk-toolbar strong{font-size:12px;white-space:nowrap}
+.bulk-toolbar small{font-size:11px;color:var(--text-muted)}
+.bulk-toolbar .button{flex:none;min-height:36px}
+.book-card{position:relative}
+.book-card.bulk-selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--glass-strong))}
+.book-check{position:absolute;top:8px;right:8px;width:18px;height:18px;border:1.5px solid var(--text-muted);border-radius:6px;display:grid;place-items:center;background:color-mix(in srgb,var(--glass-base) 85%,transparent);color:var(--accent)}
+.book-card.bulk-selected .book-check{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--glass-base))}
+.load-more{display:flex;align-items:center;justify-content:center;gap:12px;margin:23px auto 0;padding:12px 20px;border-radius:13px;border:1px solid var(--stroke);color:var(--text);background:color-mix(in srgb,var(--glass-strong) 50%,transparent);font-size:12px;font-weight:700;transition:background .2s,border-color .2s}
+.load-more:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--glass-strong))}
+.load-more span{font-size:10px;color:var(--text-muted);font-weight:500}
+.move-summary{display:grid;gap:10px;background:color-mix(in srgb,var(--glass-base) 65%,transparent);border:1px solid var(--stroke);border-radius:14px;padding:16px}
+.move-summary strong{font-size:12px}
+.move-summary>span{display:grid;gap:7px;max-height:150px;overflow:auto}
+.move-summary small{font-size:11px;color:var(--text-muted);overflow-wrap:anywhere}
+.move-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+.move-actions .button{min-height:40px}
+@media(max-width:1000px){.collection-controls{flex-wrap:wrap}.bulk-toolbar small{display:none}}
+@media(max-width:580px){.bulk-toolbar{flex-wrap:wrap}.bulk-toolbar>div{flex-basis:100%}.move-actions{flex-direction:column-reverse}.move-actions .button{width:100%}}
+@media(prefers-reduced-motion:reduce){.load-more{transition:none}}
+
+.modal-body select{min-width:0;width:100%;padding:12px;border-radius:11px;border:1px solid var(--stroke);background:color-mix(in srgb,var(--glass-base) 83%,transparent);color:var(--text);font-size:12px}
+
+.folder-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:11px;margin:0 0 29px}
+.folder-tile{display:flex;align-items:center;gap:12px;min-width:0;padding:15px;border-radius:16px;text-align:left;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.folder-tile:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--accent) 44%,transparent);background:color-mix(in srgb,var(--glass-strong) 75%,transparent)}
+.folder-tile>svg:first-child{flex:none;color:var(--accent)}
+.folder-tile>svg:last-child{flex:none;margin-left:auto;color:var(--text-muted)}
+.folder-tile>span{min-width:0}
+.folder-tile strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.folder-tile small{display:block;margin-top:6px;font-size:10px;color:var(--text-muted)}
+@media(prefers-reduced-motion:reduce){.folder-tile{transition:none}}
