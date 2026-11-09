@@ -10,6 +10,11 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 - Dois estilos visuais: Liquid Glass e Material 3.
 - Template Noctalia 5.4+ para sincronizar cores e modo claro/escuro com o wallpaper sem reiniciar.
 - Breadcrumbs, ordenação por título, autor, formato e tamanho, atalho Ctrl+K.
+- Árvore de pastas recolhível, cartões de subpastas e seleção múltipla de arquivos.
+- Criação de pastas com escolha do diretório pai e acesso direto à nova pasta.
+- Carregamento progressivo de livros (80 cartões por vez) para evitar travar com acervos grandes.
+- Prévia de movimentação em lote, detecção de conflitos antes de mover e tentativa de rollback em caso de falha.
+- Testes com bibliotecas descartáveis cobrindo movimentação em lote e sincronização SQLite.
 
 ### Planejado
 - Importação/exportação persistente de JSON e CSV, com visualização antes de aplicar.
