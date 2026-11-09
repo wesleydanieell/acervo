@@ -367,12 +367,15 @@ ${JSON.stringify(sample, null, 2)}`;
             }}
             placeholder="Pesquisar títulos, autores e pastas…" aria-label="Pesquisar no acervo" aria-autocomplete="list" aria-expanded={searchFocused && suggestions.length > 0} aria-controls="search-suggestions" />
             <kbd>Ctrl K</kbd>
-            {searchFocused && suggestions.length > 0 && <div className="search-suggestions glass-panel" id="search-suggestions" role="listbox">
+            {searchFocused && suggestions.length > 0 && <div className="search-suggestions glass-panel" id="search-suggestions" role="listbox" aria-label="Sugestões de pesquisa">
+              <div className="search-suggestions-heading" role="presentation">SUGESTÕES NO ACERVO <span>{suggestions.length}</span></div>
               {suggestions.map((suggestion, index) => <button role="option" aria-selected={activeSuggestion === index}
                 className={activeSuggestion === index ? "is-active" : ""} key={suggestion.type + suggestion.value}
+                onMouseEnter={() => setActiveSuggestion(index)}
                 onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSuggestion(suggestion)}>
-                <span className="suggestion-kind">{suggestion.type}</span><span className="suggestion-label">{suggestion.value}</span><ArrowRight size={14}/>
+                <span className="suggestion-kind">{suggestion.type}</span><span className="suggestion-label" title={suggestion.value}>{suggestion.value}</span><ArrowRight size={14}/>
               </button>)}
+              <div className="search-suggestions-hint" role="presentation">↑ ↓ para navegar <span>Enter para selecionar</span></div>
             </div>}
           </div>
           <div className="topbar-actions">
