@@ -1,0 +1,4 @@
+.book-cover.has-image{background:color-mix(in srgb,var(--glass-strong) 85%,var(--glass-base))}
+.book-cover-image{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;object-position:center top;pointer-events:none;animation:book-cover-reveal .22s ease-out both}
+@keyframes book-cover-reveal{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.book-cover-image{animation:none}}

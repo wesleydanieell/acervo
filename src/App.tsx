@@ -13,6 +13,7 @@ import "./theme.css";
 import "./explorer.css";
 import "./catalog.css";
 import { CatalogCenter } from "./CatalogCenter";
+import { BookCover } from "./BookCover";
 
 type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
@@ -466,7 +467,7 @@ ${JSON.stringify(sample, null, 2)}`;
               onClick={(event) => { if (entry.file && (selectionMode || event.ctrlKey || event.metaKey)) toggleBookSelection(entry.file.path); else setSelection(entry); }} draggable={Boolean(entry.file)}
               onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
               {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
-              <div className={"book-cover " + (entry.present ? "present" : "missing")}><span className="book-cover-decoration" /><Book size={26} strokeWidth={1.35}/><span>{entry.format}</span></div>
+              <BookCover root={collection?.root || ""} file={entry.file} format={entry.format} present={entry.present} title={entry.title} />
               <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || (entry.present ? "Arquivo local" : "Autor não informado")}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? "Disponível" : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
             </Fragment>
           ))}</div>{visibleLimit < filtered.length && <button className="load-more" onClick={() => setVisibleLimit((current) => current + 80)}>Mostrar mais livros <span>{visibleEntries.length} de {filtered.length}</span><ChevronDown size={16}/></button>}</> : <div className="empty-state glass-panel"><Search size={35}/><h3>Nenhum arquivo nesta pasta</h3><p>Escolha outra pasta ou altere os filtros. Obras faltantes aparecem exclusivamente no Catálogo.</p></div>}
