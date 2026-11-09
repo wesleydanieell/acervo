@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive, ArrowRight, ArrowUpDown, Book, Check, ChevronDown, ChevronRight,
   CircleHelp, ClipboardCopy, FilePlus2, Filter, Folder, FolderOpen,
@@ -12,11 +12,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 import "./theme.css";
 import "./explorer.css";
+import "./catalog.css";
 
 type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
 type Collection = { root: string; files: BookFile[]; folders: string[]; works: CatalogWork[]; warnings: string[] };
-type View = "all" | "files" | "missing" | "folders" | "settings";
+type View = "catalog" | "settings";
+type Availability = "all" | "available" | "missing";
+type GroupBy = "none" | "folder" | "format" | "author";
 type Layout = "grid" | "list";
 type Entry = { key: string; type: "file" | "work"; title: string; author: string; format: string; folder: string; present: boolean; file?: BookFile; work?: CatalogWork };
 type PaletteName = "noctalia" | "jade" | "indigo" | "rose" | "amber";
@@ -51,7 +54,14 @@ function App() {
   const [collection, setCollection] = useState<Collection | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [view, setView] = useState<View>("all");
+  const [view, setView] = useState<View>("catalog");
+  const [availability, setAvailability] = useState<Availability>("all");
+  const [groupBy, setGroupBy] = useState<GroupBy>("none");
+  const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(450, Math.max(210, Number(localStorage.getItem("acervo-sidebar-width")) || 254)));
+  const sidebarResize = useRef<{ x: number; width: number } | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [folderQuery, setFolderQuery] = useState("");
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [layout, setLayout] = useState<Layout>("grid");
   const [sortBy, setSortBy] = useState<SortBy>("title");
   const [selectedFolder, setSelectedFolder] = useState("");
@@ -80,6 +90,7 @@ function App() {
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(() => new Set());
   const [pendingMove, setPendingMove] = useState<{ paths: string[]; destination: string } | null>(null);
   const [visibleLimit, setVisibleLimit] = useState(80);
+  useEffect(() => { localStorage.setItem("acervo-sidebar-width", String(sidebarWidth)); }, [sidebarWidth]);
 
   const refresh = async (location = root) => {
     if (!location.trim()) { setModal("root"); return; }
@@ -104,7 +115,7 @@ function App() {
   useEffect(() => {
     const onKeyboard = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault(); setView("all"); setSelectedFolder(""); searchRef.current?.focus();
+        event.preventDefault(); setView("catalog"); setSelectedFolder(""); searchRef.current?.focus();
       }
       if (event.key === "Escape") { setSelection(null); setModal(null); }
     };
@@ -145,8 +156,8 @@ function App() {
 
   const entries = useMemo(() => collection ? getEntries(collection) : [], [collection]);
   const filtered = useMemo(() => entries.filter((entry) => {
-    if (view === "files" && !entry.present) return false;
-    if (view === "missing" && entry.present) return false;
+    if (availability === "available" && !entry.present) return false;
+    if (availability === "missing" && entry.present) return false;
     if (selectedFolder && !(entry.folder === selectedFolder || entry.folder.startsWith(selectedFolder + "/"))) return false;
     if (format !== "Todos" && entry.format !== format) return false;
     if (search && !fold(entry.title + " " + entry.author + " " + entry.folder).includes(fold(search))) return false;
@@ -156,15 +167,39 @@ function App() {
     const left = sortBy === "author" ? a.author : sortBy === "format" ? a.format : a.title;
     const right = sortBy === "author" ? b.author : sortBy === "format" ? b.format : b.title;
     return left.localeCompare(right, "pt-BR") || a.title.localeCompare(b.title, "pt-BR");
-  }), [entries, view, selectedFolder, format, search, sortBy]);
+  }), [entries, availability, selectedFolder, format, search, sortBy]);
   const breadcrumbs = selectedFolder.split("/").filter(Boolean).map((label, index, parts) => ({ label, path: parts.slice(0, index + 1).join("/") }));
-  useEffect(() => setVisibleLimit(80), [view, selectedFolder, format, search, sortBy]);
-  const visibleEntries = filtered.slice(0, visibleLimit);
+  useEffect(() => setVisibleLimit(80), [availability, selectedFolder, format, search, sortBy, groupBy]);
+  const groupLabel = (entry: Entry) => groupBy === "folder" ? entry.folder || "Raiz" : groupBy === "format" ? entry.format : groupBy === "author" ? entry.author || "Sem autor" : "";
+  const displayEntries = useMemo(() => groupBy === "none" ? filtered : [...filtered].sort((a, b) =>
+    groupLabel(a).localeCompare(groupLabel(b), "pt-BR") || a.title.localeCompare(b.title, "pt-BR")
+  ), [filtered, groupBy]);
+  const visibleEntries = displayEntries.slice(0, visibleLimit);
+  const suggestions = useMemo(() => {
+    const needle = fold(search.trim());
+    if (!needle || !searchFocused) return [] as { type: "Livro" | "Autor" | "Pasta"; value: string }[];
+    const result: { type: "Livro" | "Autor" | "Pasta"; value: string }[] = [];
+    const seen = new Set<string>();
+    const add = (type: "Livro" | "Autor" | "Pasta", value: string) => {
+      const key = type + ":" + fold(value);
+      if (value && fold(value).includes(needle) && !seen.has(key)) { seen.add(key); result.push({ type, value }); }
+    };
+    for (const entry of entries) { add("Livro", entry.title); if (result.length >= 4) break; }
+    for (const entry of entries) { add("Autor", entry.author); if (result.length >= 6) break; }
+    for (const folder of collection?.folders || []) { add("Pasta", folder); if (result.length >= 8) break; }
+    return result.slice(0, 8);
+  }, [search, searchFocused, entries, collection]);
+  const chooseSuggestion = (suggestion: { type: "Livro" | "Autor" | "Pasta"; value: string }) => {
+    if (suggestion.type === "Pasta") { setSelectedFolder(suggestion.value); setSearch(""); }
+    else setSearch(suggestion.value);
+    setView("catalog"); setSearchFocused(false); setActiveSuggestion(-1);
+  };
   const folderParents = useMemo(() => new Set(collection?.folders.map((folder) => folder.split("/").slice(0, -1).join("/")) || []), [collection]);
   const visibleFolders = useMemo(() => (collection?.folders || []).filter((folder) => {
+    if (folderQuery.trim()) return fold(folder).includes(fold(folderQuery.trim()));
     const parts = folder.split("/");
     return parts.slice(0, -1).every((_, index) => expandedFolders.has(parts.slice(0, index + 1).join("/")));
-  }), [collection, expandedFolders]);
+  }), [collection, expandedFolders, folderQuery]);
   const subfolders = useMemo(() => (collection?.folders || []).filter((folder) =>
     folder.split("/").slice(0, -1).join("/") === selectedFolder
   ), [collection, selectedFolder]);
@@ -192,7 +227,7 @@ function App() {
     });
   }, [pendingMove, collection]);
   const missing = entries.filter((entry) => !entry.present).length;
-  const currentLabel = selectedFolder ? selectedFolder.split("/").slice(-1)[0] : ({ all: "Minha biblioteca", files: "Livros disponíveis", missing: "Livros faltantes", folders: "Pastas", settings: "Configurações" } as Record<View, string>)[view];
+  const currentLabel = selectedFolder ? selectedFolder.split("/").slice(-1)[0] : "Minha biblioteca";
 
   const createPrompt = () => {
     const folders = collection?.folders.length ? collection.folders.map((folder) => "- " + folder).join("\n") : "- . (raiz)";
@@ -262,7 +297,7 @@ ${JSON.stringify(sample, null, 2)}`;
     if (!collection || !newFolder.trim()) return;
     try {
       const created = await invoke<string>("create_folder", { root: collection.root, parent: folderParent, name: newFolder.trim() });
-      await refresh(collection.root); setSelectedFolder(created); setView("all"); setNewFolder(""); setStatus("Pasta criada: " + created);
+      await refresh(collection.root); setSelectedFolder(created); setView("catalog"); setNewFolder(""); setStatus("Pasta criada: " + created);
       setExpandedFolders((current) => {
         const next = new Set(current);
         const parts = created.split("/");
@@ -275,23 +310,23 @@ ${JSON.stringify(sample, null, 2)}`;
   return (
     <div className="app-shell">
       <div className="background-orb orb-a" /><div className="background-orb orb-b" />
-      <aside className={"sidebar glass-panel" + (sideOpen ? " open" : "")}>
+      <aside className={"sidebar glass-panel" + (sideOpen ? " open" : "")} style={{ width: sidebarWidth }}>
         <div className="brand"><span className="brand-symbol"><Archive size={22} /></span><div><strong>Acervo</strong><small>Organização pessoal</small></div><button className="icon-button mobile-close" onClick={() => setSideOpen(false)} aria-label="Fechar menu"><X size={18} /></button></div>
         <div className="nav-group">
           <span className="nav-caption">ESPAÇO DE TRABALHO</span>
-          {([["all", Grid2X2, "Visão geral"], ["files", Book, "Disponíveis"], ["missing", FilePlus2, "Lista de desejos"]] as const).map(([id, Icon, label]) => (
-            <button key={id} className={"nav-item" + (view === id && !selectedFolder ? " active" : "")} onClick={() => { setView(id); setSelectedFolder(""); setSideOpen(false); }}>
-              <Icon size={18} strokeWidth={1.9} /> {label}{id === "missing" && <span className="nav-count">{missing}</span>}
-            </button>
-          ))}
+          <button className={"nav-item" + (view === "catalog" && !selectedFolder ? " active" : "")}
+            onClick={() => { setView("catalog"); setSelectedFolder(""); setSideOpen(false); }}>
+            <Grid2X2 size={18} strokeWidth={1.9}/> Minha biblioteca <span className="nav-count">{collection?.files.length || 0}</span>
+          </button>
         </div>
         <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta" onClick={() => { setFolderParent(selectedFolder); setModal("folder"); }}><Plus size={18} /></button></div>
-        <div className="folder-scroller">
-          <button className={"folder-row" + (view === "folders" && !selectedFolder ? " active" : "") + (dragTarget === "/" ? " drop-target" : "")} onClick={() => { setView("folders"); setSelectedFolder(""); setSideOpen(false); }}
+        <div className="folder-tree-search"><Search size={14}/><input aria-label="Filtrar pastas" placeholder="Localizar pasta…" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)}/>{folderQuery && <button aria-label="Limpar filtro de pastas" onClick={() => setFolderQuery("")}><X size={13}/></button>}</div>
+        <div className="folder-scroller" role="tree" aria-label="Estrutura da biblioteca">
+          <button className={"folder-row" + (view === "catalog" && !selectedFolder ? " active" : "") + (dragTarget === "/" ? " drop-target" : "")} onClick={() => { setView("catalog"); setSelectedFolder(""); setSideOpen(false); }}
             onDragOver={(event) => { if (event.dataTransfer.types.includes("text/acervo-book")) { event.preventDefault(); setDragTarget("/"); } }}
             onDragLeave={() => setDragTarget("")}
             onDrop={(event) => { event.preventDefault(); queueMove(dropPaths(event.dataTransfer), ""); }}>
-            <FolderTree size={17} /> Todas as pastas
+            <FolderTree size={17} /> Raiz da biblioteca
           </button>
           {visibleFolders.map((folder) => (
             <div key={folder} role="treeitem" aria-expanded={folderParents.has(folder) ? expandedFolders.has(folder) : undefined}
@@ -303,18 +338,46 @@ ${JSON.stringify(sample, null, 2)}`;
               {folderParents.has(folder) ? <button className="folder-expander" aria-label={expandedFolders.has(folder) ? "Recolher pasta" : "Expandir pasta"} onClick={() => setExpandedFolders((prev) => {
                 const next = new Set(prev); if (next.has(folder)) next.delete(folder); else next.add(folder); return next;
               })}>{expandedFolders.has(folder) ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}</button> : <span className="folder-expander-spacer"/>}
-              <button className="folder-select" onClick={() => { setSelectedFolder(folder); setView("all"); setSideOpen(false); if (folderParents.has(folder)) setExpandedFolders((prev) => new Set(prev).add(folder)); }}>
-                <Folder size={16} strokeWidth={1.8}/><span>{folder.split("/").slice(-1)[0]}</span>
+              <button className="folder-select" onClick={() => { setSelectedFolder(folder); setView("catalog"); setSideOpen(false); if (folderParents.has(folder)) setExpandedFolders((prev) => new Set(prev).add(folder)); }}>
+                <Folder size={16} strokeWidth={1.8}/><span>{folder.split("/").slice(-1)[0]}</span><small className="tree-count">{folderFileCounts.get(folder) || 0}</small>
               </button>
             </div>
           ))}
         </div>
         <div className="sidebar-bottom"><button className={"nav-item settings-nav" + (view === "settings" ? " active" : "")} onClick={() => { setView("settings"); setSelectedFolder(""); setSideOpen(false); }}><Settings2 size={18}/> Configurações</button><button className="library-path" onClick={() => void chooseRoot()} title="Escolher a raiz da biblioteca pelo explorador"><HardDrive size={18} /><span><strong>Biblioteca local</strong><small title={collection?.root || "Nenhuma pasta"}>{collection?.root || "Selecionar pasta"}</small></span><FolderOpen size={18} /></button><div className="sidebar-status"><span className="status-dot" /> Biblioteca offline · seus arquivos locais</div></div>
       </aside>
+      <div className="sidebar-resizer" role="separator" aria-label="Redimensionar barra lateral" aria-orientation="vertical" tabIndex={0}
+        aria-valuemin={210} aria-valuemax={450} aria-valuenow={sidebarWidth} title="Arraste para redimensionar · duplo clique para restaurar"
+        onPointerDown={(event) => { if (event.button !== 0) return; sidebarResize.current = { x: event.clientX, width: sidebarWidth }; event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerMove={(event) => { if (!sidebarResize.current) return; setSidebarWidth(Math.min(450, Math.max(210, sidebarResize.current.width + event.clientX - sidebarResize.current.x))); }}
+        onPointerUp={(event) => { sidebarResize.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+        onPointerCancel={() => { sidebarResize.current = null; }}
+        onDoubleClick={() => setSidebarWidth(254)}
+        onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSidebarWidth((width) => Math.min(450, Math.max(210, width + (event.key === "ArrowRight" ? 16 : -16)))); } }}
+      />
       <div className="workspace">
         <header className="topbar glass-panel">
           <button className="icon-button mobile-menu" onClick={() => setSideOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
-          <div className="topbar-search"><Search size={18} /><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar títulos, autores e pastas…" aria-label="Pesquisar no acervo" /><kbd>Ctrl K</kbd></div>
+          <div className="topbar-search"><Search size={18} /><input ref={searchRef} value={search} onChange={(event) => { setSearch(event.target.value); setActiveSuggestion(-1); }} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" && suggestions.length) { event.preventDefault(); setActiveSuggestion((i) => (i + 1) % suggestions.length); }
+              if (event.key === "ArrowUp" && suggestions.length) { event.preventDefault(); setActiveSuggestion((i) => i <= 0 ? suggestions.length - 1 : i - 1); }
+              if (event.key === "Enter" && activeSuggestion >= 0 && suggestions[activeSuggestion]) { event.preventDefault(); chooseSuggestion(suggestions[activeSuggestion]); }
+              if (event.key === "Escape") setSearchFocused(false);
+            }}
+            placeholder="Pesquisar títulos, autores e pastas…" aria-label="Pesquisar no acervo" aria-autocomplete="list" aria-expanded={searchFocused && suggestions.length > 0} aria-controls="search-suggestions" />
+            <kbd>Ctrl K</kbd>
+            {searchFocused && suggestions.length > 0 && <div className="search-suggestions glass-panel" id="search-suggestions" role="listbox" aria-label="Sugestões de pesquisa">
+              <div className="search-suggestions-heading" role="presentation">SUGESTÕES NO ACERVO <span>{suggestions.length}</span></div>
+              {suggestions.map((suggestion, index) => <button role="option" aria-selected={activeSuggestion === index}
+                className={activeSuggestion === index ? "is-active" : ""} key={suggestion.type + suggestion.value}
+                onMouseEnter={() => setActiveSuggestion(index)}
+                onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSuggestion(suggestion)}>
+                <span className="suggestion-kind">{suggestion.type}</span><span className="suggestion-label" title={suggestion.value}>{suggestion.value}</span><ArrowRight size={14}/>
+              </button>)}
+              <div className="search-suggestions-hint" role="presentation">↑ ↓ para navegar <span>Enter para selecionar</span></div>
+            </div>}
+          </div>
           <div className="topbar-actions">
             <button className="icon-button" title="Configurações" aria-label="Configurações" onClick={() => { setView("settings"); setSelectedFolder(""); }}><Settings2 size={19}/></button>
             <button className="icon-button" title="Atualizar catálogo" onClick={() => void refresh()}><RefreshCw className={loading ? "spinning" : ""} size={19} /></button>
@@ -354,16 +417,19 @@ ${JSON.stringify(sample, null, 2)}`;
           <div className="quick-actions"><button onClick={() => setModal("prompt")}><Sparkles size={18}/> Gerar lista com IA <ArrowRight size={16}/></button><button onClick={() => { setFolderParent(selectedFolder); setModal("folder"); }}><FolderPlus size={18}/> Nova pasta <ArrowRight size={16}/></button><button onClick={() => setModal("import")}><Upload size={18}/> Importar JSON <ArrowRight size={16}/></button></div>
           {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
           {collection?.warnings.length ? <div className="warning">{collection.warnings.slice(0, 2).join(" · ")}</div> : null}
-          {selectedFolder && <nav className="breadcrumbs" aria-label="Caminho da pasta"><button onClick={() => { setSelectedFolder(""); setView("folders"); }}><Home size={15}/> Raiz</button>{breadcrumbs.map((crumb) => <span key={crumb.path}><ChevronRight size={14}/><button onClick={() => setSelectedFolder(crumb.path)}>{crumb.label}</button></span>)}</nav>}
-          {(view === "folders" || Boolean(selectedFolder)) && subfolders.length > 0 && <section className="folder-grid" aria-label="Subpastas">{subfolders.map((folder) => (
-            <button className="folder-tile glass-panel" key={folder} onClick={() => { setSelectedFolder(folder); setView("all"); setExpandedFolders((current) => new Set(current).add(folder)); }}>
+          {selectedFolder && <nav className="breadcrumbs" aria-label="Caminho da pasta"><button onClick={() => { setSelectedFolder(""); setView("catalog"); }}><Home size={15}/> Raiz</button>{breadcrumbs.map((crumb) => <span key={crumb.path}><ChevronRight size={14}/><button onClick={() => setSelectedFolder(crumb.path)}>{crumb.label}</button></span>)}</nav>}
+          {subfolders.length > 0 && <section className="folder-grid" aria-label="Subpastas">{subfolders.map((folder) => (
+            <button className="folder-tile glass-panel" key={folder} onClick={() => { setSelectedFolder(folder); setView("catalog"); setExpandedFolders((current) => new Set(current).add(folder)); }}>
               <Folder size={23}/><span><strong>{folder.split("/").slice(-1)[0]}</strong><small>{folderFileCounts.get(folder) || 0} livros dentro</small></span><ChevronRight size={17}/>
             </button>
           ))}</section>}
-          <div className="content-top"><div><h2>Acervo <span>{filtered.length}</span></h2><p>Arraste um arquivo para uma pasta na lateral. Suas obras faltantes permanecem na lista.</p></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="pill-control sort-control"><ArrowUpDown size={16}/><select aria-label="Ordenar livros" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}><option value="title">Título</option><option value="author">Autor</option><option value="format">Formato</option><option value="size">Tamanho</option></select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
+          <div className="content-top"><div><h2>Acervo <span>{filtered.length}</span></h2><p>Arraste um arquivo para uma pasta na lateral. Suas obras faltantes permanecem na lista.</p></div><div className="collection-controls"><div className="pill-control availability-control"><Filter size={16}/><select aria-label="Mostrar livros" value={availability} onChange={(event) => setAvailability(event.target.value as Availability)}><option value="all">Todos os livros</option><option value="available">Disponíveis</option><option value="missing">Lista de desejos</option></select><ChevronDown size={14}/></div><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="pill-control sort-control"><ArrowUpDown size={16}/><select aria-label="Ordenar livros" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}><option value="title">Título</option><option value="author">Autor</option><option value="format">Formato</option><option value="size">Tamanho</option></select><ChevronDown size={14}/></div><div className="pill-control group-control"><Layers3 size={15}/><select aria-label="Agrupar livros" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="none">Sem grupos</option><option value="folder">Por pasta</option><option value="format">Por formato</option><option value="author">Por autor</option></select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
           {bulkSelected.size > 0 && <div className="bulk-toolbar glass-panel"><div><Check size={17}/><strong>{bulkSelected.size} selecionado(s)</strong><small>Arraste para uma pasta ou escolha um destino.</small></div><button className="button primary" onClick={() => queueMove([...bulkSelected], selectedFolder || "")}><FolderOpen size={17}/> Mover para…</button><button className="icon-button" onClick={() => setBulkSelected(new Set())} title="Limpar seleção" aria-label="Limpar seleção"><X size={17}/></button></div>}
           {!collection ? <div className="empty-state glass-panel"><Archive size={42}/><h3>Seu acervo, no seu controle.</h3><p>Selecione uma pasta para visualizar os livros e o catálogo existente. Nada será alterado ao abrir.</p><button className="button primary" onClick={() => void chooseRoot()}>Escolher pelo explorador <FolderOpen size={16}/></button></div>
-          : filtered.length ? <><div className={"books-" + layout}>{visibleEntries.map((entry) => (
+          : filtered.length ? <><div className={"books-" + layout}>{visibleEntries.map((entry, index) => (
+            <Fragment key={entry.key}>
+              {groupBy !== "none" && (index === 0 || groupLabel(entry) !== groupLabel(visibleEntries[index - 1])) &&
+                <div className="book-group-heading"><span>{groupLabel(entry)}</span><span className="book-group-rule"/></div>}
             <button className={"book-card glass-panel" + (selection?.key === entry.key ? " selected" : "") + (bulkSelected.has(entry.file?.path || "") ? " bulk-selected" : "")} key={entry.key}
               aria-pressed={selectionMode && entry.file ? bulkSelected.has(entry.file.path) : undefined}
               onClick={(event) => { if (entry.file && (selectionMode || event.ctrlKey || event.metaKey)) toggleBookSelection(entry.file.path); else setSelection(entry); }} draggable={Boolean(entry.file)}
@@ -371,6 +437,7 @@ ${JSON.stringify(sample, null, 2)}`;
               {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
               <div className={"book-cover " + (entry.present ? "present" : "missing")}><span className="book-cover-decoration" /><Book size={26} strokeWidth={1.35}/><span>{entry.format}</span></div>
               <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || (entry.present ? "Arquivo local" : "Autor não informado")}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? "Disponível" : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
+            </Fragment>
           ))}</div>{visibleLimit < filtered.length && <button className="load-more" onClick={() => setVisibleLimit((current) => current + 80)}>Mostrar mais livros <span>{visibleEntries.length} de {filtered.length}</span><ChevronDown size={16}/></button>}</> : <div className="empty-state glass-panel"><Search size={35}/><h3>Nada por aqui</h3><p>Altere os filtros ou importe uma lista de livros.</p></div>}
           {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
           </>}
