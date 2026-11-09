@@ -1,0 +1,228 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  Archive, ArrowRight, Book, Check, ChevronDown, ChevronRight,
+  CircleHelp, ClipboardCopy, FilePlus2, Filter, Folder,
+  FolderPlus, FolderTree, Grid2X2, HardDrive, List, LoaderCircle, Menu,
+  MoreHorizontal, Palette, Plus, RefreshCw, Search, Sparkles,
+  Upload, X,
+} from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import "./App.css";
+
+type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
+type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
+type Collection = { root: string; files: BookFile[]; folders: string[]; works: CatalogWork[]; warnings: string[] };
+type View = "all" | "files" | "missing" | "folders";
+type Layout = "grid" | "list";
+type Entry = { key: string; type: "file" | "work"; title: string; author: string; format: string; folder: string; present: boolean; file?: BookFile; work?: CatalogWork };
+type PaletteName = "noctalia" | "jade" | "indigo" | "rose" | "amber";
+type ThemeTokens = Record<"primary" | "on_primary" | "surface" | "on_surface" | "surface_container" | "outline_variant", string>;
+
+const accentPresets: Record<Exclude<PaletteName, "noctalia">, string> = {
+  jade: "#8ddbb8", indigo: "#a6b7ff", rose: "#f8a9c7", amber: "#f2c27c",
+};
+const formatOptions = ["Todos", "EPUB", "PDF", "MOBI", "AZW3", "DJVU"];
+const languageOptions = [{ label: "Todos os idiomas", value: "" }, { label: "Português", value: "pt" }, { label: "Inglês", value: "en" }, { label: "Espanhol", value: "es" }];
+const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const readableBytes = (bytes: number) => bytes > 1024 * 1024 ? (bytes / 1024 ** 2).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
+
+function getEntries(collection: Collection): Entry[] {
+  const byPath = new Map(collection.files.map((file) => [file.path, file]));
+  const assigned = new Set(collection.works.flatMap((work) => work.associatedFiles));
+  return [
+    ...collection.works.map((work): Entry => {
+      const linked = work.associatedFiles.map((path) => byPath.get(path)).find(Boolean);
+      return { key: "work:" + work.id, type: "work", title: work.title, author: work.author, format: linked?.format || "PENDENTE", folder: work.destination || ".", present: Boolean(linked), file: linked, work };
+    }),
+    ...collection.files.filter((file) => !assigned.has(file.path)).map((file): Entry => ({
+      key: file.id + ":" + file.path, type: "file", title: file.title, author: "", format: file.format, folder: file.folder, present: true, file,
+    })),
+  ].sort((a, b) => a.title.localeCompare(b.title, "pt-BR"));
+}
+
+function App() {
+  const [root, setRoot] = useState(() => localStorage.getItem("acervo-root") || "");
+  const [collection, setCollection] = useState<Collection | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [view, setView] = useState<View>("all");
+  const [layout, setLayout] = useState<Layout>("grid");
+  const [selectedFolder, setSelectedFolder] = useState("");
+  const [search, setSearch] = useState("");
+  const [format, setFormat] = useState("Todos");
+  const [selection, setSelection] = useState<Entry | null>(null);
+  const [modal, setModal] = useState<"root" | "prompt" | "import" | "folder" | null>(null);
+  const [sideOpen, setSideOpen] = useState(false);
+  const [palette, setPalette] = useState<PaletteName>(() => (localStorage.getItem("acervo-palette") as PaletteName) || "noctalia");
+  const [theme, setTheme] = useState<ThemeTokens | null>(null);
+  const [importText, setImportText] = useState("");
+  const [importNotice, setImportNotice] = useState("");
+  const [promptCount, setPromptCount] = useState(10);
+  const [promptTopics, setPromptTopics] = useState("Filosofia, literatura clássica e brasileira");
+  const [promptLanguage, setPromptLanguage] = useState("Português");
+  const [sourceFormat, setSourceFormat] = useState("");
+  const [sourceLanguage, setSourceLanguage] = useState("pt");
+  const [newFolder, setNewFolder] = useState("");
+  const [status, setStatus] = useState("");
+  const [dragTarget, setDragTarget] = useState("");
+
+  const refresh = async (location = root) => {
+    if (!location.trim()) { setModal("root"); return; }
+    setLoading(true); setError("");
+    try {
+      const data = await invoke<Collection>("load_collection", { root: location.trim() });
+      setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
+      setStatus(data.files.length + " arquivos encontrados; nenhuma alteração feita nos livros.");
+      setModal(null);
+    } catch (failure) { setError(String(failure)); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { if (root) void refresh(root); }, []); // Load the last library once.
+  useEffect(() => {
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const tokens = await invoke<ThemeTokens | null>("read_noctalia_colors");
+        if (!cancelled) setTheme(tokens);
+      } catch { if (!cancelled) setTheme(null); }
+    };
+    void read(); const timer = window.setInterval(read, 4000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("acervo-palette", palette);
+    const element = document.documentElement;
+    const main = palette === "noctalia" && theme ? theme.primary : accentPresets[palette === "noctalia" ? "jade" : palette];
+    element.style.setProperty("--accent", main);
+    element.style.setProperty("--accent-ink", palette === "noctalia" && theme ? theme.on_primary : "#142b2c");
+    if (palette === "noctalia" && theme) {
+      element.style.setProperty("--glass-base", theme.surface);
+      element.style.setProperty("--text", theme.on_surface);
+      element.style.setProperty("--glass-strong", theme.surface_container);
+      element.style.setProperty("--outline", theme.outline_variant);
+    } else {
+      for (const key of ["--glass-base", "--text", "--glass-strong", "--outline"]) element.style.removeProperty(key);
+    }
+  }, [palette, theme]);
+
+  const entries = useMemo(() => collection ? getEntries(collection) : [], [collection]);
+  const filtered = useMemo(() => entries.filter((entry) => {
+    if (view === "files" && !entry.present) return false;
+    if (view === "missing" && entry.present) return false;
+    if (selectedFolder && !(entry.folder === selectedFolder || entry.folder.startsWith(selectedFolder + "/"))) return false;
+    if (format !== "Todos" && entry.format !== format) return false;
+    if (search && !fold(entry.title + " " + entry.author + " " + entry.folder).includes(fold(search))) return false;
+    return true;
+  }), [entries, view, selectedFolder, format, search]);
+  const missing = entries.filter((entry) => !entry.present).length;
+  const currentLabel = selectedFolder ? selectedFolder.split("/").slice(-1)[0] : ({ all: "Minha biblioteca", files: "Livros disponíveis", missing: "Livros faltantes", folders: "Pastas" } as Record<View, string>)[view];
+
+  const createPrompt = () => {
+    const folders = collection?.folders.length ? collection.folders.map((folder) => "- " + folder).join("\n") : "- . (raiz)";
+    const sample = { versao: 1, obras: [{ titulo: "O Banquete", autor: "Platão", editoras_indicadas: ["Editora de exemplo"], local_indicado: "Literatura/Filosofia", enfoques: "Filosofia", categorias: "Clássicos", prioridade_alta: 0 }] };
+    return `Gere uma lista de ${promptCount} livros reais em JSON para importar no meu gerenciador de acervo.
+
+ASSUNTOS: ${promptTopics}
+IDIOMA PREFERIDO: ${promptLanguage}
+CRITÉRIOS: sugira obras e editoras verificáveis, não invente edições; evite títulos repetidos.
+PASTAS EXISTENTES (use uma destas em local_indicado):
+${folders}
+Já possuo ${collection?.files.length || 0} arquivos indexados e ${collection?.works.length || 0} obras cadastradas.
+
+RESPONDA APENAS JSON VÁLIDO. Cada obra tem titulo (obrigatório), autor, editoras_indicadas (lista de strings), local_indicado (caminho RELATIVO, sem ../), enfoques, categorias e prioridade_alta (0/1). Não inclua URLs ou arquivos_encontrados se não forem conhecidos. Exemplo:
+${JSON.stringify(sample, null, 2)}`;
+  };
+
+  const copy = async (text: string, message: string) => {
+    try { await navigator.clipboard.writeText(text); setStatus(message); }
+    catch { setStatus("Não foi possível copiar; selecione e copie manualmente."); }
+  };
+  const searchAnna = (entry: Entry) => {
+    const url = new URL("https://annas-archive.pk/search");
+    url.searchParams.set("q", [entry.title, entry.author].filter(Boolean).join(" "));
+    if (sourceFormat) url.searchParams.set("ext", sourceFormat.toLowerCase());
+    if (sourceLanguage) url.searchParams.set("lang", sourceLanguage);
+    void openUrl(url.toString()).catch((failure) => setError(String(failure)));
+  };
+  const planFileMove = async (path: string, destination: string) => {
+    if (!collection || !window.confirm(`Mover ${path.split("/").slice(-1)[0]} para ${destination || "a raiz"}?\nO original será movido; nenhum arquivo existente será substituído.`)) return;
+    try {
+      await invoke("move_book", { root: collection.root, relativePath: path, destination });
+      await refresh(collection.root); setDragTarget(""); setStatus("Livro movido com sucesso.");
+    } catch (failure) { setError(String(failure)); setDragTarget(""); }
+  };
+  const addFolder = async () => {
+    if (!collection || !newFolder.trim()) return;
+    try { await invoke("create_folder", { root: collection.root, parent: selectedFolder, name: newFolder.trim() }); await refresh(collection.root); setNewFolder(""); setStatus("Pasta criada."); }
+    catch (failure) { setError(String(failure)); }
+  };
+
+  return (
+    <div className="app-shell">
+      <div className="background-orb orb-a" /><div className="background-orb orb-b" />
+      <aside className={"sidebar glass-panel" + (sideOpen ? " open" : "")}>
+        <div className="brand"><span className="brand-symbol"><Archive size={22} /></span><div><strong>Acervo</strong><small>Organização pessoal</small></div><button className="icon-button mobile-close" onClick={() => setSideOpen(false)} aria-label="Fechar menu"><X size={18} /></button></div>
+        <div className="nav-group">
+          <span className="nav-caption">ESPAÇO DE TRABALHO</span>
+          {([["all", Grid2X2, "Visão geral"], ["files", Book, "Disponíveis"], ["missing", FilePlus2, "Lista de desejos"]] as const).map(([id, Icon, label]) => (
+            <button key={id} className={"nav-item" + (view === id && !selectedFolder ? " active" : "")} onClick={() => { setView(id); setSelectedFolder(""); setSideOpen(false); }}>
+              <Icon size={18} strokeWidth={1.9} /> {label}{id === "missing" && <span className="nav-count">{missing}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta" onClick={() => setModal("folder")}><Plus size={18} /></button></div>
+        <div className="folder-scroller">
+          <button className={"folder-row" + (view === "folders" && !selectedFolder ? " active" : "")} onClick={() => { setView("folders"); setSelectedFolder(""); setSideOpen(false); }}><FolderTree size={17} /> Todas as pastas</button>
+          {collection?.folders.map((folder) => (
+            <button key={folder} className={"folder-row" + (selectedFolder === folder ? " active" : "") + (dragTarget === folder ? " drop-target" : "")} style={{ paddingLeft: 14 + Math.min(4, folder.split("/").length - 1) * 14 }} title={folder}
+              onClick={() => { setSelectedFolder(folder); setView("all"); setSideOpen(false); }}
+              onDragOver={(event) => { if (event.dataTransfer.types.includes("text/acervo-book")) { event.preventDefault(); setDragTarget(folder); } }}
+              onDragLeave={() => setDragTarget("")}
+              onDrop={(event) => { event.preventDefault(); const path = event.dataTransfer.getData("text/acervo-book"); if (path) void planFileMove(path, folder); }}>
+              <Folder size={16} strokeWidth={1.8} /><span>{folder.split("/").slice(-1)[0]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="sidebar-bottom"><button className="library-path" onClick={() => setModal("root")}><HardDrive size={18} /><span><strong>Biblioteca local</strong><small title={collection?.root || "Nenhuma pasta"}>{collection?.root || "Selecionar pasta"}</small></span><MoreHorizontal size={18} /></button><div className="sidebar-status"><span className="status-dot" /> Biblioteca offline · seus arquivos locais</div></div>
+      </aside>
+      <div className="workspace">
+        <header className="topbar glass-panel">
+          <button className="icon-button mobile-menu" onClick={() => setSideOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
+          <div className="topbar-search"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar títulos, autores e pastas…" aria-label="Pesquisar no acervo" /><kbd>⌘ K</kbd></div>
+          <div className="topbar-actions"><div className="theme-dropdown"><Palette size={17}/><select aria-label="Cor da interface" value={palette} onChange={(event) => setPalette(event.target.value as PaletteName)}><option value="noctalia">Noctalia</option><option value="jade">Jade</option><option value="indigo">Índigo</option><option value="rose">Rosé</option><option value="amber">Âmbar</option></select><ChevronDown size={14}/></div><button className="icon-button" title="Atualizar catálogo" onClick={() => void refresh()}><RefreshCw className={loading ? "spinning" : ""} size={19} /></button></div>
+        </header>
+        <main className="main-area">
+          <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> GESTOR DE BIBLIOTECA</div><h1>{currentLabel}</h1><p>Seus livros e sua lista de obras, organizados em um só lugar.</p></div><button className="button primary add-button" onClick={() => setModal("import")}><Plus size={18}/> Importar lista</button></div>
+          <section className="stats-grid" aria-label="Resumo da biblioteca">
+            <div className="stat-card glass-panel"><div className="stat-icon"><Book size={19}/></div><span>Arquivos disponíveis</span><strong>{collection?.files.length ?? "—"}</strong><small>PDF, EPUB e outros</small></div>
+            <div className="stat-card glass-panel"><div className="stat-icon pink"><FilePlus2 size={19}/></div><span>Na lista de desejos</span><strong>{missing}</strong><small>Com pasta de destino planejada</small></div>
+            <div className="stat-card glass-panel"><div className="stat-icon blue"><Folder size={19}/></div><span>Pastas organizadas</span><strong>{collection?.folders.length ?? "—"}</strong><small>Hierarquia da biblioteca</small></div>
+          </section>
+          <div className="quick-actions"><button onClick={() => setModal("prompt")}><Sparkles size={18}/> Gerar lista com IA <ArrowRight size={16}/></button><button onClick={() => setModal("folder")}><FolderPlus size={18}/> Nova pasta <ArrowRight size={16}/></button><button onClick={() => setModal("import")}><Upload size={18}/> Importar JSON <ArrowRight size={16}/></button></div>
+          {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
+          {collection?.warnings.length ? <div className="warning">{collection.warnings.slice(0, 2).join(" · ")}</div> : null}
+          <div className="content-top"><div><h2>Acervo <span>{filtered.length}</span></h2><p>Arraste um arquivo para uma pasta na lateral. Suas obras faltantes permanecem na lista.</p></div><div className="collection-controls"><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
+          {!collection ? <div className="empty-state glass-panel"><Archive size={42}/><h3>Seu acervo, no seu controle.</h3><p>Selecione uma pasta para visualizar os livros e o catálogo existente. Nada será alterado ao abrir.</p><button className="button primary" onClick={() => setModal("root")}>Escolher biblioteca <ArrowRight size={16}/></button></div>
+          : filtered.length ? <div className={"books-" + layout}>{filtered.map((entry) => (
+            <button className={"book-card glass-panel" + (selection?.key === entry.key ? " selected" : "")} key={entry.key} onClick={() => setSelection(entry)} draggable={Boolean(entry.file)}
+              onDragStart={(event) => { if (!entry.file) return; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.effectAllowed = "move"; }}>
+              <div className={"book-cover " + (entry.present ? "present" : "missing")}><span className="book-cover-decoration" /><Book size={26} strokeWidth={1.35}/><span>{entry.format}</span></div>
+              <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || (entry.present ? "Arquivo local" : "Autor não informado")}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? "Disponível" : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
+          ))}</div> : <div className="empty-state glass-panel"><Search size={35}/><h3>Nada por aqui</h3><p>Altere os filtros ou importe uma lista de livros.</p></div>}
+          {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
+        </main>
+      </div>
+      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className={"drawer-cover " + (selection.present ? "present" : "missing")}><Book size={45}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>A pesquisa abre no navegador. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchAnna(selection)}><Search size={17}/> Pesquisar no Anna's Archive</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
+      {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className="modal glass-panel" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
+        {modal === "root" && <div className="modal-body"><p>Informe o caminho da pasta raiz. O acervo anterior será lido sem modificar os arquivos.</p><label>Caminho da biblioteca<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button primary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>{loading ? <LoaderCircle className="spinning" size={18}/> : <HardDrive size={18}/>} Carregar biblioteca</button></div>}
+        {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label><label>Prévia do prompt<textarea readOnly value={createPrompt()} rows={11} /></label><button className="button primary full" onClick={() => void copy(createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
+        {modal === "import" && <div className="modal-body"><p>Cole uma lista JSON no formato <code>{'{ "versao": 1, "obras": [...] }'}</code>. Nesta primeira versão a importação é validada antes de salvar.</p><label>Conteúdo JSON<textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportNotice(""); }} rows={11} placeholder='{"versao":1,"obras":[{"titulo":"O Banquete","local_indicado":"Literatura/Filosofia"}]}' /></label>{importNotice && <div className="import-notice">{importNotice}</div>}<button className="button primary full" onClick={() => { try { const json = JSON.parse(importText); const works = Array.isArray(json) ? json : json.obras; if (!Array.isArray(works)) throw Error("Falta a lista obras."); if (works.some((item) => !item || typeof item.titulo !== "string" || !item.titulo.trim())) throw Error("Todas as obras precisam de um título."); setImportNotice(works.length + " obras válidas. Próxima etapa: gravação transacional no catálogo."); } catch (failure) { setImportNotice("Erro: " + String(failure)); } }}><Check size={17}/> Validar lista</button></div>}
+        {modal === "folder" && <div className="modal-body"><p>Crie uma pasta dentro de <strong>{selectedFolder || "Raiz da biblioteca"}</strong>.</p><label>Nome da pasta<input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="Ex.: Filosofia" /></label><button className="button primary full" disabled={!collection || !newFolder.trim()} onClick={() => void addFolder()}><FolderPlus size={17}/> Criar pasta</button></div>}
+      </section></div>}
+    </div>
+  );
+}
+
+export default App;
