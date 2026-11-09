@@ -1,4 +1,5 @@
 mod catalog_lists;
+mod covers;
 
 use serde::Serialize;
 use std::collections::{BTreeSet, HashSet};
@@ -487,6 +488,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_collection,
             catalog_lists::import_catalog_json,
+            covers::get_book_cover,
             create_folder,
             move_book,
             move_books,
