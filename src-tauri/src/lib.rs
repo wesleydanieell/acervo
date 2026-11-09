@@ -1,3 +1,5 @@
+mod catalog_lists;
+
 use serde::Serialize;
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
@@ -199,7 +201,8 @@ fn load_collection(root: String) -> Result<Collection, String> {
     let mut warnings = Vec::new();
     scan_dir(&path, &path, &mut files, &mut folders, &mut warnings, 0);
     files.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-    let works = read_catalog(&path, &files, &mut warnings);
+    let mut works = read_catalog(&path, &files, &mut warnings);
+    works.extend(catalog_lists::load(&path, &files, &mut warnings));
     Ok(Collection {
         root: path.to_string_lossy().to_string(),
         files,
@@ -483,6 +486,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             load_collection,
+            catalog_lists::import_catalog_json,
             create_folder,
             move_book,
             move_books,

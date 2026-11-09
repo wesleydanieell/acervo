@@ -300,6 +300,22 @@ ${JSON.stringify(sample, null, 2)}`;
     const single = data.getData("text/acervo-book");
     return single ? [single] : [];
   };
+  const importBooks = async (jsonText = importText) => {
+    if (!collection) { setImportNotice("Selecione primeiro uma biblioteca."); return; }
+    setLoading(true); setImportNotice("");
+    try {
+      const report = await invoke<{ imported: number; skipped: number; total: number }>("import_catalog_json", {
+        root: collection.root, jsonText,
+      });
+      await refresh(collection.root);
+      setStatus(report.imported + " obra(s) adicionada(s) ao catálogo; " + report.skipped + " já cadastrada(s).");
+      setImportNotice("");
+      setImportText("");
+      setModal(null);
+    } catch (failure) { const message = "Falha na importação: " + String(failure); setImportNotice(message); setError(message); }
+    finally { setLoading(false); }
+  };
+
   const addFolder = async () => {
     if (!collection || !newFolder.trim()) return;
     try {
@@ -419,13 +435,15 @@ ${JSON.stringify(sample, null, 2)}`;
             </div>
             <div className="settings-version">Acervo 0.1.0-alpha.1 · dados locais · <span>atualizações experimentais</span></div>
           </section> : view === "lists" ? <>
-            <CatalogCenter works={collection?.works || []} query={search}
+            {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
+            {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
+            <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}
               onImport={() => setModal("import")}
               onPrompt={() => setModal("prompt")}
               onExport={(json) => void copy(json, "Lista JSON copiada. Você pode salvar ou compartilhar o conteúdo.")}
-              onSelect={(work) => { const entry = entries.find((candidate) => candidate.work?.id === work.id); if (entry) setSelection(entry); }} />
-            {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
-            {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
+              onCatalogUnindexed={(json) => void importBooks(json)}
+              onSelect={(work) => { const entry = entries.find((candidate) => candidate.work?.id === work.id); if (entry) setSelection(entry); }}
+              onSelectFile={(file) => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }} />
           </> : <>
           <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> EXPLORADOR DE BIBLIOTECA</div><h1>{currentLabel}</h1><p>Pastas e livros existentes no disco. Para listas e faltantes, abra o Catálogo.</p></div><button className="button primary add-button" onClick={() => { setFolderParent(selectedFolder); setModal("folder"); }}><FolderPlus size={18}/> Nova pasta</button></div>
           {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
@@ -460,7 +478,7 @@ ${JSON.stringify(sample, null, 2)}`;
       {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className="modal glass-panel" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : modal === "move" ? "Mover livros" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}
         {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label><label>Prévia do prompt<textarea readOnly value={createPrompt()} rows={11} /></label><button className="button primary full" onClick={() => void copy(createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
-        {modal === "import" && <div className="modal-body"><p>Cole uma lista JSON no formato <code>{'{ "versao": 1, "obras": [...] }'}</code>. Nesta primeira versão a importação é validada antes de salvar.</p><label>Conteúdo JSON<textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportNotice(""); }} rows={11} placeholder='{"versao":1,"obras":[{"titulo":"O Banquete","local_indicado":"Literatura/Filosofia"}]}' /></label>{importNotice && <div className="import-notice">{importNotice}</div>}<button className="button primary full" onClick={() => { try { const json = JSON.parse(importText); const works = Array.isArray(json) ? json : json.obras; if (!Array.isArray(works)) throw Error("Falta a lista obras."); if (works.some((item) => !item || typeof item.titulo !== "string" || !item.titulo.trim())) throw Error("Todas as obras precisam de um título."); setImportNotice(works.length + " obras válidas. Próxima etapa: gravação transacional no catálogo."); } catch (failure) { setImportNotice("Erro: " + String(failure)); } }}><Check size={17}/> Validar lista</button></div>}
+        {modal === "import" && <div className="modal-body"><p>Cole uma lista JSON no formato <code>{'{ "versao": 1, "obras": [...] }'}</code>. As obras serão salvas em <code>99 - Catálogo/Acervo_Listas.json</code>; o banco antigo não será alterado.</p><label>Conteúdo JSON<textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportNotice(""); }} rows={11} placeholder='{"versao":1,"obras":[{"titulo":"O Banquete","local_indicado":"Literatura/Filosofia"}]}' /></label>{importNotice && <div className="import-notice">{importNotice}</div>}<button className="button primary full" disabled={loading || !collection || !importText.trim()} onClick={() => void importBooks()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <Check size={17}/>} Importar obras</button></div>}
         {modal === "folder" && <div className="modal-body"><p>Crie pastas dentro de qualquer nível da biblioteca. O caminho de destino será preservado.</p><label>Dentro de<select value={folderParent} onChange={(event) => setFolderParent(event.target.value)}><option value="">Raiz da biblioteca</option>{collection?.folders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}</select></label><label>Nome da pasta<input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="Ex.: Filosofia" /></label><button className="button primary full" disabled={!collection || !newFolder.trim()} onClick={() => void addFolder()}><FolderPlus size={17}/> Criar pasta</button></div>}
         {modal === "move" && pendingMove && <div className="modal-body">
           <p>Revise a movimentação. Arquivos com o mesmo nome no destino não serão sobrescritos, e as referências no catálogo serão atualizadas.</p>
