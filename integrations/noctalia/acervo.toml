@@ -1,0 +1,4 @@
+# Template opcional para acompanhar o wallpaper do Noctalia 5.4+.
+[theme.templates.user.acervo]
+input_path = "$XDG_CONFIG_HOME/noctalia/templates/acervo.json"
+output_path = "$XDG_CONFIG_HOME/acervo/noctalia-colors.json"
