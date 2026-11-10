@@ -531,6 +531,7 @@ pub fn run() {
             source_search::search_sources,
             downloads::list_downloads,
             downloads::queue_download,
+            downloads::pause_download,
             downloads::cancel_download,
             downloads::retry_download,
             downloads::dismiss_download,

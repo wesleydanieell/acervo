@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDownToLine, Check, CircleAlert, Download, FolderCheck, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, Check, CircleAlert, Download, FolderCheck, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
 import "./downloads.css";
 
 export type DownloadInfo = {
@@ -13,7 +13,7 @@ const sizes = (bytes: number) => bytes >= 1048576
   ? (bytes / 1048576).toFixed(1) + " MB"
   : (bytes / 1024).toFixed(1) + " KB";
 const statuses: Record<string, string> = {
-  queued: "Na fila", downloading: "Baixando", ready: "Pronto para salvar",
+  queued: "Na fila", downloading: "Baixando", pausing: "Pausando", paused: "Pausado", ready: "Pronto para salvar",
   failed: "Falhou", cancelled: "Cancelado", saving: "Salvando", saved: "Na biblioteca",
 };
 
@@ -71,7 +71,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     </div>
     <div className="downloads-note glass-panel"><ArrowDownToLine size={22}/>
       <div><strong>Primeiro em área temporária, depois no acervo.</strong>
-        <p>Os arquivos ficam no cache até você confirmar o destino. A fila persiste entre reinícios; nada volta a baixar sozinho. Use “Tentar novamente” para retomar um arquivo parcial quando a fonte permitir (HTTP Range + ETag), ou reiniciá-lo com segurança.</p></div>
+        <p>Os arquivos ficam no cache até você confirmar o destino. A fila persiste entre reinícios; nada volta a baixar sozinho. Pause downloads sem perder os dados parciais. Use “Continuar” para tentar retomar de onde parou quando a fonte permitir (HTTP Range + ETag); sem esse suporte, a transferência recomeça do zero.</p></div>
     </div>
     {error && <div className="alert" role="alert"><CircleAlert size={17}/>{error}<button className="icon-button" onClick={() => setError("")} aria-label="Fechar erro"><X size={16}/></button></div>}
     {notice && <div className="inline-status" role="status"><Check size={16}/>{notice}</div>}
@@ -85,7 +85,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
             <div className="download-title"><strong title={item.title}>{item.title}</strong><small>{item.sourceName} · {item.format.toUpperCase()} · {item.filename}</small></div>
             <span className={"download-status status-" + item.status}>{statuses[item.status] || item.status}</span>
           </div>
-          {(item.status === "queued" || item.status === "downloading") && <div className="download-progress">
+          {(["queued", "downloading", "pausing", "paused"].includes(item.status)) && <div className="download-progress">
             <progress max={100} value={percentage ?? undefined} aria-label={"Progresso de " + item.title}/>
             <span>{sizes(item.downloadedBytes)}{item.totalBytes ? " de " + sizes(item.totalBytes) + " · " + percentage?.toFixed(0) + "%" : " · tamanho desconhecido"}</span></div>}
           {item.error && <p className="download-error" role="status">{item.error}</p>}
@@ -106,9 +106,11 @@ export function DownloadsCenter({ root, folders, onSaved }: {
           </div>}
           <div className="download-actions">
             {(item.status === "queued" || item.status === "downloading") &&
+              <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("pause_download", item.id)}><Pause size={15}/> Pausar</button>}
+            {["queued", "downloading", "pausing", "paused"].includes(item.status) &&
               <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("cancel_download", item.id)}><Square size={14}/> Cancelar</button>}
-            {(item.status === "failed" || item.status === "cancelled") &&
-              <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("retry_download", item.id)}><RotateCw size={15}/> Tentar novamente</button>}
+            {["failed", "cancelled", "paused"].includes(item.status) &&
+              <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("retry_download", item.id)}><RotateCw size={15}/> {item.status === "paused" ? "Continuar" : "Tentar novamente"}</button>}
             {item.status === "ready" && (discardId === item.id
               ? <><button className="button secondary" onClick={() => setDiscardId("")}>Voltar</button>
                   <button className="button danger" onClick={() => { setDiscardId(""); void action("dismiss_download", item.id); }}>Descartar download</button></>

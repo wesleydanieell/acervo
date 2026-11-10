@@ -6,7 +6,7 @@ use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
@@ -14,7 +14,18 @@ use tauri::Manager;
 const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_ACTIVE: usize = 3;
 const MAX_HISTORY: usize = 60;
+const RUNNING: u8 = 0;
+const CANCEL_REQUESTED: u8 = 1;
+const PAUSE_REQUESTED: u8 = 2;
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+fn interruption_reason(signal: &AtomicU8) -> Option<&'static str> {
+    match signal.load(Ordering::Relaxed) {
+        CANCEL_REQUESTED => Some("Download cancelado."),
+        PAUSE_REQUESTED => Some("Download pausado."),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,7 +48,7 @@ struct DownloadRecord {
     info: DownloadInfo,
     url: String,
     etag: String,
-    cancel: Arc<AtomicBool>,
+    control: Arc<AtomicU8>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,7 +115,7 @@ fn read_download_registry(path: &Path) -> Result<Vec<DownloadRecord>, String> {
                 info: saved.info,
                 url: saved.url,
                 etag: saved.etag,
-                cancel: Arc::new(AtomicBool::new(false)),
+                control: Arc::new(AtomicU8::new(RUNNING)),
             })
         })
         .collect()
@@ -162,6 +173,10 @@ fn reconcile_restored(record: &mut DownloadRecord, staged_size: Option<u64>) {
             record.info.error =
                 "Transferência interrompida ao fechar o aplicativo. Tente novamente.".into();
         }
+        "pausing" => {
+            record.info.status = "paused".into();
+            record.info.error.clear();
+        }
         "ready"
             if staged_size.is_none()
                 || staged_size != Some(record.info.downloaded_bytes)
@@ -175,7 +190,10 @@ fn reconcile_restored(record: &mut DownloadRecord, staged_size: Option<u64>) {
         }
         _ => {}
     }
-    if matches!(record.info.status.as_str(), "failed" | "cancelled") {
+    if matches!(
+        record.info.status.as_str(),
+        "failed" | "cancelled" | "paused"
+    ) {
         record.info.downloaded_bytes = staged_size.unwrap_or(0);
     }
 }
@@ -369,8 +387,27 @@ fn set_progress(manager: &DownloadManager, id: &str, bytes: u64, total: Option<u
     manager.change(id, |item| {
         item.info.downloaded_bytes = bytes;
         item.info.total_bytes = total;
-        item.info.status = "downloading".into();
+        if item.info.status != "pausing" {
+            item.info.status = "downloading".into();
+        }
     });
+}
+
+async fn wait_for_interruption(signal: &AtomicU8) {
+    while interruption_reason(signal).is_none() {
+        tokio::time::sleep(Duration::from_millis(120)).await;
+    }
+}
+
+async fn send_interruptible(
+    request: reqwest::RequestBuilder,
+    signal: &AtomicU8,
+) -> Result<reqwest::Response, String> {
+    tokio::select! {
+        result = request.send() => result.map_err(|error| format!("Falha de conexão: {error}")),
+        _ = wait_for_interruption(signal) =>
+            Err(interruption_reason(signal).unwrap_or("Transferência interrompida.").into()),
+    }
 }
 
 async fn fetch_to_stage(
@@ -378,8 +415,11 @@ async fn fetch_to_stage(
     manager: &DownloadManager,
     id: &str,
     url_text: &str,
-    cancel: &AtomicBool,
+    control: &AtomicU8,
 ) -> Result<(), String> {
+    if let Some(reason) = interruption_reason(control) {
+        return Err(reason.into());
+    }
     let url = url::Url::parse(url_text).map_err(|_| "URL inválida.")?;
     let path = staged_path(app, id)?;
     let existing = match fs::symlink_metadata(&path) {
@@ -403,7 +443,11 @@ async fn fetch_to_stage(
         .map(|record| record.etag.clone())
         .unwrap_or_default();
     let resume = existing > 0 && valid_strong_etag(&prior_etag);
-    let client = secure_https_client(&url, Duration::from_secs(3600)).await?;
+    let client = tokio::select! {
+        result = secure_https_client(&url, Duration::from_secs(3600)) => result?,
+        _ = wait_for_interruption(control) =>
+            return Err(interruption_reason(control).unwrap_or("Transferência interrompida.").into()),
+    };
     let mut request = client
         .get(url.clone())
         .header(reqwest::header::ACCEPT_ENCODING, "identity");
@@ -412,10 +456,7 @@ async fn fetch_to_stage(
             .header(reqwest::header::RANGE, format!("bytes={existing}-"))
             .header(reqwest::header::IF_RANGE, prior_etag.as_str());
     }
-    let mut response = request
-        .send()
-        .await
-        .map_err(|error| format!("Falha de conexão: {error}"))?;
+    let mut response = send_interruptible(request, control).await?;
     if resume
         && (response.status().as_u16() == 416
             || (response.status().as_u16() == 206
@@ -436,12 +477,13 @@ async fn fetch_to_stage(
                 .is_err()))
     {
         // Stale or malformed ranges are never appended. Try a clean request once.
-        response = client
-            .get(url)
-            .header(reqwest::header::ACCEPT_ENCODING, "identity")
-            .send()
-            .await
-            .map_err(|error| format!("Falha ao reiniciar arquivo: {error}"))?;
+        response = send_interruptible(
+            client
+                .get(url)
+                .header(reqwest::header::ACCEPT_ENCODING, "identity"),
+            control,
+        )
+        .await?;
     }
     if response
         .headers()
@@ -497,13 +539,16 @@ async fn fetch_to_stage(
         let mut downloaded = mode.offset;
         let mut persisted_bytes = mode.offset;
         set_progress(manager, id, downloaded, mode.total);
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| format!("Conexão interrompida: {error}"))?
-        {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("Download cancelado.".into());
+        loop {
+            let chunk = tokio::select! {
+                result = response.chunk() =>
+                    result.map_err(|error| format!("Conexão interrompida: {error}"))?,
+                _ = wait_for_interruption(control) =>
+                    return Err(interruption_reason(control).unwrap_or("Transferência interrompida.").into()),
+            };
+            let Some(chunk) = chunk else { break };
+            if let Some(reason) = interruption_reason(control) {
+                return Err(reason.into());
             }
             downloaded = downloaded
                 .checked_add(chunk.len() as u64)
@@ -520,8 +565,8 @@ async fn fetch_to_stage(
                 persisted_bytes = downloaded;
             }
         }
-        if cancel.load(Ordering::Relaxed) {
-            return Err("Download cancelado.".into());
+        if let Some(reason) = interruption_reason(control) {
+            return Err(reason.into());
         }
         if downloaded == 0 {
             return Err("A fonte retornou um arquivo vazio.".into());
@@ -536,15 +581,8 @@ async fn fetch_to_stage(
     }
     .await;
     drop(output);
-    if cancel.load(Ordering::Relaxed) {
-        let _ = fs::remove_file(&path);
-        manager.change(id, |record| {
-            record.etag.clear();
-            record.info.downloaded_bytes = 0;
-            record.info.total_bytes = None;
-        });
-    }
-    // Preserve a failed partial file only for a future validated retry.
+    // A paused or failed transfer keeps its partial data for a validated retry.
+    // Cancellation cleanup happens in spawn_download, after the file is closed.
     result
 }
 
@@ -553,23 +591,44 @@ fn spawn_download(
     manager: DownloadManager,
     id: String,
     url: String,
-    cancel: Arc<AtomicBool>,
+    control: Arc<AtomicU8>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let outcome = fetch_to_stage(&app, &manager, &id, &url, &cancel).await;
-        manager.change(&id, |item| match outcome {
-            Ok(()) => {
-                item.info.status = "ready".into();
-                item.info.error.clear();
+        let outcome = fetch_to_stage(&app, &manager, &id, &url, &control).await;
+        let cancelled = control.load(Ordering::Relaxed) == CANCEL_REQUESTED;
+        if cancelled {
+            // Covers cancel arriving after fetch returned but before status was set.
+            if let Ok(path) = staged_path(&app, &id) {
+                let _ = fs::remove_file(path);
             }
-            Err(error) => {
-                item.info.status = if cancel.load(Ordering::Relaxed) {
-                    "cancelled"
-                } else {
-                    "failed"
+        }
+        manager.change(&id, |item| {
+            if cancelled {
+                item.info.status = "cancelled".into();
+                item.info.error.clear();
+                item.info.downloaded_bytes = 0;
+                item.info.total_bytes = None;
+                item.etag.clear();
+            } else {
+                match outcome {
+                    Ok(()) => {
+                        item.info.status = "ready".into();
+                        item.info.error.clear();
+                    }
+                    Err(error) => {
+                        item.info.status = if control.load(Ordering::Relaxed) == PAUSE_REQUESTED {
+                            "paused"
+                        } else {
+                            "failed"
+                        }
+                        .into();
+                        item.info.error = if item.info.status == "paused" {
+                            String::new()
+                        } else {
+                            error
+                        };
+                    }
                 }
-                .into();
-                item.info.error = error;
             }
         });
         let _ = manager.persist();
@@ -608,7 +667,7 @@ pub fn queue_download(
             .as_millis(),
         NEXT_ID.fetch_add(1, Ordering::Relaxed)
     );
-    let cancel = Arc::new(AtomicBool::new(false));
+    let control = Arc::new(AtomicU8::new(RUNNING));
     let download = DownloadRecord {
         info: DownloadInfo {
             id: id.clone(),
@@ -625,7 +684,7 @@ pub fn queue_download(
         },
         url: url.clone(),
         etag: String::new(),
-        cancel: cancel.clone(),
+        control: control.clone(),
     };
     let manager = manager.inner().clone();
     {
@@ -635,7 +694,12 @@ pub fn queue_download(
         }
         if items
             .iter()
-            .filter(|item| matches!(item.info.status.as_str(), "queued" | "downloading"))
+            .filter(|item| {
+                matches!(
+                    item.info.status.as_str(),
+                    "queued" | "downloading" | "pausing"
+                )
+            })
             .count()
             >= MAX_ACTIVE
         {
@@ -649,7 +713,30 @@ pub fn queue_download(
         }
         return Err(error);
     }
-    spawn_download(app, manager.clone(), id, url, cancel);
+    spawn_download(app, manager.clone(), id, url, control);
+    manager.snapshot()
+}
+
+#[tauri::command]
+pub fn pause_download(
+    manager: tauri::State<'_, DownloadManager>,
+    id: String,
+) -> Result<Vec<DownloadInfo>, String> {
+    let manager = manager.inner().clone();
+    {
+        let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
+        let item = items
+            .iter_mut()
+            .find(|item| item.info.id == id)
+            .ok_or("Download desconhecido.")?;
+        if !matches!(item.info.status.as_str(), "queued" | "downloading") {
+            return Err("Apenas downloads ativos podem ser pausados.".into());
+        }
+        item.control.store(PAUSE_REQUESTED, Ordering::Relaxed);
+        item.info.status = "pausing".into();
+        item.info.error.clear();
+    }
+    manager.persist()?;
     manager.snapshot()
 }
 
@@ -667,10 +754,10 @@ pub fn cancel_download(
             .find(|item| item.info.id == id)
             .ok_or("Download desconhecido.")?;
         match item.info.status.as_str() {
-            "queued" | "downloading" => {
-                item.cancel.store(true, Ordering::Relaxed);
+            "queued" | "downloading" | "pausing" => {
+                item.control.store(CANCEL_REQUESTED, Ordering::Relaxed);
             }
-            "ready" | "failed" | "cancelled" => {
+            "ready" | "failed" | "cancelled" | "paused" => {
                 let stage = staged_path(&app, &id)?;
                 match fs::remove_file(stage) {
                     Ok(()) => {}
@@ -699,11 +786,16 @@ pub fn retry_download(
     id: String,
 ) -> Result<Vec<DownloadInfo>, String> {
     let manager = manager.inner().clone();
-    let (url, cancel) = {
+    let (url, control) = {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
         if items
             .iter()
-            .filter(|item| matches!(item.info.status.as_str(), "queued" | "downloading"))
+            .filter(|item| {
+                matches!(
+                    item.info.status.as_str(),
+                    "queued" | "downloading" | "pausing"
+                )
+            })
             .count()
             >= MAX_ACTIVE
         {
@@ -713,8 +805,10 @@ pub fn retry_download(
             .iter_mut()
             .find(|item| item.info.id == id)
             .ok_or("Download desconhecido.")?;
-        if !matches!(item.info.status.as_str(), "failed" | "cancelled") {
-            return Err("Apenas downloads cancelados ou com falha podem ser reiniciados.".into());
+        if !matches!(item.info.status.as_str(), "failed" | "cancelled" | "paused") {
+            return Err(
+                "Apenas downloads pausados, cancelados ou com falha podem ser retomados.".into(),
+            );
         }
         let stage = staged_path(&app, &id)?;
         let partial_size = match fs::symlink_metadata(&stage) {
@@ -740,11 +834,11 @@ pub fn retry_download(
         if !can_resume {
             item.info.total_bytes = None;
         }
-        item.cancel = Arc::new(AtomicBool::new(false));
-        (item.url.clone(), item.cancel.clone())
+        item.control = Arc::new(AtomicU8::new(RUNNING));
+        (item.url.clone(), item.control.clone())
     };
     manager.persist()?;
-    spawn_download(app, manager.clone(), id, url, cancel);
+    spawn_download(app, manager.clone(), id, url, control);
     manager.snapshot()
 }
 
@@ -918,6 +1012,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn transfer_signal_distinguishes_pause_from_cancel() {
+        let signal = AtomicU8::new(RUNNING);
+        assert_eq!(interruption_reason(&signal), None);
+        signal.store(PAUSE_REQUESTED, Ordering::Relaxed);
+        assert_eq!(interruption_reason(&signal), Some("Download pausado."));
+        signal.store(CANCEL_REQUESTED, Ordering::Relaxed);
+        assert_eq!(interruption_reason(&signal), Some("Download cancelado."));
+    }
+
+    #[test]
     fn resume_requires_a_strong_etag_and_exact_byte_range() {
         assert!(valid_strong_etag("\"edition-42\""));
         assert!(!valid_strong_etag("W/\"edition-42\""));
@@ -1051,7 +1155,7 @@ mod tests {
             },
             url: "https://example.org/public-domain.epub".into(),
             etag: "\"edition-42\"".into(),
-            cancel: Arc::new(AtomicBool::new(false)),
+            control: Arc::new(AtomicU8::new(RUNNING)),
         };
         write_download_registry(&path, &[original]).unwrap();
         #[cfg(unix)]
@@ -1069,6 +1173,10 @@ mod tests {
         reconcile_restored(&mut loaded[0], Some(80));
         assert_eq!(loaded[0].info.status, "failed");
         assert_eq!(loaded[0].info.downloaded_bytes, 80);
+        loaded[0].info.status = "pausing".into();
+        reconcile_restored(&mut loaded[0], Some(81));
+        assert_eq!(loaded[0].info.status, "paused");
+        assert_eq!(loaded[0].info.downloaded_bytes, 81);
         loaded[0].info.status = "ready".into();
         loaded[0].info.downloaded_bytes = 100;
         reconcile_restored(&mut loaded[0], Some(100));
