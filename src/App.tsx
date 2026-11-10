@@ -14,6 +14,7 @@ import "./explorer.css";
 import "./catalog.css";
 import { CatalogCenter } from "./CatalogCenter";
 import { BookCover } from "./BookCover";
+import acervoIcon from "../branding/acervo-icon.svg";
 
 type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
@@ -335,7 +336,7 @@ ${JSON.stringify(sample, null, 2)}`;
     <div className="app-shell">
       <div className="background-orb orb-a" /><div className="background-orb orb-b" />
       <aside className={"sidebar glass-panel" + (sideOpen ? " open" : "")} style={{ width: sidebarWidth }}>
-        <div className="brand"><span className="brand-symbol"><Archive size={22} /></span><div><strong>Acervo</strong><small>Organização pessoal</small></div><button className="icon-button mobile-close" onClick={() => setSideOpen(false)} aria-label="Fechar menu"><X size={18} /></button></div>
+        <div className="brand"><span className="brand-symbol"><img src={acervoIcon} alt="" aria-hidden="true" /></span><div><strong>Acervo</strong><small>Organização pessoal</small></div><button className="icon-button mobile-close" onClick={() => setSideOpen(false)} aria-label="Fechar menu"><X size={18} /></button></div>
         <div className="nav-group">
           <span className="nav-caption">ESPAÇO DE TRABALHO</span>
           <button className={"nav-item" + (view === "catalog" && !selectedFolder ? " active" : "")}

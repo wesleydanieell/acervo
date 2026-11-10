@@ -1,0 +1,44 @@
+name: Build AppImage
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    name: Linux x86_64 AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Linux dependencies for Tauri 2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust compilation
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build Linux AppImage
+        run: npm run tauri -- build --bundles appimage
+      - name: Upload AppImage for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: Acervo-Linux-x86_64-AppImage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 30
