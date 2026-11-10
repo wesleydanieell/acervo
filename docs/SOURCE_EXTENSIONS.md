@@ -60,15 +60,21 @@ Implementado nesta etapa:
   no Linux); os arquivos baixados continuam no cache temporário após reiniciar.
 - Jobs interrompidos são marcados como falhos e exigem nova tentativa explícita;
   a inicialização nunca dispara downloads automaticamente.
+- Uma tentativa posterior pode retomar um arquivo parcial usando HTTP Range e
+  If-Range, desde que a fonte forneça **ETag forte** e responda com bytes e
+  Content-Range consistentes. Respostas completas (200), intervalos expirados
+  (416) e intervalos inválidos levam a um novo download inteiro; nunca
+  misturamos conteúdos de versões diferentes. Sem ETag forte a tentativa
+  recomeça do zero.
 - Registros inválidos não são sobrescritos; o aplicativo informa o erro de leitura.
 
-**Ainda pendente:** pausa com retomada por HTTP Range (nova tentativa ainda
-recomeça do zero), validação aprofundada de conteúdo, criação automática de pastas planejadas e associação
-automática à obra do Catálogo (sem movimentação não autorizada).
+**Ainda pendente:** botão de pausa deliberada, validação de assinatura/hash dos
+arquivos, criação automática de pastas planejadas e associação automática
+à obra do Catálogo (sem movimentação não autorizada).
 
 ## Próximas interfaces do motor
 
-1. Retomada segura de transferências parciais via HTTP Range/If-Range, com verificação de tamanho/hash.
+1. Pausa explícita e validação mais profunda de conteúdo/tamanho/hash.
 2. Integração de edição e obra no Catálogo depois de salvar um download.
 3. Extensões complexas, se realmente necessárias, só em sandbox isolada e com permissões explícitas.
 

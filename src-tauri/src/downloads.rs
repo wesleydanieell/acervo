@@ -36,6 +36,7 @@ pub struct DownloadInfo {
 struct DownloadRecord {
     info: DownloadInfo,
     url: String,
+    etag: String,
     cancel: Arc<AtomicBool>,
 }
 
@@ -44,6 +45,8 @@ struct DownloadRecord {
 struct StoredDownload {
     info: DownloadInfo,
     url: String,
+    #[serde(default)]
+    etag: String,
 }
 
 #[derive(Clone, Default)]
@@ -94,9 +97,13 @@ fn read_download_registry(path: &Path) -> Result<Vec<DownloadRecord>, String> {
             {
                 return Err("Registro de downloads contém entrada inválida.".into());
             }
+            if !saved.etag.is_empty() && !valid_strong_etag(&saved.etag) {
+                return Err("Registro contém um validador de arquivo inválido.".into());
+            }
             Ok(DownloadRecord {
                 info: saved.info,
                 url: saved.url,
+                etag: saved.etag,
                 cancel: Arc::new(AtomicBool::new(false)),
             })
         })
@@ -120,6 +127,7 @@ fn write_download_registry(path: &Path, records: &[DownloadRecord]) -> Result<()
         .map(|record| StoredDownload {
             info: record.info.clone(),
             url: record.url.clone(),
+            etag: record.etag.clone(),
         })
         .collect();
     let data = serde_json::to_vec_pretty(&saved).map_err(|error| error.to_string())?;
@@ -232,6 +240,80 @@ impl DownloadManager {
     }
 }
 
+fn valid_strong_etag(etag: &str) -> bool {
+    let bytes = etag.as_bytes();
+    (2..=200).contains(&bytes.len())
+        && bytes.first() == Some(&b'"')
+        && bytes.last() == Some(&b'"')
+        && bytes[1..bytes.len() - 1]
+            .iter()
+            .all(|b| (0x21..=0x7e).contains(b) && *b != b'"')
+}
+
+fn parse_content_range(value: &str) -> Option<(u64, u64, u64)> {
+    let payload = value.strip_prefix("bytes ")?;
+    let (range, total) = payload.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let (start, end, total) = (
+        start.parse::<u64>().ok()?,
+        end.parse::<u64>().ok()?,
+        total.parse::<u64>().ok()?,
+    );
+    (start <= end && end < total && total <= MAX_DOWNLOAD_BYTES).then_some((start, end, total))
+}
+
+#[derive(Debug, PartialEq)]
+struct TransferMode {
+    append: bool,
+    offset: u64,
+    total: Option<u64>,
+    etag: String,
+}
+
+fn choose_transfer(
+    existing: u64,
+    prior_etag: &str,
+    status: u16,
+    content_range: Option<&str>,
+    response_etag: Option<&str>,
+    length: Option<u64>,
+) -> Result<TransferMode, String> {
+    if status == 200 {
+        if length.is_some_and(|n| n > MAX_DOWNLOAD_BYTES) {
+            return Err("Arquivo maior que 512 MB.".into());
+        }
+        return Ok(TransferMode {
+            append: false,
+            offset: 0,
+            total: length,
+            etag: response_etag
+                .filter(|tag| valid_strong_etag(tag))
+                .unwrap_or("")
+                .to_string(),
+        });
+    }
+    if status != 206 {
+        return Err(format!("Resposta HTTP {status}."));
+    }
+    if existing == 0 || !valid_strong_etag(prior_etag) {
+        return Err("A fonte retornou um trecho inesperado, sem retomada autorizada.".into());
+    }
+    let (start, end, total) = parse_content_range(content_range.ok_or("Content-Range ausente.")?)
+        .ok_or("Content-Range inválido ou incompatível.")?;
+    if start != existing
+        || length.is_some_and(|length| length != end - start + 1)
+        || response_etag.is_some_and(|tag| tag != prior_etag)
+    {
+        return Err("O trecho retornado não corresponde ao arquivo interrompido.".into());
+    }
+    Ok(TransferMode {
+        append: true,
+        offset: existing,
+        total: Some(total),
+        etag: prior_etag.into(),
+    })
+}
+
 fn allowed_format(format: &str) -> Option<&'static str> {
     match format.to_ascii_lowercase().as_str() {
         "pdf" => Some("pdf"),
@@ -299,20 +381,67 @@ async fn fetch_to_stage(
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     let url = url::Url::parse(url_text).map_err(|_| "URL inválida.")?;
+    let path = staged_path(app, id)?;
+    let existing = match fs::symlink_metadata(&path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err("Arquivo temporário não pode ser link simbólico.".into());
+        }
+        Ok(meta) if meta.is_file() => meta.len(),
+        Ok(_) => return Err("Arquivo temporário inválido.".into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(format!("Falha ao consultar arquivo temporário: {error}")),
+    };
+    if existing > MAX_DOWNLOAD_BYTES {
+        return Err("Arquivo parcial excede 512 MB.".into());
+    }
+    let prior_etag = manager
+        .0
+        .lock()
+        .map_err(|_| "Fila indisponível.")?
+        .iter()
+        .find(|record| record.info.id == id)
+        .map(|record| record.etag.clone())
+        .unwrap_or_default();
+    let resume = existing > 0 && valid_strong_etag(&prior_etag);
     let client = secure_https_client(&url, Duration::from_secs(3600)).await?;
-    let mut response = client
-        .get(url)
+    let mut request = client
+        .get(url.clone())
+        .header(reqwest::header::ACCEPT_ENCODING, "identity");
+    if resume {
+        request = request
+            .header(reqwest::header::RANGE, format!("bytes={existing}-"))
+            .header(reqwest::header::IF_RANGE, prior_etag.as_str());
+    }
+    let mut response = request
         .send()
         .await
         .map_err(|error| format!("Falha de conexão: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("Servidor retornou HTTP {}.", response.status()));
-    }
-    if response
-        .content_length()
-        .is_some_and(|size| size > MAX_DOWNLOAD_BYTES)
+    if resume
+        && (response.status().as_u16() == 416
+            || (response.status().as_u16() == 206
+                && choose_transfer(
+                    existing,
+                    &prior_etag,
+                    206,
+                    response
+                        .headers()
+                        .get(reqwest::header::CONTENT_RANGE)
+                        .and_then(|v| v.to_str().ok()),
+                    response
+                        .headers()
+                        .get(reqwest::header::ETAG)
+                        .and_then(|v| v.to_str().ok()),
+                    response.content_length(),
+                )
+                .is_err()))
     {
-        return Err("O arquivo excede 512 MB.".into());
+        // Stale or malformed ranges are never appended. Try a clean request once.
+        response = client
+            .get(url)
+            .header(reqwest::header::ACCEPT_ENCODING, "identity")
+            .send()
+            .await
+            .map_err(|error| format!("Falha ao reiniciar arquivo: {error}"))?;
     }
     if response
         .headers()
@@ -322,27 +451,59 @@ async fn fetch_to_stage(
     {
         return Err("A fonte retornou uma página HTML, não um livro.".into());
     }
-
-    let path = staged_path(app, id)?;
+    if response
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|encoding| !encoding.eq_ignore_ascii_case("identity"))
+    {
+        return Err("A fonte compactou a resposta; não é seguro continuar por bytes.".into());
+    }
+    let header = |name| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+    };
+    let mode = choose_transfer(
+        if resume { existing } else { 0 },
+        &prior_etag,
+        response.status().as_u16(),
+        header(reqwest::header::CONTENT_RANGE),
+        header(reqwest::header::ETAG),
+        response.content_length(),
+    )?;
     fs::create_dir_all(path.parent().ok_or("Cache inválido.")?)
         .map_err(|error| error.to_string())?;
-    let mut output = OpenOptions::new()
-        .create_new(true)
-        .write(true)
+    let mut options = OpenOptions::new();
+    options.write(true).create(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    if mode.append {
+        options.append(true);
+    } else {
+        options.truncate(true);
+    }
+    let mut output = options
         .open(&path)
-        .map_err(|error| format!("Falha ao criar arquivo temporário: {error}"))?;
+        .map_err(|error| format!("Falha ao abrir arquivo temporário: {error}"))?;
+    if mode.append && output.metadata().map_err(|error| error.to_string())?.len() != mode.offset {
+        return Err("O tamanho do arquivo parcial mudou durante a retomada.".into());
+    }
+    manager.change(id, |record| {
+        record.etag = mode.etag.clone();
+    });
     let result = async {
-        let total = response.content_length();
-        let mut downloaded = 0u64;
-        let mut persisted_bytes = 0u64;
-        set_progress(manager, id, 0, total);
+        let mut downloaded = mode.offset;
+        let mut persisted_bytes = mode.offset;
+        set_progress(manager, id, downloaded, mode.total);
         while let Some(chunk) = response
             .chunk()
             .await
             .map_err(|error| format!("Conexão interrompida: {error}"))?
         {
             if cancel.load(Ordering::Relaxed) {
-                return Err("Download cancelado.".to_string());
+                return Err("Download cancelado.".into());
             }
             downloaded = downloaded
                 .checked_add(chunk.len() as u64)
@@ -353,7 +514,7 @@ async fn fetch_to_stage(
             output
                 .write_all(&chunk)
                 .map_err(|error| format!("Erro de gravação: {error}"))?;
-            set_progress(manager, id, downloaded, total);
+            set_progress(manager, id, downloaded, mode.total);
             if downloaded.saturating_sub(persisted_bytes) >= 2 * 1024 * 1024 {
                 let _ = manager.persist();
                 persisted_bytes = downloaded;
@@ -365,14 +526,25 @@ async fn fetch_to_stage(
         if downloaded == 0 {
             return Err("A fonte retornou um arquivo vazio.".into());
         }
+        if mode.total.is_some_and(|total| downloaded != total) {
+            return Err(
+                "A transferência terminou antes do tamanho anunciado pelo servidor.".into(),
+            );
+        }
         output.sync_all().map_err(|error| error.to_string())?;
         Ok(())
     }
     .await;
     drop(output);
-    if result.is_err() {
+    if cancel.load(Ordering::Relaxed) {
         let _ = fs::remove_file(&path);
+        manager.change(id, |record| {
+            record.etag.clear();
+            record.info.downloaded_bytes = 0;
+            record.info.total_bytes = None;
+        });
     }
+    // Preserve a failed partial file only for a future validated retry.
     result
 }
 
@@ -452,6 +624,7 @@ pub fn queue_download(
             saved_path: String::new(),
         },
         url: url.clone(),
+        etag: String::new(),
         cancel: cancel.clone(),
     };
     let manager = manager.inner().clone();
@@ -498,9 +671,19 @@ pub fn cancel_download(
                 item.cancel.store(true, Ordering::Relaxed);
             }
             "ready" | "failed" | "cancelled" => {
+                let stage = staged_path(&app, &id)?;
+                match fs::remove_file(stage) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(format!("Falha ao limpar arquivo temporário: {error}"));
+                    }
+                }
                 item.info.status = "cancelled".into();
                 item.info.error.clear();
-                let _ = fs::remove_file(staged_path(&app, &id)?);
+                item.info.downloaded_bytes = 0;
+                item.info.total_bytes = None;
+                item.etag.clear();
             }
             _ => return Err("Esse download não pode ser cancelado.".into()),
         }
@@ -533,11 +716,30 @@ pub fn retry_download(
         if !matches!(item.info.status.as_str(), "failed" | "cancelled") {
             return Err("Apenas downloads cancelados ou com falha podem ser reiniciados.".into());
         }
-        let _ = fs::remove_file(staged_path(&app, &id)?);
+        let stage = staged_path(&app, &id)?;
+        let partial_size = match fs::symlink_metadata(&stage) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err("Arquivo temporário não pode ser link simbólico.".into());
+            }
+            Ok(meta) if meta.is_file() && meta.len() <= MAX_DOWNLOAD_BYTES => meta.len(),
+            Ok(_) => return Err("Arquivo temporário inválido ou muito grande.".into()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+            Err(error) => return Err(format!("Falha ao verificar arquivo temporário: {error}")),
+        };
+        // Never append a partial without a strong validator. Retry starts clean.
+        let can_resume = partial_size > 0 && valid_strong_etag(&item.etag);
+        if !can_resume && partial_size > 0 {
+            fs::remove_file(&stage).map_err(|error| format!("Falha ao limpar parcial: {error}"))?;
+        }
+        if !can_resume {
+            item.etag.clear();
+        }
         item.info.status = "queued".into();
         item.info.error.clear();
-        item.info.downloaded_bytes = 0;
-        item.info.total_bytes = None;
+        item.info.downloaded_bytes = if can_resume { partial_size } else { 0 };
+        if !can_resume {
+            item.info.total_bytes = None;
+        }
         item.cancel = Arc::new(AtomicBool::new(false));
         (item.url.clone(), item.cancel.clone())
     };
@@ -565,12 +767,13 @@ pub fn dismiss_download(
         ) {
             return Err("Cancele ou conclua o download antes de removê-lo.".into());
         }
-        if items[index].info.status == "ready" {
-            let stage = staged_path(&app, &id)?;
-            if stage.exists() {
-                fs::remove_file(stage)
-                    .map_err(|error| format!("Falha ao descartar arquivo temporário: {error}"))?;
-            }
+        // A failed transfer may retain a large resumable .part file. Removing its
+        // history entry must remove that cached data too, not orphan it on disk.
+        let stage = staged_path(&app, &id)?;
+        match fs::remove_file(stage) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Falha ao descartar arquivo temporário: {error}")),
         }
         items.remove(index);
     }
@@ -713,6 +916,82 @@ pub fn save_download(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_requires_a_strong_etag_and_exact_byte_range() {
+        assert!(valid_strong_etag("\"edition-42\""));
+        assert!(!valid_strong_etag("W/\"edition-42\""));
+        assert!(!valid_strong_etag("\"malformed\nvalue\""));
+        assert_eq!(
+            parse_content_range("bytes 128-255/256"),
+            Some((128, 255, 256))
+        );
+        assert_eq!(parse_content_range("bytes */256"), None);
+        assert_eq!(parse_content_range("bytes 128-256/256"), None);
+        assert_eq!(parse_content_range("bytes 0-2/536870913"), None);
+
+        let resumed = choose_transfer(
+            128,
+            "\"edition-42\"",
+            206,
+            Some("bytes 128-255/256"),
+            Some("\"edition-42\""),
+            Some(128),
+        )
+        .unwrap();
+        assert_eq!(
+            resumed,
+            TransferMode {
+                append: true,
+                offset: 128,
+                total: Some(256),
+                etag: "\"edition-42\"".into(),
+            }
+        );
+        for (etag, range, length) in [
+            ("\"edition-43\"", "bytes 128-255/256", 128),
+            ("\"edition-42\"", "bytes 127-255/256", 129),
+            ("\"edition-42\"", "bytes 128-255/256", 127),
+        ] {
+            assert!(
+                choose_transfer(
+                    128,
+                    "\"edition-42\"",
+                    206,
+                    Some(range),
+                    Some(etag),
+                    Some(length)
+                )
+                .is_err()
+            );
+        }
+        assert!(choose_transfer(128, "", 206, Some("bytes 128-255/256"), None, Some(128)).is_err());
+        assert!(choose_transfer(128, "\"edition-42\"", 416, None, None, None).is_err());
+    }
+
+    #[test]
+    fn full_response_safely_replaces_partial_and_discards_weak_validator() {
+        let fresh = choose_transfer(
+            128,
+            "\"edition-42\"",
+            200,
+            None,
+            Some("W/\"edition-43\""),
+            Some(256),
+        )
+        .unwrap();
+        assert_eq!(
+            fresh,
+            TransferMode {
+                append: false,
+                offset: 0,
+                total: Some(256),
+                etag: String::new(),
+            }
+        );
+        assert!(choose_transfer(128, "", 200, None, None, Some(MAX_DOWNLOAD_BYTES + 1)).is_err());
+    }
+
     #[test]
     fn filenames_are_safe_and_extensions_are_restricted() {
         assert_eq!(
@@ -771,6 +1050,7 @@ mod tests {
                 saved_path: String::new(),
             },
             url: "https://example.org/public-domain.epub".into(),
+            etag: "\"edition-42\"".into(),
             cancel: Arc::new(AtomicBool::new(false)),
         };
         write_download_registry(&path, &[original]).unwrap();
@@ -785,6 +1065,7 @@ mod tests {
         let mut loaded = read_download_registry(&path).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].url, "https://example.org/public-domain.epub");
+        assert_eq!(loaded[0].etag, "\"edition-42\"");
         reconcile_restored(&mut loaded[0], Some(80));
         assert_eq!(loaded[0].info.status, "failed");
         assert_eq!(loaded[0].info.downloaded_bytes, 80);
