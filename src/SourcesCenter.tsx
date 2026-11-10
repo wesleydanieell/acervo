@@ -24,16 +24,16 @@ const sampleManifest = JSON.stringify({
   formats: ["epub", "pdf"], languages: ["pt", "en"],
 }, null, 2);
 
-export function SourcesCenter() {
+export function SourcesCenter({ initialSearch }: { initialSearch?: { query: string; language: string; format: string } | null }) {
   const [sources, setSources] = useState<InstalledSource[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pendingRemoval, setPendingRemoval] = useState("");
   const [showExample, setShowExample] = useState(false);
-  const [query, setQuery] = useState("");
-  const [language, setLanguage] = useState("");
-  const [format, setFormat] = useState("");
+  const [query, setQuery] = useState(initialSearch?.query ?? "");
+  const [language, setLanguage] = useState(initialSearch?.language ?? "");
+  const [format, setFormat] = useState(initialSearch?.format ?? "");
   const [sourceId, setSourceId] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchOutcome, setSearchOutcome] = useState<SearchOutcome | null>(null);
@@ -113,6 +113,7 @@ export function SourcesCenter() {
     </div>
     <section className="source-search glass-panel">
       <div className="source-search-heading"><div><h2>Pesquisar em todas as fontes</h2><p>Busca agregada nas extensões ativas, com seleção de fonte, idioma e formato.</p></div><Search size={23}/></div>
+      {initialSearch?.query && <p className="source-search-from-catalog">Busca preparada para a obra selecionada no Catálogo. Revise os filtros e pressione Buscar.</p>}
       <form className="source-search-form" onSubmit={(event) => { event.preventDefault(); void search(); }}>
         <label className="source-query"><span>Título ou autor</span><input value={query} onChange={(event) => setQuery(event.target.value)} minLength={2} maxLength={200} placeholder="Ex.: Machado de Assis" aria-label="Buscar obras nas fontes" required/></label>
         <label><span>Fonte</span><select aria-label="Filtrar fonte" value={sourceId} onChange={(event) => setSourceId(event.target.value)}><option value="">Todas as ativas</option>{sources.filter((item) => item.enabled).map((item) => <option key={item.manifest.id} value={item.manifest.id}>{item.manifest.name}</option>)}</select></label>

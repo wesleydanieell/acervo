@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 import "./theme.css";
 import "./explorer.css";
@@ -88,7 +87,8 @@ function App() {
   const [promptTopics, setPromptTopics] = useState("Filosofia, literatura clássica e brasileira");
   const [promptLanguage, setPromptLanguage] = useState("Português");
   const [sourceFormat, setSourceFormat] = useState("");
-  const [sourceLanguage, setSourceLanguage] = useState("pt");
+  const [sourceLanguage, setSourceLanguage] = useState("");
+  const [sourceRequest, setSourceRequest] = useState<{ query: string; language: string; format: string } | null>(null);
   const [newFolder, setNewFolder] = useState("");
   const [folderParent, setFolderParent] = useState("");
   const [contextMenu, setContextMenu] = useState<MenuState | null>(null);
@@ -330,12 +330,15 @@ ${JSON.stringify(sample, null, 2)}`;
     try { await navigator.clipboard.writeText(text); setStatus(message); }
     catch { setStatus("Não foi possível copiar; selecione e copie manualmente."); }
   };
-  const searchAnna = (entry: Entry) => {
-    const url = new URL("https://annas-archive.pk/search");
-    url.searchParams.set("q", [entry.title, entry.author].filter(Boolean).join(" "));
-    if (sourceFormat) url.searchParams.set("ext", sourceFormat.toLowerCase());
-    if (sourceLanguage) url.searchParams.set("lang", sourceLanguage);
-    void openUrl(url.toString()).catch((failure) => setError(String(failure)));
+  const searchInInstalledSources = (entry: Entry) => {
+    setSourceRequest({
+      query: [entry.title, entry.author].filter(Boolean).join(" "),
+      format: sourceFormat,
+      language: sourceLanguage,
+    });
+    setSelection(null);
+    setView("sources");
+    setSideOpen(false);
   };
   const queueMove = (paths: string[], destination: string) => {
     if (!collection || !paths.length) return;
@@ -459,7 +462,7 @@ ${JSON.stringify(sample, null, 2)}`;
             <Book size={18} strokeWidth={1.9}/> Catálogo <span className="nav-count">{collection?.works.length || 0}</span>
           </button>
           <button className={"nav-item" + (view === "sources" ? " active" : "")}
-            onClick={() => { setView("sources"); setSelectedFolder(""); setSideOpen(false); }}>
+            onClick={() => { setSourceRequest(null); setView("sources"); setSelectedFolder(""); setSideOpen(false); }}>
             <Globe2 size={18} strokeWidth={1.9}/> Fontes
           </button>
         </div>
@@ -557,7 +560,7 @@ ${JSON.stringify(sample, null, 2)}`;
               </article>
             </div>
             <div className="settings-version">Acervo 0.1.0-alpha.1 · dados locais · <span>atualizações experimentais</span></div>
-          </section> : view === "sources" ? <SourcesCenter/> : view === "lists" ? <>
+          </section> : view === "sources" ? <SourcesCenter initialSearch={sourceRequest}/> : view === "lists" ? <>
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}
@@ -599,7 +602,7 @@ ${JSON.stringify(sample, null, 2)}`;
           </>}
         </main>
       </div>
-      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className={"drawer-cover " + (selection.present ? "present" : "missing")}><Book size={45}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <button key={file.path} className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>A pesquisa abre no navegador. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchAnna(selection)}><Search size={17}/> Pesquisar no Anna's Archive</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
+      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className={"drawer-cover " + (selection.present ? "present" : "missing")}><Book size={45}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <button key={file.path} className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>Pesquise nas fontes instaladas. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchInInstalledSources(selection)}><Search size={17}/> Pesquisar nas fontes</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
       {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className={"modal glass-panel" + (modal === "organize" ? " organize-modal" : "")} role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : modal === "move" ? "Mover livros" : modal === "organize" ? "Organizar biblioteca por JSON" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}
         {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label><label>Prévia do prompt<textarea readOnly value={createPrompt()} rows={11} /></label><button className="button primary full" onClick={() => void copy(createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
