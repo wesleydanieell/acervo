@@ -1,6 +1,7 @@
 mod catalog_lists;
 mod covers;
 mod organization;
+mod sources;
 
 use serde::Serialize;
 use std::collections::{BTreeSet, HashSet};
@@ -515,6 +516,10 @@ pub fn run() {
             move_books,
             organization::preview_organization,
             organization::apply_organization,
+            sources::list_sources,
+            sources::install_source,
+            sources::set_source_enabled,
+            sources::remove_source,
             read_noctalia_colors
         ])
         .run(tauri::generate_context!())
