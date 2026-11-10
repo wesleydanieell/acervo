@@ -57,7 +57,7 @@ fn public_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn safe_url(url: &str) -> bool {
+pub(crate) fn safe_url(url: &str) -> bool {
     let Ok(url) = url::Url::parse(url) else {
         return false;
     };
@@ -74,6 +74,32 @@ fn safe_url(url: &str) -> bool {
         && ![".local", ".localhost", ".internal", ".test", ".invalid"]
             .iter()
             .any(|suffix| host.ends_with(suffix))
+}
+
+/// Build a request client pinned to public DNS answers, with no redirects or proxy.
+pub(crate) async fn secure_https_client(
+    url: &url::Url,
+    timeout: Duration,
+) -> Result<reqwest::Client, String> {
+    if !safe_url(url.as_str()) {
+        return Err("URL de origem insegura.".into());
+    }
+    let hostname = url.host_str().ok_or("Domínio ausente.")?.to_string();
+    let resolved: Vec<SocketAddr> = tokio::net::lookup_host((hostname.as_str(), 443))
+        .await
+        .map_err(|error| format!("DNS: {error}"))?
+        .take(24)
+        .collect();
+    if resolved.is_empty() || resolved.iter().any(|addr| !public_ip(addr.ip())) {
+        return Err("DNS apontou para IP interno ou inválido; conexão bloqueada.".into());
+    }
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve_to_addrs(&hostname, &resolved)
+        .timeout(timeout)
+        .build()
+        .map_err(|error| error.to_string())
 }
 
 fn encode(value: &str) -> String {
@@ -163,25 +189,7 @@ async fn search_one(
         return Err("Esta fonte não oferece o idioma solicitado.".into());
     }
     let url = search_url(&source, &query, &language, &format)?;
-    let hostname = url.host_str().ok_or("Domínio ausente.")?.to_string();
-
-    // Pin all checked DNS answers in the HTTP client. Never allow implicit DNS
-    // re-resolution or system proxies to redirect requests to local services.
-    let resolved: Vec<SocketAddr> = tokio::net::lookup_host((hostname.as_str(), 443))
-        .await
-        .map_err(|error| format!("DNS: {error}"))?
-        .take(24)
-        .collect();
-    if resolved.is_empty() || resolved.iter().any(|addr| !public_ip(addr.ip())) {
-        return Err("DNS apontou para IP interno ou inválido; fonte bloqueada.".into());
-    }
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .resolve_to_addrs(&hostname, &resolved)
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|error| error.to_string())?;
+    let client = secure_https_client(&url, Duration::from_secs(15)).await?;
     let mut response = client
         .get(url)
         .header("Accept", "application/json")

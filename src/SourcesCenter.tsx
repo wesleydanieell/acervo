@@ -24,7 +24,7 @@ const sampleManifest = JSON.stringify({
   formats: ["epub", "pdf"], languages: ["pt", "en"],
 }, null, 2);
 
-export function SourcesCenter({ initialSearch }: { initialSearch?: { query: string; language: string; format: string } | null }) {
+export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearch?: { query: string; language: string; format: string; destination: string } | null; onShowDownloads: () => void }) {
   const [sources, setSources] = useState<InstalledSource[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -84,6 +84,17 @@ export function SourcesCenter({ initialSearch }: { initialSearch?: { query: stri
     catch (failure) { setError("Falha ao copiar: " + String(failure)); }
   };
 
+  const queue = async (item: SourceResult) => {
+    setError(""); setNotice("");
+    try {
+      await invoke("queue_download", {
+        url: item.downloadUrl, title: item.title, sourceName: item.sourceName,
+        format: item.format, plannedDestination: initialSearch?.destination ?? "",
+      });
+      setNotice("Livro adicionado à fila. Abra Downloads para acompanhar e salvar quando concluir.");
+    } catch (failure) { setError(String(failure)); }
+  };
+
   const search = async () => {
     setSearching(true); setError(""); setSearchOutcome(null);
     try {
@@ -99,7 +110,7 @@ export function SourcesCenter({ initialSearch }: { initialSearch?: { query: stri
     <div className="page-intro">
       <div><div className="eyebrow">FONTES E EXTENSÕES</div><h1>Fontes da biblioteca</h1>
         <p>Instale manifestos JSON e escolha quais fontes serão usadas na pesquisa de livros.</p></div>
-      <div className="sources-top-actions"><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
+      <div className="sources-top-actions"><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Ver downloads</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
         <button className="button secondary" disabled={busy || sources.some((item) => item.manifest.id === "open-library")} onClick={() => void installDemo()}><Globe2 size={16}/> Fonte de exemplo</button>
         <button className="button primary" disabled={busy} onClick={() => void install()}><Plus size={17}/> Instalar fonte</button></div>
     </div>
@@ -123,7 +134,9 @@ export function SourcesCenter({ initialSearch }: { initialSearch?: { query: stri
       </form>
       {searchOutcome && <div className="source-results"><div className="source-results-heading"><strong>{searchOutcome.results.length} resultado(s)</strong><small>Resultados por fonte · links externos abrem no navegador</small></div>
         {searchOutcome.errors.length > 0 && <div className="source-errors" role="status">{searchOutcome.errors.map((text, index) => <p key={index}>{text}</p>)}</div>}
-        {searchOutcome.results.length ? <div className="source-results-list">{searchOutcome.results.map((item, index) => <article key={item.sourceId + index} className="source-result"><div><strong>{item.title}</strong><small>{item.author || "Autor não informado"} · {item.sourceName}</small></div><div className="source-result-actions">{item.format && <span>{item.format.toUpperCase()}</span>}{item.language && <span>{item.language}</span>}{item.downloadUrl && <button className="button secondary" type="button" title="Abrir link externo informado pela fonte" onClick={() => void openUrl(item.downloadUrl).catch((failure) => setError(String(failure)))}><ExternalLink size={15}/> Abrir link</button>}</div></article>)}</div> : <p className="source-no-results">Nenhuma obra encontrada. Experimente outro termo, idioma ou fonte.</p>}
+        {searchOutcome.results.length ? <div className="source-results-list">{searchOutcome.results.map((item, index) => <article key={item.sourceId + index} className="source-result"><div><strong>{item.title}</strong><small>{item.author || "Autor não informado"} · {item.sourceName}</small></div><div className="source-result-actions">{item.format && <span>{item.format.toUpperCase()}</span>}{item.language && <span>{item.language}</span>}{item.downloadUrl && ["pdf", "epub", "mobi", "azw3", "djvu"].includes(item.format.toLowerCase()) &&
+            <button className="button primary" type="button" title="Baixar primeiro para área temporária" onClick={() => void queue(item)}><Download size={15}/> Baixar</button>}
+          {item.downloadUrl && <button className="button secondary" type="button" title="Abrir link externo informado pela fonte" onClick={() => void openUrl(item.downloadUrl).catch((failure) => setError(String(failure)))}><ExternalLink size={15}/> Link</button>}</div></article>)}</div> : <p className="source-no-results">Nenhuma obra encontrada. Experimente outro termo, idioma ou fonte.</p>}
       </div>}
     </section>
     {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled }) => <article className="source-card glass-panel" key={manifest.id}>
@@ -153,7 +166,7 @@ export function SourcesCenter({ initialSearch }: { initialSearch?: { query: stri
       </div>}
     <section className="source-help glass-panel">
       <div><h2>Formato de extensão v1</h2>
-        <p>Uma fonte descreve um endpoint HTTPS e os campos JSON para títulos e autores. A pesquisa já funciona nas fontes compatíveis; o gerenciador de downloads será o próximo módulo.</p></div>
+        <p>Uma fonte descreve um endpoint HTTPS e os campos JSON para títulos e autores. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. Antes de entrar na biblioteca, cada arquivo precisa ser conferido e salvo por você.</p></div>
       <div className="source-help-actions">
         <button className="button secondary" onClick={() => setShowExample((current) => !current)}><FileJson2 size={16}/> {showExample ? "Ocultar exemplo" : "Ver exemplo"}</button>
         <button className="button secondary" onClick={() => void copyExample()}><ClipboardCopy size={16}/> Copiar JSON</button>

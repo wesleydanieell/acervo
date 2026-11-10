@@ -1,0 +1,28 @@
+.downloads-center{display:grid;gap:20px}
+.downloads-note{display:flex;gap:15px;align-items:flex-start;padding:20px;border-radius:19px}
+.downloads-note>svg{color:var(--accent);flex-shrink:0}
+.downloads-note strong{font-size:13px}
+.downloads-note p{font-size:11px;line-height:1.6;color:var(--text-muted);margin:6px 0 0}
+.downloads-empty{min-height:240px}
+.download-list{display:grid;gap:13px}
+.download-card{border-radius:16px;padding:19px;display:grid;gap:15px}
+.download-card-top{display:flex;align-items:center;gap:13px}
+.download-icon{padding:12px;display:flex;border-radius:13px;color:var(--accent);background:color-mix(in srgb,var(--accent) 11%,transparent)}
+.download-title{display:grid;gap:5px;min-width:0;flex:1}
+.download-title strong{font-size:13px;overflow-wrap:anywhere}
+.download-title small{font-size:11px;color:var(--text-muted);overflow-wrap:anywhere}
+.download-status{font-size:10px;white-space:nowrap;padding:7px 10px;border-radius:99px;border:1px solid var(--stroke)}
+.status-ready,.status-saved{background:color-mix(in srgb,#67d8ad 15%,transparent);color:var(--text)}
+.status-failed,.status-cancelled{background:color-mix(in srgb,#e88a7b 15%,transparent);color:var(--text)}
+.download-progress{display:grid;gap:7px}
+.download-progress progress{width:100%;height:7px;accent-color:var(--accent)}
+.download-progress span{font-size:10px;color:var(--text-muted)}
+.download-error{font-size:11px;margin:0;color:var(--text);background:color-mix(in srgb,#e88a7b 10%,transparent);padding:9px;border-radius:9px}
+.download-saved{display:flex;align-items:center;gap:7px;color:var(--text-muted);font-size:11px;margin:0;overflow-wrap:anywhere}
+.download-destination{display:grid;gap:9px}
+.download-destination label{display:grid;gap:7px;color:var(--text-muted);font-size:10px;font-weight:700}
+.download-destination select{height:42px;width:100%;border:1px solid var(--stroke);border-radius:10px;padding:0 12px;background:var(--glass-strong);color:var(--text);font-size:12px}
+.download-target-note{font-size:11px;color:var(--text-muted)}
+.download-confirm{margin:0;padding:11px 13px;background:color-mix(in srgb,var(--accent) 11%,transparent);border-radius:10px;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.download-actions{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}
+@media(max-width:650px){.download-card-top{flex-wrap:wrap}.download-status{margin-left:55px}.download-actions{justify-content:stretch}.download-actions .button{flex:1}}
