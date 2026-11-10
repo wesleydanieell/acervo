@@ -1,0 +1,19 @@
+/* Deliberate, review-first AI JSON organization. */
+.page-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end}
+.page-actions .button{white-space:nowrap}
+.organize-modal{width:min(740px,calc(100vw - 24px));max-height:90vh;overflow-y:auto}
+.organization-body{display:grid;gap:13px}
+.organization-body textarea{width:100%;min-height:150px;resize:vertical;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+.organization-body>p{margin-bottom:0}
+.organization-body>label{display:grid;gap:8px}
+.organization-review{display:grid;gap:14px;border:1px solid color-mix(in srgb,var(--accent) 32%,var(--stroke));background:color-mix(in srgb,var(--accent) 7%,var(--glass-base));padding:14px;border-radius:14px}
+.organization-review>strong{font-size:12px}
+.organization-moves{display:grid;gap:4px;max-height:225px;overflow:auto;scrollbar-width:thin}
+.organization-move{display:grid;grid-template-columns:minmax(0,1fr) 17px minmax(0,1fr);align-items:center;gap:8px;border-bottom:1px solid var(--stroke);padding:8px 1px}
+.organization-move span,.organization-move strong{overflow-wrap:anywhere;font-size:11px;line-height:1.4}
+.organization-move span{color:var(--text-muted);font-weight:500}
+.organization-move strong{color:var(--accent);font-weight:700}
+.organization-move svg{color:var(--text-muted)}
+.organization-approval{display:flex!important;align-items:flex-start;gap:10px;font-size:12px;line-height:1.5;cursor:pointer}
+.organization-approval input{margin-top:2px;accent-color:var(--accent);width:17px;height:17px;flex:none}
+@media(max-width:720px){.page-actions{justify-content:stretch;width:100%}.page-actions .button{flex:1}}
