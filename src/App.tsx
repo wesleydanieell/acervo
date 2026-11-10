@@ -20,7 +20,7 @@ import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import { selectVisibleRange } from "./library-selection";
-import { chosenPromptFolders } from "./prompt-folder-selection";
+import { chosenPromptFolders, isServiceCatalogPath } from "./prompt-folder-selection";
 import { PromptFolderPicker } from "./PromptFolderPicker";
 import acervoIcon from "../branding/acervo-icon.svg";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
@@ -260,10 +260,16 @@ function App() {
     });
   }, [pendingMove, collection]);
   const currentLabel = selectedFolder ? selectedFolder.split("/").slice(-1)[0] : "Minha biblioteca";
+  const promptDirectoryOptions = useMemo(() => (collection?.folders || []).filter((folder) =>
+    !isServiceCatalogPath(folder)
+  ), [collection]);
 
   const createPrompt = () => {
-    const selected = chosenPromptFolders(collection?.folders || [], promptFolders);
-    const folders = selected.length ? selected.map((folder) => "- " + folder).join("\n") : "- . (raiz da biblioteca)";
+    const selected = chosenPromptFolders(promptDirectoryOptions, promptFolders);
+    const folders = [
+      ...(promptFolders === null || !selected.length ? ["- . (raiz da biblioteca)"] : []),
+      ...selected.map((folder) => "- " + folder),
+    ].join("\n");
     const sample = { versao: 1, obras: [{ titulo: "O Banquete", autor: "Platão", editoras_indicadas: ["Editora de exemplo"], local_indicado: selected[0] || "", enfoques: "Filosofia", categorias: "Clássicos", prioridade_alta: 0 }] };
     return `Gere uma lista de ${promptCount} livros reais em JSON para importar no meu gerenciador de acervo.
 
@@ -647,7 +653,7 @@ ${JSON.stringify(sample, null, 2)}`;
       {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className={"modal glass-panel" + (modal === "organize" ? " organize-modal" : "")} role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : modal === "move" ? "Mover livros" : modal === "organize" ? "Organizar biblioteca por JSON" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}
         {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label>
-          <PromptFolderPicker folders={collection?.folders || []} selected={promptFolders} onChange={(next) => { setPromptFolders(next); setPromptDraft(null); }} />
+          <PromptFolderPicker folders={promptDirectoryOptions} selected={promptFolders} onChange={(next) => { setPromptFolders(next); setPromptDraft(null); }} />
           <label>Prévia do prompt (editável)<textarea value={promptDraft ?? createPrompt()} onChange={(event) => setPromptDraft(event.target.value)} rows={11} spellCheck={false}/></label>
           {promptDraft !== null && <button className="button secondary full" onClick={() => setPromptDraft(null)}>Restaurar texto sugerido</button>}
           <button className="button primary full" onClick={() => void copy(promptDraft ?? createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
