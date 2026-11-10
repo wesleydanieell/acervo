@@ -71,7 +71,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     </div>
     <div className="downloads-note glass-panel"><ArrowDownToLine size={22}/>
       <div><strong>Primeiro em área temporária, depois no acervo.</strong>
-        <p>O download não cria arquivos na sua biblioteca até você conferir o destino e confirmar. A fila e os livros já baixados permanecem registrados entre reinícios. Transferências interrompidas precisam ser reiniciadas manualmente; nada volta a baixar sozinho.</p></div>
+        <p>Os arquivos ficam no cache até você confirmar o destino. A fila persiste entre reinícios; nada volta a baixar sozinho. Use “Tentar novamente” para retomar um arquivo parcial quando a fonte permitir (HTTP Range + ETag), ou reiniciá-lo com segurança.</p></div>
     </div>
     {error && <div className="alert" role="alert"><CircleAlert size={17}/>{error}<button className="icon-button" onClick={() => setError("")} aria-label="Fechar erro"><X size={16}/></button></div>}
     {notice && <div className="inline-status" role="status"><Check size={16}/>{notice}</div>}
@@ -89,6 +89,8 @@ export function DownloadsCenter({ root, folders, onSaved }: {
             <progress max={100} value={percentage ?? undefined} aria-label={"Progresso de " + item.title}/>
             <span>{sizes(item.downloadedBytes)}{item.totalBytes ? " de " + sizes(item.totalBytes) + " · " + percentage?.toFixed(0) + "%" : " · tamanho desconhecido"}</span></div>}
           {item.error && <p className="download-error" role="status">{item.error}</p>}
+          {item.status === "failed" && item.downloadedBytes > 0 &&
+            <p className="download-target-note">Arquivo parcial em cache: {sizes(item.downloadedBytes)}. A próxima tentativa verifica se a fonte permite retomá-lo.</p>}
           {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}</p>}
           {item.status === "ready" && <div className="download-destination">
             <label>Pasta de destino
