@@ -78,8 +78,11 @@ fn validate_plan(root: &Path, json_text: &str) -> Result<OrganizationPreview, St
                 requested.arquivo
             ));
         }
-        if !destination.is_dir() {
-            return Err(format!("Destino não é pasta: {}", requested.destino));
+        if !destination.is_dir() || destination.starts_with(root.join("99 - Catálogo")) {
+            return Err(format!(
+                "Destino inválido ou protegido: {}",
+                requested.destino
+            ));
         }
         let size = source.metadata().map_err(|error| error.to_string())?.len();
         if let Some(expected) = requested.tamanho_bytes {
@@ -173,7 +176,7 @@ mod tests {
             .as_nanos();
         let root =
             std::env::temp_dir().join(format!("acervo-organize-{}-{seed}", std::process::id()));
-        for folder in ["Entrada", "Literatura", "Didaticos"] {
+        for folder in ["Entrada", "Literatura", "Didaticos", "99 - Catálogo"] {
             fs::create_dir_all(root.join(folder)).unwrap();
         }
         fs::write(root.join("Entrada/A.epub"), b"abc").unwrap();
@@ -205,9 +208,26 @@ mod tests {
             r#"{"versao":1,"movimentacoes":[{"arquivo":"Entrada/A.epub","destino":"Literatura"}]}"#,
             r#"{"versao":1,"movimentacoes":[{"arquivo":"../outside.epub","destino":"Didaticos"}]}"#,
             r#"{"versao":1,"movimentacoes":[{"arquivo":"Entrada/B.pdf","destino":"Didaticos","tamanho_bytes":99}]}"#,
+            r#"{"versao":1,"movimentacoes":[{"arquivo":"Entrada/A.epub","destino":"99 - Catálogo"}]}"#,
         ] {
             assert!(preview_organization(root.to_string_lossy().to_string(), json.into()).is_err());
         }
+        assert!(
+            crate::move_book(
+                root.to_string_lossy().to_string(),
+                "Entrada/A.epub".into(),
+                "99 - Catálogo".into()
+            )
+            .is_err()
+        );
+        assert!(
+            crate::create_folder(
+                root.to_string_lossy().to_string(),
+                "99 - Catálogo".into(),
+                "Nova pasta".into()
+            )
+            .is_err()
+        );
         assert!(root.join("Entrada/A.epub").exists());
         assert!(root.join("Entrada/B.pdf").exists());
         assert_eq!(

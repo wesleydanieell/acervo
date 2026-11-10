@@ -251,7 +251,13 @@ fn create_folder(root: String, parent: String, name: String) -> Result<String, S
     {
         return Err("Nome de pasta inválido.".into());
     }
-    let destination = resolve_inside(&root, &parent)?.join(folder);
+    let parent = resolve_inside(&root, &parent)?;
+    if parent.starts_with(root.join("99 - Catálogo"))
+        || (parent == root && folder == "99 - Catálogo")
+    {
+        return Err("A pasta de serviço do catálogo é protegida.".into());
+    }
+    let destination = parent.join(folder);
     if destination.exists() {
         return Err("Uma pasta com esse nome já existe.".into());
     }
@@ -326,8 +332,10 @@ fn move_book(root: String, relative_path: String, destination: String) -> Result
     if !source.is_file() || !is_book(&source) || !target_dir.is_dir() {
         return Err("Selecione um livro e uma pasta válidos.".into());
     }
-    if source.starts_with(root.join("99 - Catálogo")) {
-        return Err("Arquivos do catálogo são protegidos.".into());
+    if source.starts_with(root.join("99 - Catálogo"))
+        || target_dir.starts_with(root.join("99 - Catálogo"))
+    {
+        return Err("Arquivos e pastas de serviço do catálogo são protegidos.".into());
     }
     let filename = source.file_name().ok_or("Nome de arquivo inválido.")?;
     let target = target_dir.join(filename);
@@ -389,8 +397,8 @@ fn move_books(
         return Err("Biblioteca inválida.".into());
     }
     let target_dir = resolve_inside(&canonical_root, &destination)?;
-    if !target_dir.is_dir() {
-        return Err("Selecione uma pasta de destino válida.".into());
+    if !target_dir.is_dir() || target_dir.starts_with(canonical_root.join("99 - Catálogo")) {
+        return Err("Selecione uma pasta de destino válida, fora do catálogo.".into());
     }
     let mut sources = HashSet::new();
     let mut filenames = HashSet::new();
