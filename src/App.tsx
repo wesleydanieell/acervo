@@ -117,6 +117,7 @@ function App() {
     setLoading(true); setError("");
     try {
       const data = await invoke<Collection>("load_collection", { root: location.trim() });
+      if (data.root !== root) { setPromptFolders(null); setPromptDraft(null); }
       setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
       setStatus(data.files.length + " arquivos encontrados; nenhuma alteração feita nos livros.");
       setModal(null);
