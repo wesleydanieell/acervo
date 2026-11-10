@@ -23,7 +23,8 @@ svg{flex-shrink:0}
 .glass-panel{border:1px solid var(--stroke);background:color-mix(in srgb,var(--glass-strong) 74%,transparent);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 7%,transparent),var(--shadow);backdrop-filter:blur(28px) saturate(145%);-webkit-backdrop-filter:blur(28px) saturate(145%)}
 .sidebar{width:254px;flex:none;z-index:3;display:flex;flex-direction:column;border-left:0;border-top:0;border-bottom:0;border-radius:0;box-shadow:inset -1px 0 color-mix(in srgb,var(--text) 4%,transparent);padding:24px 14px 17px}
 .brand{display:flex;gap:11px;align-items:center;padding:2px 10px 35px}
-.brand-symbol{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 95%,white),color-mix(in srgb,var(--accent) 75%,#193627));color:var(--accent-ink);box-shadow:0 8px 30px color-mix(in srgb,var(--accent) 19%,transparent)}
+.brand-symbol{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;box-shadow:0 8px 30px color-mix(in srgb,var(--accent) 16%,transparent)}
+.brand-symbol img{width:42px;height:42px;display:block;border-radius:13px}
 .brand strong{display:block;font:800 18px/1.3 Manrope,sans-serif;letter-spacing:-.05em}
 .brand small{display:block;margin-top:3px;font-size:10px;letter-spacing:.04em;color:var(--text-muted)}
 .nav-caption{font-size:10px;color:var(--text-muted);font-weight:800;letter-spacing:.13em}

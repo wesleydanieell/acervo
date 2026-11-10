@@ -30,6 +30,14 @@ O instalador compila em modo de produção, instala o executável em `~/.local/o
 
 Se você já compilou a versão release, execute `./scripts/install-desktop.sh --skip-build`. O app aparece no menu de aplicativos do Niri/Noctalia como **Acervo**.
 
+## AppImage para Linux
+
+O workflow [Build AppImage](.github/workflows/appimage.yml) compila o Acervo em um ambiente Linux compatível (Ubuntu 22.04). Ele é acionado a cada atualização da `main`, por tags `v*` e manualmente pela aba **Actions** do GitHub.
+
+Depois da execução, abra **Actions → Build AppImage → execução → Artifacts** e baixe `Acervo-Linux-x86_64-AppImage`. Extraia o ZIP do artefato e execute o `.AppImage` após torná-lo executável (`chmod +x Acervo*.AppImage`). O arquivo tem validade de 30 dias nos artefatos da ação.
+
+O ícone original, editável, fica em [`branding/acervo-icon.svg`](branding/acervo-icon.svg); o comando `npm run tauri -- icon branding/acervo-icon.png` reproduz os formatos de empacotamento a partir do PNG exportado do SVG.
+
 ## Desenvolvimento e testes
 
 ```bash
