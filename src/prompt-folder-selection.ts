@@ -1,3 +1,8 @@
+export function isServiceCatalogPath(path: string): boolean {
+  const top = path.split("/")[0]?.trim() || "";
+  return /^99\s*[-–—]\s*cat[aá]logo$/i.test(top);
+}
+
 /** null means the complete library is selected; an empty set means root only. */
 export function chosenPromptFolders(folders: readonly string[], selected: ReadonlySet<string> | null): string[] {
   return folders.filter((folder) => selected === null || selected.has(folder));

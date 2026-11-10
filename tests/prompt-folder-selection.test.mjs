@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  chosenPromptFolders, directPromptChildren, promptFolderSelection, promptSubtree, togglePromptFolder,
+  chosenPromptFolders, directPromptChildren, isServiceCatalogPath, promptFolderSelection, promptSubtree, togglePromptFolder,
 } from "../src/prompt-folder-selection.ts";
 
 const folders = [
@@ -55,4 +55,13 @@ test("root selection toggles the entire library and unknown paths are ignored", 
   assert.deepEqual(chosenPromptFolders(folders, togglePromptFolder(folders, null, "")), []);
   assert.equal(togglePromptFolder(folders, new Set(), ""), null);
   assert.deepEqual(chosenPromptFolders(folders, togglePromptFolder(folders, new Set(), "fake")), []);
+});
+
+test("service catalog is excluded for hyphen and en/em dash names", () => {
+  for (const folder of ["99 - Catálogo", "99 – Catálogo", "99 — Catalogo", "99 - Catálogo/subpasta"]) {
+    assert.equal(isServiceCatalogPath(folder), true);
+  }
+  for (const folder of ["01 - Literatura", "03 – Entrada", "99 - Coleção pessoal"]) {
+    assert.equal(isServiceCatalogPath(folder), false);
+  }
 });

@@ -20,7 +20,7 @@ import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import { selectVisibleRange } from "./library-selection";
-import { chosenPromptFolders } from "./prompt-folder-selection";
+import { chosenPromptFolders, isServiceCatalogPath } from "./prompt-folder-selection";
 import { PromptFolderPicker } from "./PromptFolderPicker";
 import acervoIcon from "../branding/acervo-icon.svg";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
@@ -261,7 +261,7 @@ function App() {
   }, [pendingMove, collection]);
   const currentLabel = selectedFolder ? selectedFolder.split("/").slice(-1)[0] : "Minha biblioteca";
   const promptDirectoryOptions = useMemo(() => (collection?.folders || []).filter((folder) =>
-    folder !== "99 - Catálogo" && !folder.startsWith("99 - Catálogo/")
+    !isServiceCatalogPath(folder)
   ), [collection]);
 
   const createPrompt = () => {
