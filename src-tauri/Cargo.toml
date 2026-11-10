@@ -27,6 +27,7 @@ tauri-plugin-dialog = "2"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 roxmltree = "0.21"
 base64 = "0.22"
+url = "2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

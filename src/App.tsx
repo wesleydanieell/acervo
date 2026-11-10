@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as Reac
 import {
   Archive, ArrowRight, ArrowUpDown, Book, Check, ChevronDown, ChevronRight,
   CircleHelp, ClipboardCopy, Filter, Folder, FolderOpen,
-  FolderPlus, FolderTree, Grid2X2, HardDrive, Home, Layers3, List, LoaderCircle, Menu,
+  FolderPlus, FolderTree, Globe2, Grid2X2, HardDrive, Home, Layers3, List, LoaderCircle, Menu,
   Palette, Plus, RefreshCw, Search, Settings2, X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -15,6 +15,7 @@ import "./catalog.css";
 import "./context-menu.css";
 import "./organization.css";
 import { CatalogCenter } from "./CatalogCenter";
+import { SourcesCenter } from "./SourcesCenter";
 import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
@@ -24,7 +25,7 @@ import { ContextMenu, type ContextAction } from "./ContextMenu";
 type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
 type Collection = { root: string; files: BookFile[]; folders: string[]; works: CatalogWork[]; warnings: string[] };
-type View = "catalog" | "lists" | "settings";
+type View = "catalog" | "lists" | "settings" | "sources";
 type GroupBy = "none" | "folder" | "format" | "author";
 type Layout = "grid" | "list";
 type Entry = { key: string; type: "file" | "work"; title: string; author: string; format: string; folder: string; present: boolean; file?: BookFile; work?: CatalogWork };
@@ -457,6 +458,10 @@ ${JSON.stringify(sample, null, 2)}`;
             onClick={() => { setView("lists"); setSelectedFolder(""); setSideOpen(false); }}>
             <Book size={18} strokeWidth={1.9}/> Catálogo <span className="nav-count">{collection?.works.length || 0}</span>
           </button>
+          <button className={"nav-item" + (view === "sources" ? " active" : "")}
+            onClick={() => { setView("sources"); setSelectedFolder(""); setSideOpen(false); }}>
+            <Globe2 size={18} strokeWidth={1.9}/> Fontes
+          </button>
         </div>
         <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta na pasta atual" onClick={() => openFolderDialog(selectedFolder)}><Plus size={18} /></button></div>
         <div className="folder-tree-search"><Search size={14}/><input aria-label="Filtrar pastas" placeholder="Localizar pasta…" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)}/>{folderQuery && <button aria-label="Limpar filtro de pastas" onClick={() => setFolderQuery("")}><X size={13}/></button>}</div>
@@ -552,7 +557,7 @@ ${JSON.stringify(sample, null, 2)}`;
               </article>
             </div>
             <div className="settings-version">Acervo 0.1.0-alpha.1 · dados locais · <span>atualizações experimentais</span></div>
-          </section> : view === "lists" ? <>
+          </section> : view === "sources" ? <SourcesCenter/> : view === "lists" ? <>
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}
