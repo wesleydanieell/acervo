@@ -15,7 +15,7 @@ O Acervo organiza **arquivos físicos e listas de obras**. Não pretende substit
 - Geração de prompts de IA com a estrutura de pastas existente para produzir listas JSON compatíveis.
 - Aparência Liquid Glass e Material 3, paletas manuais e sincronização das cores com o Noctalia (mediante a configuração do template em `integrations/noctalia`).
 
-> **Versão alpha:** a organização de arquivos pode mover documentos e atualizar referências legadas quando você confirmar uma movimentação. Mantenha backup. A pesquisa em fontes JSON e os downloads temporários com confirmação estão em alpha. Retomada manual de downloads via HTTP Range já existe quando a fonte oferece ETag forte; importação CSV e validação profunda de arquivos ainda estão em desenvolvimento.
+> **Versão alpha:** a organização de arquivos pode mover documentos e atualizar referências legadas quando você confirmar uma movimentação. Mantenha backup. A pesquisa em fontes JSON e os downloads temporários com confirmação estão em alpha. Pausa e retomada manual de downloads já existem (retomada por HTTP Range quando a fonte oferece ETag forte); importação CSV e validação profunda de arquivos ainda estão em desenvolvimento.
 
 ## Instalação no CachyOS / Linux
 
