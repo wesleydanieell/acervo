@@ -1,6 +1,7 @@
 mod catalog_lists;
 mod covers;
 mod organization;
+mod source_search;
 mod sources;
 
 use serde::Serialize;
@@ -518,8 +519,10 @@ pub fn run() {
             organization::apply_organization,
             sources::list_sources,
             sources::install_source,
+            sources::install_demo_source,
             sources::set_source_enabled,
             sources::remove_source,
+            source_search::search_sources,
             read_noctalia_colors
         ])
         .run(tauri::generate_context!())
