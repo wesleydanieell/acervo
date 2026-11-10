@@ -71,7 +71,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     </div>
     <div className="downloads-note glass-panel"><ArrowDownToLine size={22}/>
       <div><strong>Primeiro em área temporária, depois no acervo.</strong>
-        <p>O download não cria arquivos na sua biblioteca até você conferir o destino e confirmar. Esta fila é mantida enquanto o aplicativo estiver aberto; salve os livros concluídos antes de fechar.</p></div>
+        <p>O download não cria arquivos na sua biblioteca até você conferir o destino e confirmar. A fila e os livros já baixados permanecem registrados entre reinícios. Transferências interrompidas precisam ser reiniciadas manualmente; nada volta a baixar sozinho.</p></div>
     </div>
     {error && <div className="alert" role="alert"><CircleAlert size={17}/>{error}<button className="icon-button" onClick={() => setError("")} aria-label="Fechar erro"><X size={16}/></button></div>}
     {notice && <div className="inline-status" role="status"><Check size={16}/>{notice}</div>}

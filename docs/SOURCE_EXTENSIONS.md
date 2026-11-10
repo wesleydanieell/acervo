@@ -56,15 +56,19 @@ Implementado nesta etapa:
 - Salvamento na biblioteca apenas com confirmação e sem substituir arquivos existentes.
   Em bibliotecas montadas via FUSE, o arquivo final pode ficar visível durante a
   cópia já autorizada; caso ocorra erro, a cópia incompleta é removida.
-- A fila é mantida durante a sessão; salve os downloads concluídos antes de fechar o app.
+- A fila é persistida em `downloads.json` na configuração local do Acervo (modo 0600
+  no Linux); os arquivos baixados continuam no cache temporário após reiniciar.
+- Jobs interrompidos são marcados como falhos e exigem nova tentativa explícita;
+  a inicialização nunca dispara downloads automaticamente.
+- Registros inválidos não são sobrescritos; o aplicativo informa o erro de leitura.
 
-**Ainda pendente:** pausa com retomada por HTTP Range, fila persistente entre sessões,
-validação aprofundada de conteúdo, criação automática de pastas planejadas e associação
+**Ainda pendente:** pausa com retomada por HTTP Range (nova tentativa ainda
+recomeça do zero), validação aprofundada de conteúdo, criação automática de pastas planejadas e associação
 automática à obra do Catálogo (sem movimentação não autorizada).
 
 ## Próximas interfaces do motor
 
-1. Persistência e retomada segura da fila, com verificação de tamanho/hash e retry por parte.
+1. Retomada segura de transferências parciais via HTTP Range/If-Range, com verificação de tamanho/hash.
 2. Integração de edição e obra no Catálogo depois de salvar um download.
 3. Extensões complexas, se realmente necessárias, só em sandbox isolada e com permissões explícitas.
 

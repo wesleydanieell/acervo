@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tauri::Manager;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -509,7 +510,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(downloads::DownloadManager::default())
+        .setup(|app| {
+            app.manage(downloads::DownloadManager::restore(app.handle()));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_collection,
             catalog_lists::import_catalog_json,
