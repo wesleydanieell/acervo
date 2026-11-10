@@ -19,6 +19,7 @@ import { DownloadsCenter } from "./DownloadsCenter";
 import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
+import { selectVisibleRange } from "./library-selection";
 import acervoIcon from "../branding/acervo-icon.svg";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
 
@@ -102,6 +103,7 @@ function App() {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(() => new Set());
+  const selectionAnchor = useRef<string | null>(null);
   const [pendingMove, setPendingMove] = useState<{ paths: string[]; destination: string } | null>(null);
   const [visibleLimit, setVisibleLimit] = useState(80);
   useEffect(() => { localStorage.setItem("acervo-sidebar-width", String(sidebarWidth)); }, [sidebarWidth]);
@@ -377,12 +379,20 @@ ${JSON.stringify(sample, null, 2)}`;
     finally { setLoading(false); }
   };
   const toggleBookSelection = (path: string) => {
+    selectionAnchor.current = path;
     setSelectionMode(true);
     setBulkSelected((current) => {
       const next = new Set(current);
       if (next.has(path)) next.delete(path); else next.add(path);
       return next;
     });
+  };
+  const selectBookRange = (path: string, extend: boolean) => {
+    const visiblePaths = visibleEntries.flatMap((entry) => entry.file ? [entry.file.path] : []);
+    const anchor = selectionAnchor.current;
+    if (!anchor || !visiblePaths.includes(anchor)) selectionAnchor.current = path;
+    setBulkSelected((current) => selectVisibleRange(visiblePaths, anchor, path, current, extend));
+    setSelectionMode(true);
   };
   const dropPaths = (data: DataTransfer): string[] => {
     try {
@@ -601,8 +611,8 @@ ${JSON.stringify(sample, null, 2)}`;
               <Folder size={23}/><span><strong>{folder.split("/").slice(-1)[0]}</strong><small>{folderFileCounts.get(folder) || 0} livros dentro</small></span><ChevronRight size={17}/>
             </button>
           ))}</section>}
-          <div className="content-top"><div><h2>Arquivos <span>{filtered.length}</span></h2><p>Arraste os livros existentes para organizar as pastas. Obras faltantes ficam no Catálogo.</p></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="pill-control sort-control"><ArrowUpDown size={16}/><select aria-label="Ordenar livros" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}><option value="title">Título</option><option value="author">Autor</option><option value="format">Formato</option><option value="size">Tamanho</option></select><ChevronDown size={14}/></div><div className="pill-control group-control"><Layers3 size={15}/><select aria-label="Agrupar livros" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="none">Sem grupos</option><option value="folder">Por pasta</option><option value="format">Por formato</option><option value="author">Por autor</option></select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
-          {bulkSelected.size > 0 && <div className="bulk-toolbar glass-panel"><div><Check size={17}/><strong>{bulkSelected.size} selecionado(s)</strong><small>Arraste para uma pasta ou escolha um destino.</small></div><button className="button primary" onClick={() => queueMove([...bulkSelected], selectedFolder || "")}><FolderOpen size={17}/> Mover para…</button><button className="icon-button" onClick={() => setBulkSelected(new Set())} title="Limpar seleção" aria-label="Limpar seleção"><X size={17}/></button></div>}
+          <div className="content-top"><div><h2>Arquivos <span>{filtered.length}</span></h2><p>Arraste livros para pastas. Ctrl+clique seleciona itens; Shift+clique seleciona intervalos. Obras faltantes ficam no Catálogo.</p></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); selectionAnchor.current = null; }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="pill-control sort-control"><ArrowUpDown size={16}/><select aria-label="Ordenar livros" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}><option value="title">Título</option><option value="author">Autor</option><option value="format">Formato</option><option value="size">Tamanho</option></select><ChevronDown size={14}/></div><div className="pill-control group-control"><Layers3 size={15}/><select aria-label="Agrupar livros" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="none">Sem grupos</option><option value="folder">Por pasta</option><option value="format">Por formato</option><option value="author">Por autor</option></select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
+          {bulkSelected.size > 0 && <div className="bulk-toolbar glass-panel"><div><Check size={17}/><strong>{bulkSelected.size} selecionado(s)</strong><small>Arraste para uma pasta ou escolha um destino.</small></div><button className="button primary" onClick={() => queueMove([...bulkSelected], selectedFolder || "")}><FolderOpen size={17}/> Mover para…</button><button className="icon-button" onClick={() => { setBulkSelected(new Set()); selectionAnchor.current = null; }} title="Limpar seleção" aria-label="Limpar seleção"><X size={17}/></button></div>}
           {!collection ? <div className="empty-state glass-panel"><Archive size={42}/><h3>Seu acervo, no seu controle.</h3><p>Selecione uma pasta para visualizar os livros e o catálogo existente. Nada será alterado ao abrir.</p><button className="button primary" onClick={() => void chooseRoot()}>Escolher pelo explorador <FolderOpen size={16}/></button></div>
           : filtered.length ? <><div className={"books-" + layout}>{visibleEntries.map((entry, index) => (
             <Fragment key={entry.key}>
@@ -611,7 +621,12 @@ ${JSON.stringify(sample, null, 2)}`;
             <button className={"book-card glass-panel" + (selection?.key === entry.key ? " selected" : "") + (bulkSelected.has(entry.file?.path || "") ? " bulk-selected" : "")} key={entry.key}
               aria-pressed={selectionMode && entry.file ? bulkSelected.has(entry.file.path) : undefined}
               onContextMenu={(event) => { if (entry.file) openContextMenu(event, "file", entry.file.path); }}
-              onClick={(event) => { if (entry.file && (selectionMode || event.ctrlKey || event.metaKey)) toggleBookSelection(entry.file.path); else setSelection(entry); }} draggable={Boolean(entry.file)}
+              onClick={(event) => {
+                if (!entry.file) { setSelection(entry); return; }
+                if (event.shiftKey) selectBookRange(entry.file.path, event.ctrlKey || event.metaKey);
+                else if (selectionMode || event.ctrlKey || event.metaKey) toggleBookSelection(entry.file.path);
+                else { selectionAnchor.current = entry.file.path; setSelection(entry); }
+              }} draggable={Boolean(entry.file)}
               onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
               {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
               <BookCover root={collection?.root || ""} file={entry.file} format={entry.format} present={entry.present} title={entry.title} />
