@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Archive, ArrowRight, ArrowUpDown, Book, Check, ChevronDown, ChevronRight,
   CircleHelp, ClipboardCopy, Filter, Folder, FolderOpen,
@@ -12,9 +12,11 @@ import "./App.css";
 import "./theme.css";
 import "./explorer.css";
 import "./catalog.css";
+import "./context-menu.css";
 import { CatalogCenter } from "./CatalogCenter";
 import { BookCover } from "./BookCover";
 import acervoIcon from "../branding/acervo-icon.svg";
+import { ContextMenu, type ContextAction } from "./ContextMenu";
 
 type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
@@ -27,6 +29,7 @@ type PaletteName = "noctalia" | "jade" | "indigo" | "rose" | "amber";
 type VisualStyle = "glass" | "material";
 type SortBy = "title" | "author" | "format" | "size";
 type ThemeTokens = Record<"primary" | "on_primary" | "surface" | "on_surface" | "surface_container" | "outline_variant", string> & { mode?: "light" | "dark" };
+type MenuState = { x: number; y: number; kind: "folder" | "file" | "background"; path: string };
 
 const accentPresets: Record<Exclude<PaletteName, "noctalia">, string> = {
   jade: "#8ddbb8", indigo: "#a6b7ff", rose: "#f8a9c7", amber: "#f2c27c",
@@ -83,6 +86,7 @@ function App() {
   const [sourceLanguage, setSourceLanguage] = useState("pt");
   const [newFolder, setNewFolder] = useState("");
   const [folderParent, setFolderParent] = useState("");
+  const [contextMenu, setContextMenu] = useState<MenuState | null>(null);
   const [status, setStatus] = useState("");
   const [dragTarget, setDragTarget] = useState("");
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
@@ -318,6 +322,36 @@ ${JSON.stringify(sample, null, 2)}`;
     finally { setLoading(false); }
   };
 
+  const openFolderDialog = (parent: string) => {
+    setNewFolder("");
+    setFolderParent(parent);
+    setContextMenu(null);
+    setModal("folder");
+  };
+  const openContextMenu = (event: ReactMouseEvent, kind: MenuState["kind"], path: string) => {
+    if (!collection) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY, kind, path });
+  };
+  const contextActions: ContextAction[] = !contextMenu ? [] : contextMenu.kind === "file" ? [
+    { label: "Ver detalhes", icon: <Book size={16}/>, onSelect: () => {
+      const entry = libraryEntries.find((candidate) => candidate.file?.path === contextMenu.path);
+      if (entry) setSelection(entry);
+    } },
+    { label: "Selecionar livro", icon: <Check size={16}/>, onSelect: () => toggleBookSelection(contextMenu.path) },
+    { label: "Mover para outra pasta…", icon: <FolderOpen size={16}/>, onSelect: () => queueMove([contextMenu.path], selectedFolder) },
+    { label: "Copiar caminho", icon: <ClipboardCopy size={16}/>, onSelect: () => void copy([collection?.root, contextMenu.path].filter(Boolean).join("/"), "Caminho copiado.") },
+  ] : [
+    { label: "Abrir pasta", icon: <FolderOpen size={16}/>, onSelect: () => {
+      setSelectedFolder(contextMenu.path); setView("catalog"); setSideOpen(false);
+      setExpandedFolders((current) => new Set(current).add(contextMenu.path));
+    } },
+    { label: "Nova pasta aqui", icon: <FolderPlus size={16}/>, onSelect: () => openFolderDialog(contextMenu.path) },
+    ...(bulkSelected.size > 0 ? [{ label: "Mover livros selecionados aqui", icon: <FolderOpen size={16}/>, onSelect: () => queueMove([...bulkSelected], contextMenu.path) }] : []),
+    { label: "Copiar caminho", icon: <ClipboardCopy size={16}/>, onSelect: () => void copy([collection?.root, contextMenu.path].filter(Boolean).join("/"), "Caminho copiado.") },
+  ];
+
   const addFolder = async () => {
     if (!collection || !newFolder.trim()) return;
     try {
@@ -348,19 +382,24 @@ ${JSON.stringify(sample, null, 2)}`;
             <Book size={18} strokeWidth={1.9}/> Catálogo <span className="nav-count">{collection?.works.length || 0}</span>
           </button>
         </div>
-        <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta" onClick={() => { setFolderParent(selectedFolder); setModal("folder"); }}><Plus size={18} /></button></div>
+        <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta na pasta atual" onClick={() => openFolderDialog(selectedFolder)}><Plus size={18} /></button></div>
         <div className="folder-tree-search"><Search size={14}/><input aria-label="Filtrar pastas" placeholder="Localizar pasta…" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)}/>{folderQuery && <button aria-label="Limpar filtro de pastas" onClick={() => setFolderQuery("")}><X size={13}/></button>}</div>
         <div className="folder-scroller" role="tree" aria-label="Estrutura da biblioteca">
-          <button className={"folder-row" + (view === "catalog" && !selectedFolder ? " active" : "") + (dragTarget === "/" ? " drop-target" : "")} onClick={() => { setView("catalog"); setSelectedFolder(""); setSideOpen(false); }}
+          <div className={"folder-row" + (view === "catalog" && !selectedFolder ? " active" : "") + (dragTarget === "/" ? " drop-target" : "")}
+            onContextMenu={(event) => openContextMenu(event, "folder", "")}
             onDragOver={(event) => { if (event.dataTransfer.types.includes("text/acervo-book")) { event.preventDefault(); setDragTarget("/"); } }}
             onDragLeave={() => setDragTarget("")}
             onDrop={(event) => { event.preventDefault(); queueMove(dropPaths(event.dataTransfer), ""); }}>
-            <FolderTree size={17} /> Raiz da biblioteca
-          </button>
+            <button className="folder-select" onClick={() => { setView("catalog"); setSelectedFolder(""); setSideOpen(false); }}>
+              <FolderTree size={17} /><span>Raiz da biblioteca</span>
+            </button>
+            <button className="folder-quick-add" title="Nova pasta na raiz" aria-label="Nova pasta na raiz" onClick={() => openFolderDialog("")}><Plus size={15}/></button>
+          </div>
           {visibleFolders.map((folder) => (
             <div key={folder} role="treeitem" aria-expanded={folderParents.has(folder) ? expandedFolders.has(folder) : undefined}
               className={"folder-row" + (selectedFolder === folder ? " active" : "") + (dragTarget === folder ? " drop-target" : "")}
               style={{ paddingLeft: 7 + Math.min(6, folder.split("/").length - 1) * 13 }} title={folder}
+              onContextMenu={(event) => openContextMenu(event, "folder", folder)}
               onDragOver={(event) => { if (event.dataTransfer.types.includes("text/acervo-book")) { event.preventDefault(); setDragTarget(folder); } }}
               onDragLeave={() => setDragTarget("")}
               onDrop={(event) => { event.preventDefault(); queueMove(dropPaths(event.dataTransfer), folder); }}>
@@ -370,6 +409,7 @@ ${JSON.stringify(sample, null, 2)}`;
               <button className="folder-select" onClick={() => { setSelectedFolder(folder); setView("catalog"); setSideOpen(false); if (folderParents.has(folder)) setExpandedFolders((prev) => new Set(prev).add(folder)); }}>
                 <Folder size={16} strokeWidth={1.8}/><span>{folder.split("/").slice(-1)[0]}</span><small className="tree-count">{folderFileCounts.get(folder) || 0}</small>
               </button>
+              <button className="folder-quick-add" title={"Criar subpasta em " + folder} aria-label={"Criar subpasta em " + folder} onClick={(event) => { event.stopPropagation(); openFolderDialog(folder); }}><Plus size={15}/></button>
             </div>
           ))}
         </div>
@@ -412,7 +452,7 @@ ${JSON.stringify(sample, null, 2)}`;
             <button className="icon-button" title="Atualizar catálogo" onClick={() => void refresh()}><RefreshCw className={loading ? "spinning" : ""} size={19} /></button>
           </div>
         </header>
-        <main className="main-area">
+        <main className="main-area" onContextMenu={(event) => { if (view === "catalog") openContextMenu(event, "background", selectedFolder); }}>
           {view === "settings" ? <section className="settings-page">
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> PREFERÊNCIAS</div><h1>Configurações</h1><p>Personalize a aparência e escolha onde sua biblioteca está armazenada.</p></div></div>
@@ -447,12 +487,12 @@ ${JSON.stringify(sample, null, 2)}`;
               onSelect={(work) => { const entry = entries.find((candidate) => candidate.work?.id === work.id); if (entry) setSelection(entry); }}
               onSelectFile={(file) => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }} />
           </> : <>
-          <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> EXPLORADOR DE BIBLIOTECA</div><h1>{currentLabel}</h1><p>Pastas e livros existentes no disco. Para listas e faltantes, abra o Catálogo.</p></div><button className="button primary add-button" onClick={() => { setFolderParent(selectedFolder); setModal("folder"); }}><FolderPlus size={18}/> Nova pasta</button></div>
+          <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> EXPLORADOR DE BIBLIOTECA</div><h1>{currentLabel}</h1><p>Pastas e livros existentes no disco. Para listas e faltantes, abra o Catálogo.</p></div><button className="button primary add-button" onClick={() => openFolderDialog(selectedFolder)}><FolderPlus size={18}/> Nova pasta</button></div>
           {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
           {collection?.warnings.length ? <div className="warning">{collection.warnings.slice(0, 2).join(" · ")}</div> : null}
           {selectedFolder && <nav className="breadcrumbs" aria-label="Caminho da pasta"><button onClick={() => { setSelectedFolder(""); setView("catalog"); }}><Home size={15}/> Raiz</button>{breadcrumbs.map((crumb) => <span key={crumb.path}><ChevronRight size={14}/><button onClick={() => setSelectedFolder(crumb.path)}>{crumb.label}</button></span>)}</nav>}
           {subfolders.length > 0 && <section className="folder-grid" aria-label="Subpastas">{subfolders.map((folder) => (
-            <button className="folder-tile glass-panel" key={folder} onClick={() => { setSelectedFolder(folder); setView("catalog"); setExpandedFolders((current) => new Set(current).add(folder)); }}>
+            <button className="folder-tile glass-panel" key={folder} onContextMenu={(event) => openContextMenu(event, "folder", folder)} onClick={() => { setSelectedFolder(folder); setView("catalog"); setExpandedFolders((current) => new Set(current).add(folder)); }}>
               <Folder size={23}/><span><strong>{folder.split("/").slice(-1)[0]}</strong><small>{folderFileCounts.get(folder) || 0} livros dentro</small></span><ChevronRight size={17}/>
             </button>
           ))}</section>}
@@ -465,6 +505,7 @@ ${JSON.stringify(sample, null, 2)}`;
                 <div className="book-group-heading"><span>{groupLabel(entry)}</span><span className="book-group-rule"/></div>}
             <button className={"book-card glass-panel" + (selection?.key === entry.key ? " selected" : "") + (bulkSelected.has(entry.file?.path || "") ? " bulk-selected" : "")} key={entry.key}
               aria-pressed={selectionMode && entry.file ? bulkSelected.has(entry.file.path) : undefined}
+              onContextMenu={(event) => { if (entry.file) openContextMenu(event, "file", entry.file.path); }}
               onClick={(event) => { if (entry.file && (selectionMode || event.ctrlKey || event.metaKey)) toggleBookSelection(entry.file.path); else setSelection(entry); }} draggable={Boolean(entry.file)}
               onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
               {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
@@ -481,7 +522,7 @@ ${JSON.stringify(sample, null, 2)}`;
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}
         {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label><label>Prévia do prompt<textarea readOnly value={createPrompt()} rows={11} /></label><button className="button primary full" onClick={() => void copy(createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
         {modal === "import" && <div className="modal-body"><p>Cole uma lista JSON no formato <code>{'{ "versao": 1, "obras": [...] }'}</code>. As obras serão salvas em <code>99 - Catálogo/Acervo_Listas.json</code>; o banco antigo não será alterado.</p><label>Conteúdo JSON<textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportNotice(""); }} rows={11} placeholder='{"versao":1,"obras":[{"titulo":"O Banquete","local_indicado":"Literatura/Filosofia"}]}' /></label>{importNotice && <div className="import-notice">{importNotice}</div>}<button className="button primary full" disabled={loading || !collection || !importText.trim()} onClick={() => void importBooks()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <Check size={17}/>} Importar obras</button></div>}
-        {modal === "folder" && <div className="modal-body"><p>Crie pastas dentro de qualquer nível da biblioteca. O caminho de destino será preservado.</p><label>Dentro de<select value={folderParent} onChange={(event) => setFolderParent(event.target.value)}><option value="">Raiz da biblioteca</option>{collection?.folders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}</select></label><label>Nome da pasta<input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="Ex.: Filosofia" /></label><button className="button primary full" disabled={!collection || !newFolder.trim()} onClick={() => void addFolder()}><FolderPlus size={17}/> Criar pasta</button></div>}
+        {modal === "folder" && <div className="modal-body"><p>A nova pasta será criada em <strong>{folderParent || "Raiz da biblioteca"}</strong>.</p><label>Nome da pasta<input autoFocus value={newFolder} onChange={(event) => setNewFolder(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && newFolder.trim()) void addFolder(); }} placeholder="Ex.: Filosofia" /></label><button className="button primary full" disabled={!collection || !newFolder.trim()} onClick={() => void addFolder()}><FolderPlus size={17}/> Criar pasta</button></div>}
         {modal === "move" && pendingMove && <div className="modal-body">
           <p>Revise a movimentação. Arquivos com o mesmo nome no destino não serão sobrescritos, e as referências no catálogo serão atualizadas.</p>
           <div className="move-summary"><strong>{pendingMove.paths.length} livro(s) selecionado(s)</strong><span>{pendingMove.paths.slice(0, 5).map((path) => <small key={path}>{path}</small>)}{pendingMove.paths.length > 5 && <small>e mais {pendingMove.paths.length - 5}…</small>}</span></div>
@@ -491,6 +532,7 @@ ${JSON.stringify(sample, null, 2)}`;
           <div className="move-actions"><button className="button secondary" onClick={() => setModal(null)}>Cancelar</button><button className="button primary" disabled={loading || moveConflicts.length > 0} onClick={() => void commitMove()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <FolderOpen size={17}/>} Confirmar movimentação</button></div>
         </div>}
       </section></div>}
+      {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} title={contextMenu.kind === "file" ? contextMenu.path.split("/").slice(-1)[0] : contextMenu.path || "Raiz da biblioteca"} actions={contextActions} onClose={() => setContextMenu(null)} />}
     </div>
   );
 }
