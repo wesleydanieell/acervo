@@ -671,9 +671,19 @@ pub fn cancel_download(
                 item.cancel.store(true, Ordering::Relaxed);
             }
             "ready" | "failed" | "cancelled" => {
+                let stage = staged_path(&app, &id)?;
+                match fs::remove_file(stage) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(format!("Falha ao limpar arquivo temporário: {error}"));
+                    }
+                }
                 item.info.status = "cancelled".into();
                 item.info.error.clear();
-                let _ = fs::remove_file(staged_path(&app, &id)?);
+                item.info.downloaded_bytes = 0;
+                item.info.total_bytes = None;
+                item.etag.clear();
             }
             _ => return Err("Esse download não pode ser cancelado.".into()),
         }
@@ -757,12 +767,13 @@ pub fn dismiss_download(
         ) {
             return Err("Cancele ou conclua o download antes de removê-lo.".into());
         }
-        if items[index].info.status == "ready" {
-            let stage = staged_path(&app, &id)?;
-            if stage.exists() {
-                fs::remove_file(stage)
-                    .map_err(|error| format!("Falha ao descartar arquivo temporário: {error}"))?;
-            }
+        // A failed transfer may retain a large resumable .part file. Removing its
+        // history entry must remove that cached data too, not orphan it on disk.
+        let stage = staged_path(&app, &id)?;
+        match fs::remove_file(stage) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Falha ao descartar arquivo temporário: {error}")),
         }
         items.remove(index);
     }
