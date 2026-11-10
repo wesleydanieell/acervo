@@ -102,6 +102,84 @@ fn load_values(path: &Path) -> Result<Vec<Value>, String> {
     parse_list(&raw)
 }
 
+fn save_values(root: &Path, works: Vec<Value>) -> Result<(), String> {
+    let catalog_dir = root.join("99 - Catálogo");
+    fs::create_dir_all(&catalog_dir)
+        .map_err(|error| format!("Falha ao criar pasta do catálogo: {error}"))?;
+    if !fs::canonicalize(&catalog_dir)
+        .map_err(|error| error.to_string())?
+        .starts_with(root)
+    {
+        return Err("Catálogo fora da biblioteca.".into());
+    }
+
+    let destination = list_path(root);
+    let payload = serde_json::to_vec_pretty(&json!({ "versao": 1, "obras": works }))
+        .map_err(|error| error.to_string())?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let staging = catalog_dir.join(format!(".acervo-save-{}-{stamp}.tmp", std::process::id()));
+    {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staging)
+            .map_err(|error| format!("Falha ao preparar gravação: {error}"))?;
+        if let Err(error) = file.write_all(&payload).and_then(|_| file.sync_all()) {
+            let _ = fs::remove_file(&staging);
+            return Err(format!("Falha ao gravar lista: {error}"));
+        }
+    }
+    if destination.exists() {
+        if let Err(error) = fs::copy(&destination, catalog_dir.join("Acervo_Listas.json.bak")) {
+            let _ = fs::remove_file(&staging);
+            return Err(format!("Backup não criado; operação cancelada: {error}"));
+        }
+    }
+    if let Err(error) = fs::rename(&staging, &destination) {
+        let _ = fs::remove_file(&staging);
+        return Err(format!("Falha ao salvar listas: {error}"));
+    }
+    Ok(())
+}
+
+/// Keep app-owned work associations in sync with file operations.
+pub(super) fn sync_move_refs(root: &Path, old: &str, new: &str) -> Result<(), String> {
+    let destination = list_path(root);
+    let mut values = load_values(&destination)?;
+    let mut changed = false;
+    for work in &mut values {
+        let mut found = false;
+        if let Some(paths) = work
+            .get_mut("arquivos_encontrados")
+            .and_then(Value::as_array_mut)
+        {
+            for path in paths {
+                if path.as_str() == Some(old) {
+                    *path = Value::String(new.to_string());
+                    found = true;
+                }
+            }
+        }
+        if found {
+            let parent = Path::new(new).parent().unwrap_or(Path::new(""));
+            if let Some(map) = work.as_object_mut() {
+                map.insert(
+                    "local_indicado".into(),
+                    Value::String(parent.to_string_lossy().replace('\\', "/")),
+                );
+            }
+            changed = true;
+        }
+    }
+    if changed {
+        save_values(root, values)?;
+    }
+    Ok(())
+}
+
 pub fn load(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> Vec<CatalogWork> {
     let path = list_path(root);
     let items = match load_values(&path) {
@@ -156,13 +234,6 @@ pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportRepo
         return Err("A raiz deve ser uma pasta.".into());
     }
     let incoming = parse_list(&json_text)?;
-    let catalog_dir = root.join("99 - Catálogo");
-    fs::create_dir_all(&catalog_dir)
-        .map_err(|e| format!("Falha ao criar pasta do catálogo: {e}"))?;
-    let resolved_catalog = fs::canonicalize(&catalog_dir).map_err(|e| e.to_string())?;
-    if !resolved_catalog.starts_with(&root) {
-        return Err("Catálogo fora da biblioteca.".into());
-    }
     let destination = list_path(&root);
     let mut existing = load_values(&destination)?;
     let mut ids: HashSet<String> = existing.iter().map(identity).collect();
@@ -193,40 +264,12 @@ pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportRepo
         });
     }
 
-    let new_data = serde_json::to_vec_pretty(&json!({ "versao": 1, "obras": existing }))
-        .map_err(|e| e.to_string())?;
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_nanos();
-    let staging = catalog_dir.join(format!(".acervo-import-{}-{stamp}.tmp", std::process::id()));
-    {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&staging)
-            .map_err(|e| format!("Falha ao preparar gravação: {e}"))?;
-        if let Err(error) = file.write_all(&new_data).and_then(|_| file.sync_all()) {
-            let _ = fs::remove_file(&staging);
-            return Err(format!("Falha ao gravar lista: {error}"));
-        }
-    }
-    if destination.exists() {
-        if let Err(error) = fs::copy(&destination, catalog_dir.join("Acervo_Listas.json.bak")) {
-            let _ = fs::remove_file(&staging);
-            return Err(format!(
-                "Backup não foi criado; importação cancelada: {error}"
-            ));
-        }
-    }
-    if let Err(error) = fs::rename(&staging, &destination) {
-        let _ = fs::remove_file(&staging);
-        return Err(format!("Falha ao concluir importação: {error}"));
-    }
+    let total = existing.len();
+    save_values(&root, existing)?;
     Ok(ImportReport {
         imported,
         skipped,
-        total: existing.len(),
+        total,
     })
 }
 
