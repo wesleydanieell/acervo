@@ -70,8 +70,12 @@ Implementado nesta etapa:
   de transferência. Continuar é manual; Cancelar descarta os bytes armazenados.
   Downloads pausados e solicitações de pausa são restaurados sem iniciar rede.
 - Registros inválidos não são sobrescritos; o aplicativo informa o erro de leitura.
+- O formato declarado é validado após a transferência e antes do salvamento:
+  PDF (%PDF), EPUB (ZIP com mimetype e container), MOBI/AZW3 (BOOKMOBI)
+  e DjVu (FORM). Respostas HTML disfarçadas ou arquivos incompatíveis
+  ficam no cache como falha e não entram automaticamente na biblioteca.
 
-**Ainda pendente:** validação de assinatura/hash dos arquivos, criação automática
+**Ainda pendente:** checagem de hash confiável fornecido pela origem, criação automática
 de pastas planejadas e associação automática à obra do Catálogo
 (sem movimentação não autorizada).
 

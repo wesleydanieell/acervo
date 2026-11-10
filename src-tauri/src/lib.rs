@@ -1,5 +1,6 @@
 mod catalog_lists;
 mod covers;
+mod download_validation;
 mod downloads;
 mod organization;
 mod source_search;
