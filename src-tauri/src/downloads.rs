@@ -1,9 +1,11 @@
-//! Session-local download queue. Nothing enters the library before explicit approval.
+//! Persistent staged download queue. Nothing enters the library before explicit approval.
 use super::source_search::{safe_url, secure_https_client};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::path::PathBuf;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -14,7 +16,7 @@ const MAX_ACTIVE: usize = 3;
 const MAX_HISTORY: usize = 60;
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadInfo {
     pub id: String,
@@ -37,11 +39,184 @@ struct DownloadRecord {
     cancel: Arc<AtomicBool>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredDownload {
+    info: DownloadInfo,
+    url: String,
+}
+
 #[derive(Clone, Default)]
-pub struct DownloadManager(Arc<Mutex<Vec<DownloadRecord>>>);
+pub struct DownloadManager(
+    Arc<Mutex<Vec<DownloadRecord>>>,
+    Option<PathBuf>,
+    Option<String>,
+);
+
+fn read_download_registry(path: &Path) -> Result<Vec<DownloadRecord>, String> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    if path
+        .symlink_metadata()
+        .map_err(|error| error.to_string())?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("O registro de downloads não pode ser um link simbólico.".into());
+    }
+    let data = fs::read(path).map_err(|error| format!("Falha ao ler downloads: {error}"))?;
+    if data.len() > 256 * 1024 {
+        return Err("Registro de downloads excessivamente grande.".into());
+    }
+    let saved: Vec<StoredDownload> = serde_json::from_slice(&data)
+        .map_err(|error| format!("Registro de downloads inválido: {error}"))?;
+    if saved.len() > MAX_HISTORY {
+        return Err("Registro de downloads excede o limite.".into());
+    }
+    let mut ids = std::collections::HashSet::new();
+    saved
+        .into_iter()
+        .map(|saved| {
+            if !safe_url(&saved.url)
+                || saved.info.id.len() < 3
+                || saved.info.id.len() > 96
+                || !saved
+                    .info
+                    .id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                || !ids.insert(saved.info.id.clone())
+                || safe_filename(&saved.info.title, &saved.info.format)
+                    .ok()
+                    .as_deref()
+                    != Some(saved.info.filename.as_str())
+            {
+                return Err("Registro de downloads contém entrada inválida.".into());
+            }
+            Ok(DownloadRecord {
+                info: saved.info,
+                url: saved.url,
+                cancel: Arc::new(AtomicBool::new(false)),
+            })
+        })
+        .collect()
+}
+
+fn write_download_registry(path: &Path, records: &[DownloadRecord]) -> Result<(), String> {
+    let dir = path.parent().ok_or("Pasta de downloads inválida.")?;
+    fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+    if path.exists()
+        && path
+            .symlink_metadata()
+            .map_err(|error| error.to_string())?
+            .file_type()
+            .is_symlink()
+    {
+        return Err("O registro de downloads não pode ser um link simbólico.".into());
+    }
+    let saved: Vec<StoredDownload> = records
+        .iter()
+        .map(|record| StoredDownload {
+            info: record.info.clone(),
+            url: record.url.clone(),
+        })
+        .collect();
+    let data = serde_json::to_vec_pretty(&saved).map_err(|error| error.to_string())?;
+    if data.len() > 256 * 1024 {
+        return Err("Registro de downloads excede 256 KB.".into());
+    }
+    let tick = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_nanos();
+    let temp = dir.join(format!(".downloads-{}-{tick}.tmp", std::process::id()));
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&temp).map_err(|error| error.to_string())?;
+    if let Err(error) = file.write_all(&data).and_then(|_| file.sync_all()) {
+        let _ = fs::remove_file(&temp);
+        return Err(error.to_string());
+    }
+    if let Err(error) = fs::rename(&temp, path) {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("Falha ao salvar downloads: {error}"));
+    }
+    Ok(())
+}
+
+fn reconcile_restored(record: &mut DownloadRecord, staged_size: Option<u64>) {
+    match record.info.status.as_str() {
+        "queued" | "downloading" | "saving" => {
+            record.info.status = "failed".into();
+            record.info.error =
+                "Transferência interrompida ao fechar o aplicativo. Tente novamente.".into();
+        }
+        "ready"
+            if staged_size.is_none()
+                || staged_size != Some(record.info.downloaded_bytes)
+                || record
+                    .info
+                    .total_bytes
+                    .is_some_and(|total| Some(total) != staged_size) =>
+        {
+            record.info.status = "failed".into();
+            record.info.error = "Arquivo temporário ausente ou incompleto. Tente novamente.".into();
+        }
+        _ => {}
+    }
+    if matches!(record.info.status.as_str(), "failed" | "cancelled") {
+        record.info.downloaded_bytes = staged_size.unwrap_or(0);
+    }
+}
 
 impl DownloadManager {
+    pub fn restore(app: &tauri::AppHandle) -> Self {
+        let path = app
+            .path()
+            .app_config_dir()
+            .ok()
+            .map(|dir| dir.join("downloads.json"));
+        let result = match &path {
+            Some(path) => read_download_registry(path),
+            None => Err("Não foi possível acessar a pasta de configuração.".into()),
+        };
+        let (mut records, error) = match result {
+            Ok(records) => (records, None),
+            Err(error) => (Vec::new(), Some(error)),
+        };
+        for record in &mut records {
+            let staged = staged_path(app, &record.info.id).ok();
+            let staged_size = staged
+                .and_then(|path| fs::metadata(path).ok())
+                .map(|meta| meta.len());
+            reconcile_restored(record, staged_size);
+        }
+        let manager = Self(Arc::new(Mutex::new(records)), path, error);
+        if manager.2.is_none() {
+            let _ = manager.persist();
+        }
+        manager
+    }
+
+    fn persist(&self) -> Result<(), String> {
+        if let Some(error) = &self.2 {
+            return Err(error.clone());
+        }
+        let path = self
+            .1
+            .as_ref()
+            .ok_or("Registro de downloads indisponível.")?;
+        let records = self.0.lock().map_err(|_| "Fila indisponível.")?;
+        write_download_registry(path, &records)
+    }
+
     fn snapshot(&self) -> Result<Vec<DownloadInfo>, String> {
+        if let Some(error) = &self.2 {
+            return Err(error.clone());
+        }
         self.0
             .lock()
             .map(|items| items.iter().map(|item| item.info.clone()).rev().collect())
@@ -159,6 +334,7 @@ async fn fetch_to_stage(
     let result = async {
         let total = response.content_length();
         let mut downloaded = 0u64;
+        let mut persisted_bytes = 0u64;
         set_progress(manager, id, 0, total);
         while let Some(chunk) = response
             .chunk()
@@ -178,6 +354,10 @@ async fn fetch_to_stage(
                 .write_all(&chunk)
                 .map_err(|error| format!("Erro de gravação: {error}"))?;
             set_progress(manager, id, downloaded, total);
+            if downloaded.saturating_sub(persisted_bytes) >= 2 * 1024 * 1024 {
+                let _ = manager.persist();
+                persisted_bytes = downloaded;
+            }
         }
         if cancel.load(Ordering::Relaxed) {
             return Err("Download cancelado.".into());
@@ -220,6 +400,7 @@ fn spawn_download(
                 item.info.error = error;
             }
         });
+        let _ = manager.persist();
     });
 }
 
@@ -289,6 +470,12 @@ pub fn queue_download(
         }
         items.push(download);
     }
+    if let Err(error) = manager.persist() {
+        if let Ok(mut items) = manager.0.lock() {
+            items.retain(|item| item.info.id != id);
+        }
+        return Err(error);
+    }
     spawn_download(app, manager.clone(), id, url, cancel);
     manager.snapshot()
 }
@@ -318,6 +505,7 @@ pub fn cancel_download(
             _ => return Err("Esse download não pode ser cancelado.".into()),
         }
     }
+    manager.persist()?;
     manager.snapshot()
 }
 
@@ -353,6 +541,7 @@ pub fn retry_download(
         item.cancel = Arc::new(AtomicBool::new(false));
         (item.url.clone(), item.cancel.clone())
     };
+    manager.persist()?;
     spawn_download(app, manager.clone(), id, url, cancel);
     manager.snapshot()
 }
@@ -385,6 +574,7 @@ pub fn dismiss_download(
         }
         items.remove(index);
     }
+    manager.persist()?;
     manager.snapshot()
 }
 
@@ -510,6 +700,13 @@ pub fn save_download(
             item.info.error = error.clone();
         }
     });
+    if let Err(error) = manager.persist() {
+        if let Ok(path) = &operation {
+            return Err(format!(
+                "Livro salvo em {path}, mas o histórico não pôde ser atualizado: {error}"
+            ));
+        }
+    }
     operation
 }
 
@@ -549,6 +746,57 @@ mod tests {
         fs::write(&stage, b"collision").unwrap();
         assert!(commit_staged_with_mode(&stage, &dir, "fallback.epub", "four", true).is_err());
         assert_eq!(fs::read(&second).unwrap(), b"must not replace");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn registry_round_trip_recovers_interrupted_jobs_and_preserves_corruption() {
+        let unique = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("acervo-queue-test-{}-{unique}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("downloads.json");
+        let original = DownloadRecord {
+            info: DownloadInfo {
+                id: "job-1".into(),
+                title: "Teste".into(),
+                source_name: "Biblioteca livre".into(),
+                format: "epub".into(),
+                filename: "Teste.epub".into(),
+                planned_destination: "Literatura".into(),
+                status: "downloading".into(),
+                downloaded_bytes: 75,
+                total_bytes: Some(100),
+                error: String::new(),
+                saved_path: String::new(),
+            },
+            url: "https://example.org/public-domain.epub".into(),
+            cancel: Arc::new(AtomicBool::new(false)),
+        };
+        write_download_registry(&path, &[original]).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let mut loaded = read_download_registry(&path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].url, "https://example.org/public-domain.epub");
+        reconcile_restored(&mut loaded[0], Some(80));
+        assert_eq!(loaded[0].info.status, "failed");
+        assert_eq!(loaded[0].info.downloaded_bytes, 80);
+        loaded[0].info.status = "ready".into();
+        loaded[0].info.downloaded_bytes = 100;
+        reconcile_restored(&mut loaded[0], Some(100));
+        assert_eq!(loaded[0].info.status, "ready");
+        reconcile_restored(&mut loaded[0], Some(99));
+        assert_eq!(loaded[0].info.status, "failed");
+        fs::write(&path, b"not valid json").unwrap();
+        assert!(read_download_registry(&path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"not valid json");
         fs::remove_dir_all(&dir).unwrap();
     }
 }

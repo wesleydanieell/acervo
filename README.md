@@ -60,7 +60,7 @@ Consulte [VERSIONING.md](VERSIONING.md) e [CHANGELOG.md](CHANGELOG.md).
 
 ## Próximos passos
 
-1. Provedores de pesquisa independentes, no estilo Mihon/Komikku, com busca agregada e filtros.
-2. Gestor de downloads com fila, verificação de arquivos e destino relativo à biblioteca.
+1. Ampliar tipos de provedores/extensões mantendo o isolamento e a pesquisa agregada.
+2. Retomada por HTTP Range na fila persistente, verificação de arquivos e associação ao catálogo.
 3. Importação/exportação de CSV com prévia de diferenças e edição das fichas do catálogo.
 4. Mais operações seguras para arquivos em massa, incluindo desfazer quando possível.
