@@ -359,6 +359,18 @@ fn move_book(root: String, relative_path: String, destination: String) -> Result
             format!("Catálogo não atualizado; a movimentação foi revertida: {error}")
         });
     }
+    if let Err(error) = catalog_lists::sync_move_refs(&root, &old_relative, &new_relative) {
+        let catalog_rollback = sync_catalog_move(&root, &new_relative, &old_relative);
+        let file_rollback = fs::rename(&target, &source);
+        return Err(match (catalog_rollback, file_rollback) {
+            (Ok(()), Ok(())) => {
+                format!("Falha ao atualizar listas; movimentação revertida: {error}")
+            }
+            (catalog, file) => format!(
+                "Falha ao atualizar listas: {error}; reversão de catálogo: {catalog:?}; reversão de arquivo: {file:?}. Verifique a biblioteca."
+            ),
+        });
+    }
     Ok(new_relative)
 }
 
@@ -501,6 +513,79 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn move_book_updates_app_owned_catalog_links() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("acervo-sidecar-{}-{seed}", std::process::id()));
+        for folder in ["A", "B", "99 - Catálogo"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        fs::write(root.join("A/Obra.epub"), b"book").unwrap();
+        fs::write(
+            root.join("99 - Catálogo/Acervo_Listas.json"),
+            r#"{"versao":1,"obras":[{"titulo":"Obra","local_indicado":"A","arquivos_encontrados":["A/Obra.epub"]}]}"#,
+        ).unwrap();
+        let new = move_book(
+            root.to_string_lossy().to_string(),
+            "A/Obra.epub".into(),
+            "B".into(),
+        )
+        .unwrap();
+        assert_eq!(new, "B/Obra.epub");
+        assert!(root.join("B/Obra.epub").exists());
+        assert!(!root.join("A/Obra.epub").exists());
+        let data: serde_json::Value = serde_json::from_slice(
+            &fs::read(root.join("99 - Catálogo/Acervo_Listas.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(data["obras"][0]["arquivos_encontrados"][0], "B/Obra.epub");
+        assert_eq!(data["obras"][0]["local_indicado"], "B");
+        assert!(root.join("99 - Catálogo/Acervo_Listas.json.bak").exists());
+        let scanned = load_collection(root.to_string_lossy().to_string()).unwrap();
+        assert!(
+            scanned
+                .works
+                .iter()
+                .any(|item| item.title == "Obra" && item.present)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_app_catalog_cancels_and_reverts_move() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("acervo-bad-sidecar-{}-{seed}", std::process::id()));
+        for folder in ["A", "B", "99 - Catálogo"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        fs::write(root.join("A/Obra.epub"), b"book").unwrap();
+        fs::write(
+            root.join("99 - Catálogo/Acervo_Listas.json"),
+            b"invalid json",
+        )
+        .unwrap();
+        assert!(
+            move_book(
+                root.to_string_lossy().to_string(),
+                "A/Obra.epub".into(),
+                "B".into()
+            )
+            .is_err()
+        );
+        assert!(root.join("A/Obra.epub").exists());
+        assert!(!root.join("B/Obra.epub").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn strip_legacy_id_without_touching_filename() {
         assert_eq!(display_title("[L000024] O Banquete.epub"), "O Banquete");
