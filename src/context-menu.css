@@ -1,0 +1,19 @@
+
+/* Compact context actions, used by both the folder tree and the file explorer. */
+.acervo-context-menu{position:fixed;z-index:80;padding:7px;border-radius:15px;box-shadow:0 18px 55px #0008;border:1px solid var(--stroke);background:color-mix(in srgb,var(--glass-strong) 95%,transparent);backdrop-filter:blur(30px) saturate(150%);-webkit-backdrop-filter:blur(30px) saturate(150%)}
+.acervo-context-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:8px 10px 10px;color:var(--text-muted);font-size:10px;font-weight:700;border-bottom:1px solid var(--stroke);margin-bottom:4px}
+.acervo-context-menu button{display:flex;align-items:center;gap:11px;width:100%;height:40px;padding:0 11px;border:0;border-radius:10px;text-align:left;font-size:12px;font-weight:600;color:var(--text);background:transparent}
+.acervo-context-menu button svg{width:16px;height:16px;color:var(--text-muted)}
+.acervo-context-menu button:hover,.acervo-context-menu button:focus-visible{background:color-mix(in srgb,var(--accent) 13%,transparent)}
+.acervo-context-menu button:hover svg{color:var(--accent)}
+.acervo-context-menu button:disabled{opacity:.4}
+.folder-row{position:relative}
+.folder-row .folder-quick-add{position:absolute;right:5px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:26px;height:26px;border:0;border-radius:8px;background:var(--glass-strong);color:var(--text-muted);opacity:0;pointer-events:none;transition:opacity .14s,color .14s,background .14s}
+.folder-row:hover .folder-quick-add,.folder-row:focus-within .folder-quick-add{opacity:1;pointer-events:auto}
+.folder-row .folder-quick-add:hover{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.folder-row .folder-quick-add svg{width:15px;height:15px}
+.folder-row .tree-count{margin-left:auto}
+.folder-row:hover .tree-count,.folder-row:focus-within .tree-count{opacity:0}
+.folder-row .folder-select{flex:1}
+@media(hover:none){.folder-row .folder-quick-add{opacity:1;pointer-events:auto}}
+@media(prefers-reduced-motion:reduce){.folder-row .folder-quick-add{transition:none}}
