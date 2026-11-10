@@ -156,6 +156,21 @@ select option{background:var(--glass-strong);color:var(--text)}
 .modal-body .button{margin-top:18px}
 .modal-body strong{color:var(--text)}
 .two-inputs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.prompt-folder-picker{margin:15px 0;padding:14px;border:1px solid var(--stroke);border-radius:15px;background:color-mix(in srgb,var(--glass-base) 68%,transparent)}
+.prompt-folder-head{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px}
+.prompt-folder-head span,.prompt-folder-hint{font-size:11px;color:var(--text-muted)}
+.prompt-folder-picker>p{margin:5px 0 12px}
+.prompt-folder-controls{display:flex;align-items:center;gap:7px}
+.prompt-folder-controls .button{margin:0;padding:9px 11px;font-size:11px}
+.prompt-folder-search{display:flex;align-items:center;min-width:0;flex:1;gap:6px;padding-left:10px;border-radius:10px;border:1px solid var(--stroke);background:color-mix(in srgb,var(--glass-base) 85%,transparent)}
+.modal-body .prompt-folder-search input{border:none;background:none;min-width:0;width:100%;padding:9px 8px 9px 0;outline:none}
+.prompt-folder-list{display:grid;gap:4px;max-height:155px;overflow:auto;margin-top:10px;scrollbar-width:thin}
+.modal-body .prompt-folder-option{display:flex;align-items:center;gap:9px;min-width:0;min-height:32px;margin:0;padding:6px 9px;border-radius:9px;font-size:11px;font-weight:500;cursor:pointer;color:var(--text-muted)}
+.modal-body .prompt-folder-option:hover,.modal-body .prompt-folder-option.active{background:color-mix(in srgb,var(--accent) 9%,transparent);color:var(--text)}
+.modal-body .prompt-folder-option input[type=checkbox]{width:15px;height:15px;min-width:15px;padding:0;margin:0;accent-color:var(--accent)}
+.prompt-folder-option span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prompt-folder-hint{display:block;margin-top:9px}
+.prompt-folder-empty{display:flex;align-items:center;gap:8px;padding:10px;color:var(--text-muted);font-size:11px}
 .import-notice{padding:13px;border-radius:10px;font-size:12px;background:color-mix(in srgb,var(--accent) 10%,transparent)}
 .mobile-menu,.mobile-close{display:none}
 .spinning{animation:spin 1s linear infinite}
