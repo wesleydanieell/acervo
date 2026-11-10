@@ -17,6 +17,7 @@ import "./organization.css";
 import { CatalogCenter } from "./CatalogCenter";
 import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
+import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import acervoIcon from "../branding/acervo-icon.svg";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
 
@@ -388,6 +389,15 @@ ${JSON.stringify(sample, null, 2)}`;
     finally { setLoading(false); }
   };
 
+  const prepareAiCatalog = async (books: { path: string; title: string; folder: string; format: string }[]) => {
+    try {
+      await navigator.clipboard.writeText(buildCatalogPrompt(books, collection?.folders || []));
+      setImportText("");
+      setImportNotice("Prompt copiado. Envie à IA de sua preferência e cole abaixo o JSON resultante para importar as fichas. Os arquivos não serão movidos.");
+      setModal("import");
+    } catch (failure) { setError("Falha ao copiar o prompt para a área de transferência: " + String(failure)); }
+  };
+
   const openFolderDialog = (parent: string) => {
     setNewFolder("");
     setFolderParent(parent);
@@ -550,6 +560,7 @@ ${JSON.stringify(sample, null, 2)}`;
               onPrompt={() => setModal("prompt")}
               onExport={(json) => void copy(json, "Lista JSON copiada. Você pode salvar ou compartilhar o conteúdo.")}
               onCatalogUnindexed={(json) => void importBooks(json)}
+              onCatalogWithAI={(books) => void prepareAiCatalog(books)}
               onSelect={(work) => { const entry = entries.find((candidate) => candidate.work?.id === work.id); if (entry) setSelection(entry); }}
               onSelectFile={(file) => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }} />
           </> : <>
