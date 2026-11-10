@@ -6,6 +6,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 
 ### Adicionado
 - Validação do formato real dos downloads (PDF, EPUB, MOBI, AZW3 e DjVu) antes de liberar ou salvar um arquivo, rejeitando páginas HTML e arquivos incompatíveis com a extensão.
+- Seleção de intervalos de livros com Shift+clique e extensão da seleção com Ctrl+Shift+clique, respeitando a ordem e os filtros visíveis.
 
 ### Planejado
 - Melhor comparação de diferenças e edição das fichas durante a importação CSV/JSON.
