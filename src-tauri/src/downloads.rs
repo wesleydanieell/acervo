@@ -535,7 +535,7 @@ async fn fetch_to_stage(
     manager.change(id, |record| {
         record.etag = mode.etag.clone();
     });
-    let result = async {
+    let result: Result<(), String> = async {
         let mut downloaded = mode.offset;
         let mut persisted_bytes = mode.offset;
         set_progress(manager, id, downloaded, mode.total);
@@ -583,7 +583,16 @@ async fn fetch_to_stage(
     drop(output);
     // A paused or failed transfer keeps its partial data for a validated retry.
     // Cancellation cleanup happens in spawn_download, after the file is closed.
-    result
+    result?;
+    let format = manager
+        .0
+        .lock()
+        .map_err(|_| "Fila indisponível.")?
+        .iter()
+        .find(|record| record.info.id == id)
+        .map(|record| record.info.format.clone())
+        .ok_or("Download desconhecido.")?;
+    super::download_validation::validate_staged_book(&path, &format)
 }
 
 fn spawn_download(
@@ -963,7 +972,7 @@ pub fn save_download(
     destination: String,
 ) -> Result<String, String> {
     let manager = manager.inner().clone();
-    let filename = {
+    let (filename, format) = {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
         let item = items
             .iter_mut()
@@ -973,11 +982,13 @@ pub fn save_download(
             return Err("O download ainda não está pronto.".into());
         }
         item.info.status = "saving".into();
-        item.info.filename.clone()
+        (item.info.filename.clone(), item.info.format.clone())
     };
     let operation = (|| -> Result<String, String> {
         let directory = target_directory(&root, &destination)?;
         let stage = staged_path(&app, &id)?;
+        // Revalidate an already-ready cache entry, including one restored from disk.
+        super::download_validation::validate_staged_book(&stage, &format)?;
         let target = commit_staged(&stage, &directory, &filename, &id)?;
         let relative = target
             .strip_prefix(fs::canonicalize(root).map_err(|error| error.to_string())?)
