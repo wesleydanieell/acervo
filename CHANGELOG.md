@@ -4,6 +4,13 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 
 ## [Unreleased]
 
+### Planejado
+- Melhor comparação de diferenças e edição das fichas durante a importação CSV/JSON.
+- Validação de integridade de downloads e associação de edições ao Catálogo.
+- Criação de pastas planejadas e mais operações em lote com recuperação segura.
+
+## [0.1.0-alpha.2] - 2026-11-10
+
 ### Adicionado
 - Aba de configurações para controlar aparência e biblioteca.
 - Seletor nativo de pastas, com alternativa por caminho manual.
@@ -18,11 +25,6 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 - Importação/exportação de listas JSON e CSV (com prévia, tratamento de planilhas e exportação sem sobrescrita), prévia de organização por JSON e central de Catálogo separada dos arquivos físicos.
 - Fontes de pesquisa JSON instaláveis, busca agregada e filtros de idioma/formato.
 - Gerenciador de downloads em cache, fila persistente, pausa/retomada manual por HTTP Range/ETag forte e confirmação antes de salvar na biblioteca.
-
-### Planejado
-- Melhor comparação de diferenças e edição das fichas durante a importação CSV/JSON.
-- Validação de integridade de downloads e associação de edições ao Catálogo.
-- Criação de pastas planejadas e mais operações em lote com recuperação segura.
 
 ## [0.1.0-alpha.1] - 2026-11-09
 
