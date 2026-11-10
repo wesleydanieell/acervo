@@ -15,12 +15,12 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 - Carregamento progressivo de livros (80 cartões por vez) para evitar travar com acervos grandes.
 - Prévia de movimentação em lote, detecção de conflitos antes de mover e tentativa de rollback em caso de falha.
 - Testes com bibliotecas descartáveis cobrindo movimentação em lote e sincronização SQLite.
-- Importação/exportação de listas JSON, prévia de organização por JSON e central de Catálogo separada dos arquivos físicos.
+- Importação/exportação de listas JSON e CSV (com prévia, tratamento de planilhas e exportação sem sobrescrita), prévia de organização por JSON e central de Catálogo separada dos arquivos físicos.
 - Fontes de pesquisa JSON instaláveis, busca agregada e filtros de idioma/formato.
 - Gerenciador de downloads em cache, fila persistente, pausa/retomada manual por HTTP Range/ETag forte e confirmação antes de salvar na biblioteca.
 
 ### Planejado
-- Importação/exportação CSV com visualização de diferenças antes de aplicar.
+- Melhor comparação de diferenças e edição das fichas durante a importação CSV/JSON.
 - Validação de integridade de downloads e associação de edições ao Catálogo.
 - Criação de pastas planejadas e mais operações em lote com recuperação segura.
 
