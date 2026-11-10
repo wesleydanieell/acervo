@@ -11,11 +11,11 @@ O Acervo organiza **arquivos físicos e listas de obras**. Não pretende substit
 - Miniaturas de capas EPUB extraídas do arquivo e primeiras páginas de PDF (usa Poppler/`pdftoppm` no Linux), com cache e carregamento gradual.
 - **Catálogo:** central separada para obras cadastradas, disponíveis, faltantes e arquivos sem ficha.
 - Leitura do banco legado `99 - Catálogo/Catalogo_Conhecimento.db`, mantendo o SQLite original em modo somente leitura para consultas.
-- Importação persistente de listas JSON em `99 - Catálogo/Acervo_Listas.json`, com validação, escrita atômica, backup anterior e proteção contra duplicatas exatas. Exportação das listas pelo botão **Copiar JSON**.
+- Importação de listas JSON e CSV (com prévia antes de salvar), validação, escrita atômica, backup anterior e proteção contra duplicatas exatas. Exportação JSON por cópia e CSV por diálogo nativo, sem sobrescrever arquivo existente. Consulte [CSV do Catálogo](docs/CATALOG_CSV.md).
 - Geração de prompts de IA com a estrutura de pastas existente para produzir listas JSON compatíveis.
 - Aparência Liquid Glass e Material 3, paletas manuais e sincronização das cores com o Noctalia (mediante a configuração do template em `integrations/noctalia`).
 
-> **Versão alpha:** a organização de arquivos pode mover documentos e atualizar referências legadas quando você confirmar uma movimentação. Mantenha backup. A pesquisa em fontes JSON e os downloads temporários com confirmação estão em alpha. Pausa e retomada manual de downloads já existem (retomada por HTTP Range quando a fonte oferece ETag forte); importação CSV e validação profunda de arquivos ainda estão em desenvolvimento.
+> **Versão alpha:** a organização de arquivos pode mover documentos e atualizar referências legadas quando você confirmar uma movimentação. Mantenha backup. A pesquisa em fontes JSON e os downloads temporários com confirmação estão em alpha. Pausa e retomada manual já existem (HTTP Range quando a fonte oferece ETag forte); validação profunda dos arquivos baixados ainda está em desenvolvimento.
 
 ## Instalação no CachyOS / Linux
 

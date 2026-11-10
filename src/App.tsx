@@ -6,7 +6,7 @@ import {
   Palette, Plus, RefreshCw, Search, Settings2, X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import "./theme.css";
 import "./explorer.css";
@@ -331,6 +331,19 @@ ${JSON.stringify(sample, null, 2)}`;
     try { await navigator.clipboard.writeText(text); setStatus(message); }
     catch { setStatus("Não foi possível copiar; selecione e copie manualmente."); }
   };
+  const exportCsv = async (csv: string) => {
+    setError("");
+    try {
+      const target = await save({
+        title: "Exportar catálogo em CSV",
+        defaultPath: "Acervo_Catalogo.csv",
+        filters: [{ name: "Planilha CSV", extensions: ["csv"] }],
+      });
+      if (!target) return;
+      const path = await invoke<string>("save_catalog_csv", { path: target, csvText: csv });
+      setStatus("Catálogo CSV exportado para " + path);
+    } catch (failure) { setError("Não foi possível exportar CSV: " + String(failure)); }
+  };
   const searchInInstalledSources = (entry: Entry) => {
     setSourceRequest({
       query: [entry.title, entry.author].filter(Boolean).join(" "),
@@ -570,9 +583,10 @@ ${JSON.stringify(sample, null, 2)}`;
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}
-              onImport={() => setModal("import")}
+              onImport={(prefill = "") => { setImportText(prefill); setImportNotice(""); setModal("import"); }}
               onPrompt={() => setModal("prompt")}
               onExport={(json) => void copy(json, "Lista JSON copiada. Você pode salvar ou compartilhar o conteúdo.")}
+              onExportCsv={(csv) => void exportCsv(csv)}
               onCatalogUnindexed={(json) => void importBooks(json)}
               onCatalogWithAI={(books) => void prepareAiCatalog(books)}
               onSelect={(work) => { const entry = entries.find((candidate) => candidate.work?.id === work.id); if (entry) setSelection(entry); }}

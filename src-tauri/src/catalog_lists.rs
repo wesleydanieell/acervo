@@ -273,9 +273,85 @@ pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportRepo
     })
 }
 
+/// Export only to the exact CSV path chosen in the native save dialog.
+/// Exclusive creation avoids overwriting an existing user file.
+#[tauri::command]
+pub fn save_catalog_csv(path: String, csv_text: String) -> Result<String, String> {
+    let destination = Path::new(&path);
+    if !destination.is_absolute()
+        || !destination
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("csv"))
+    {
+        return Err("Escolha um arquivo .csv em um caminho absoluto.".into());
+    }
+    if csv_text.is_empty() || csv_text.len() > 12_000_000 || csv_text.contains('\0') {
+        return Err("Conteúdo CSV vazio, inválido ou maior que 12 MB.".into());
+    }
+    let parent = fs::canonicalize(
+        destination
+            .parent()
+            .ok_or("Pasta de exportação inválida.")?,
+    )
+    .map_err(|error| format!("Pasta de exportação indisponível: {error}"))?;
+    if !parent.is_dir() {
+        return Err("Pasta de exportação inválida.".into());
+    }
+    let target = parent.join(destination.file_name().ok_or("Nome de arquivo inválido.")?);
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options.open(&target).map_err(|error| {
+        format!("Não foi possível salvar CSV sem substituir arquivo existente: {error}")
+    })?;
+    let saved = file
+        .write_all("\u{feff}".as_bytes())
+        .and_then(|_| file.write_all(csv_text.as_bytes()))
+        .and_then(|_| file.sync_all());
+    drop(file);
+    if let Err(error) = saved {
+        let _ = fs::remove_file(&target);
+        return Err(format!("Falha ao gravar CSV: {error}"));
+    }
+    Ok(target.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_csv_is_utf8_and_never_overwrites_existing_files() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("acervo-csv-test-{}-{unique}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let target = dir.join("lista.csv");
+        let text = "titulo,autor\r\nO Banquete,Platão\r\n";
+        let saved = save_catalog_csv(target.to_string_lossy().to_string(), text.into()).unwrap();
+        assert_eq!(saved, target.to_string_lossy());
+        assert_eq!(
+            fs::read(&target).unwrap(),
+            [vec![0xef, 0xbb, 0xbf], text.as_bytes().to_vec()].concat()
+        );
+        assert!(save_catalog_csv(target.to_string_lossy().to_string(), "outro".into()).is_err());
+        assert_eq!(
+            fs::read(&target).unwrap(),
+            [vec![0xef, 0xbb, 0xbf], text.as_bytes().to_vec()].concat()
+        );
+        assert!(
+            save_catalog_csv(dir.join("a.txt").to_string_lossy().to_string(), text.into()).is_err()
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn validates_paths_and_json() {

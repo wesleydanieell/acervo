@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Book, Check, ChevronDown, ClipboardCopy, FilePlus2, Filter, Search, Sparkles, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Book, Check, ChevronDown, ClipboardCopy, Download, FilePlus2, Filter, Search, Sparkles, Upload } from "lucide-react";
 import "./catalog-center.css";
 import { alternateEditions, indexEditions } from "./edition-matches";
+import { catalogToCsv, csvToCatalogJson } from "./catalog-csv";
 
 export type CatalogItem = {
   id: number; title: string; author: string; publishers: string; destination: string;
@@ -19,9 +20,10 @@ type Props = {
   onCatalogWithAI: (files: LocalBookFile[]) => void;
   works: CatalogItem[];
   query: string;
-  onImport: () => void;
+  onImport: (prefill?: string) => void;
   onPrompt: () => void;
   onExport: (json: string) => void;
+  onExportCsv: (csv: string) => void;
   onSelect: (work: CatalogItem) => void;
 };
 
@@ -37,10 +39,12 @@ function publisherList(raw: string): string[] {
   return [raw];
 }
 
-export function CatalogCenter({ works, files, query, onImport, onPrompt, onExport, onSelect, onSelectFile, onCatalogUnindexed, onCatalogWithAI }: Props) {
+export function CatalogCenter({ works, files, query, onImport, onPrompt, onExport, onExportCsv, onSelect, onSelectFile, onCatalogUnindexed, onCatalogWithAI }: Props) {
   const [availability, setAvailability] = useState<Availability>("all");
   const [destination, setDestination] = useState("all");
   const [limit, setLimit] = useState(80);
+  const [csvError, setCsvError] = useState("");
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const missing = works.filter((work) => !work.present).length;
   const editionIndex = useMemo(() => indexEditions(files), [files]);
   const editions = useMemo(() => new Map(works.map((work) => [work.id, alternateEditions(work, editionIndex)])), [works, editionIndex]);
@@ -87,6 +91,19 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
     })),
   }, null, 2);
 
+  const importCsvFile = async (file?: File) => {
+    if (!file) return;
+    setCsvError("");
+    try {
+      if (file.size > 12_000_000) throw new Error("Arquivo CSV maior que 12 MB.");
+      onImport(csvToCatalogJson(await file.text()));
+    } catch (failure) {
+      setCsvError(failure instanceof Error ? failure.message : String(failure));
+    }
+  };
+
+  const exportCsvFile = () => onExportCsv(catalogToCsv(works));
+
   return <section className="catalog-center">
     <div className="page-intro">
       <div><div className="eyebrow">CENTRAL DE CATÁLOGO</div><h1>Catálogo de obras</h1>
@@ -98,12 +115,17 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
       <div className="catalog-summary-card glass-panel"><Check size={19}/><span>Já disponíveis</span><strong>{allRows.length - missing}</strong></div>
     </div>
     <div className="catalog-actions">
-      <button className="button primary" onClick={onImport}><Upload size={17}/> Importar JSON</button>
+      <button className="button primary" onClick={() => onImport()}><Upload size={17}/> Importar JSON</button>
+      <input ref={csvInputRef} hidden type="file" accept=".csv,text/csv" aria-label="Selecionar CSV do Catálogo"
+        onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; void importCsvFile(file); }}/>
+      <button className="button secondary" onClick={() => csvInputRef.current?.click()}><Upload size={17}/> Importar CSV</button>
       <button className="button secondary" onClick={onPrompt}><Sparkles size={17}/> Gerar lista com IA</button>
       <button className="button secondary" disabled={!works.length} onClick={() => onExport(exportJson())}><ClipboardCopy size={17}/> Copiar JSON</button>
+      <button className="button secondary" disabled={!works.length} onClick={exportCsvFile}><Download size={17}/> Exportar CSV</button>
       {unindexed.length > 0 && <button className="button secondary" onClick={() => onCatalogWithAI(unindexed.slice(0, 50))}><Sparkles size={17}/> Preparar {Math.min(unindexed.length, 50)} arquivo(s) para IA</button>}
       {unindexed.length > 0 && <button className="button secondary" onClick={() => onCatalogUnindexed(catalogDiscoveredJson())}><Book size={17}/> Catalogar sem IA ({unindexed.length})</button>}
     </div>
+    {csvError && <div className="alert" role="alert">{csvError}</div>}
     <div className="catalog-toolbar">
       <div className="catalog-tabs" role="group" aria-label="Filtrar catálogo por disponibilidade">
         {([["all", "Todas", allRows.length], ["missing", "Faltantes", missing], ["available", "Disponíveis", allRows.length - missing], ["unindexed", "Sem ficha", unindexed.length], ["editions", "Outros formatos", alternateCount]] as const).map(([id, label, count]) =>
