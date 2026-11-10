@@ -91,7 +91,7 @@ export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearc
         url: item.downloadUrl, title: item.title, sourceName: item.sourceName,
         format: item.format, plannedDestination: initialSearch?.destination ?? "",
       });
-      onShowDownloads();
+      setNotice("Livro adicionado à fila. Abra Downloads para acompanhar e salvar quando concluir.");
     } catch (failure) { setError(String(failure)); }
   };
 
@@ -110,7 +110,7 @@ export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearc
     <div className="page-intro">
       <div><div className="eyebrow">FONTES E EXTENSÕES</div><h1>Fontes da biblioteca</h1>
         <p>Instale manifestos JSON e escolha quais fontes serão usadas na pesquisa de livros.</p></div>
-      <div className="sources-top-actions"><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
+      <div className="sources-top-actions"><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Ver downloads</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
         <button className="button secondary" disabled={busy || sources.some((item) => item.manifest.id === "open-library")} onClick={() => void installDemo()}><Globe2 size={16}/> Fonte de exemplo</button>
         <button className="button primary" disabled={busy} onClick={() => void install()}><Plus size={17}/> Instalar fonte</button></div>
     </div>
