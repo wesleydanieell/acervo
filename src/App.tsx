@@ -20,6 +20,8 @@ import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import { selectVisibleRange } from "./library-selection";
+import { chosenPromptFolders } from "./prompt-folder-selection";
+import { PromptFolderPicker } from "./PromptFolderPicker";
 import acervoIcon from "../branding/acervo-icon.svg";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
 
@@ -88,6 +90,8 @@ function App() {
   const [promptCount, setPromptCount] = useState(10);
   const [promptTopics, setPromptTopics] = useState("Filosofia, literatura clássica e brasileira");
   const [promptLanguage, setPromptLanguage] = useState("Português");
+  const [promptFolders, setPromptFolders] = useState<Set<string> | null>(null);
+  const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const [sourceFormat, setSourceFormat] = useState("");
   const [sourceLanguage, setSourceLanguage] = useState("");
   const [sourceRequest, setSourceRequest] = useState<{ query: string; language: string; format: string; destination: string } | null>(null);
@@ -257,14 +261,15 @@ function App() {
   const currentLabel = selectedFolder ? selectedFolder.split("/").slice(-1)[0] : "Minha biblioteca";
 
   const createPrompt = () => {
-    const folders = collection?.folders.length ? collection.folders.map((folder) => "- " + folder).join("\n") : "- . (raiz)";
-    const sample = { versao: 1, obras: [{ titulo: "O Banquete", autor: "Platão", editoras_indicadas: ["Editora de exemplo"], local_indicado: "Literatura/Filosofia", enfoques: "Filosofia", categorias: "Clássicos", prioridade_alta: 0 }] };
+    const selected = chosenPromptFolders(collection?.folders || [], promptFolders);
+    const folders = selected.length ? selected.map((folder) => "- " + folder).join("\n") : "- . (raiz da biblioteca)";
+    const sample = { versao: 1, obras: [{ titulo: "O Banquete", autor: "Platão", editoras_indicadas: ["Editora de exemplo"], local_indicado: selected[0] || "", enfoques: "Filosofia", categorias: "Clássicos", prioridade_alta: 0 }] };
     return `Gere uma lista de ${promptCount} livros reais em JSON para importar no meu gerenciador de acervo.
 
 ASSUNTOS: ${promptTopics}
 IDIOMA PREFERIDO: ${promptLanguage}
 CRITÉRIOS: sugira obras e editoras verificáveis, não invente edições; evite títulos repetidos.
-PASTAS EXISTENTES (use uma destas em local_indicado):
+DESTINOS SELECIONADOS (use apenas estes em local_indicado; se só houver a raiz, use uma string vazia):
 ${folders}
 Já possuo ${collection?.files.length || 0} arquivos indexados e ${collection?.works.length || 0} obras cadastradas.
 
@@ -594,7 +599,7 @@ ${JSON.stringify(sample, null, 2)}`;
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}
               onImport={(prefill = "") => { setImportText(prefill); setImportNotice(""); setModal("import"); }}
-              onPrompt={() => setModal("prompt")}
+              onPrompt={() => { setPromptDraft(null); setModal("prompt"); }}
               onExport={(json) => void copy(json, "Lista JSON copiada. Você pode salvar ou compartilhar o conteúdo.")}
               onExportCsv={(csv) => void exportCsv(csv)}
               onCatalogUnindexed={(json) => void importBooks(json)}
@@ -640,7 +645,11 @@ ${JSON.stringify(sample, null, 2)}`;
       {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className={"drawer-cover " + (selection.present ? "present" : "missing")}><Book size={45}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <button key={file.path} className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>Pesquise nas fontes instaladas. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchInInstalledSources(selection)}><Search size={17}/> Pesquisar nas fontes</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
       {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className={"modal glass-panel" + (modal === "organize" ? " organize-modal" : "")} role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : modal === "move" ? "Mover livros" : modal === "organize" ? "Organizar biblioteca por JSON" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}
-        {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label><label>Prévia do prompt<textarea readOnly value={createPrompt()} rows={11} /></label><button className="button primary full" onClick={() => void copy(createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
+        {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label>
+          <PromptFolderPicker folders={collection?.folders || []} selected={promptFolders} onChange={(next) => { setPromptFolders(next); setPromptDraft(null); }} />
+          <label>Prévia do prompt (editável)<textarea value={promptDraft ?? createPrompt()} onChange={(event) => setPromptDraft(event.target.value)} rows={11} spellCheck={false}/></label>
+          {promptDraft !== null && <button className="button secondary full" onClick={() => setPromptDraft(null)}>Restaurar texto sugerido</button>}
+          <button className="button primary full" onClick={() => void copy(promptDraft ?? createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
         {modal === "import" && <div className="modal-body"><p>Cole uma lista JSON no formato <code>{'{ "versao": 1, "obras": [...] }'}</code>. As obras serão salvas em <code>99 - Catálogo/Acervo_Listas.json</code>; o banco antigo não será alterado.</p><label>Conteúdo JSON<textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportNotice(""); }} rows={11} placeholder='{"versao":1,"obras":[{"titulo":"O Banquete","local_indicado":"Literatura/Filosofia"}]}' /></label>{importNotice && <div className="import-notice">{importNotice}</div>}<button className="button primary full" disabled={loading || !collection || !importText.trim()} onClick={() => void importBooks()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <Check size={17}/>} Importar obras</button></div>}
         {modal === "organize" && <div className="modal-body organization-body">
           <p>Envie à IA apenas o inventário de caminhos relativos. Confira a proposta antes de mover qualquer livro. O Acervo não envia seus dados automaticamente.</p>
