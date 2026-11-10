@@ -132,6 +132,14 @@ select option{background:var(--glass-strong);color:var(--text)}
 .detail-list>div{display:flex;justify-content:space-between;align-items:baseline;gap:16px;font-size:12px}
 .detail-list span{flex:none;color:var(--text-muted)}
 .detail-list strong{font-size:11px;text-align:right;word-break:break-word}
+.edition-options{padding:20px 0 14px;border-bottom:1px solid var(--stroke)}
+.edition-options h3{font-size:14px;margin:0 0 7px}
+.edition-options p{font-size:11px;line-height:1.55;color:var(--text-muted);margin:0 0 12px}
+.edition-option{display:flex;align-items:center;gap:10px;width:100%;padding:10px;margin:7px 0;border:1px solid var(--stroke);border-radius:11px;background:color-mix(in srgb,var(--glass-strong) 68%,transparent);color:var(--text);text-align:left;cursor:pointer}
+.edition-option:hover,.edition-option:focus-visible{border-color:var(--accent)}
+.edition-option>span{display:grid;gap:3px;flex:1;min-width:0}
+.edition-option strong{font-size:11px}
+.edition-option small{font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .search-source{padding:23px 0 14px}
 .search-source h3{font-size:14px;margin:0 0 8px}
 .search-source p{font-size:11px;line-height:1.6;color:var(--text-muted)}

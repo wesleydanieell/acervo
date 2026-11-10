@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Book, Check, ChevronDown, ClipboardCopy, FilePlus2, Filter, Search, Sparkles, Upload } from "lucide-react";
 import "./catalog-center.css";
+import { alternateEditions, indexEditions } from "./edition-matches";
 
 export type CatalogItem = {
   id: number; title: string; author: string; publishers: string; destination: string;
@@ -23,7 +24,7 @@ type Props = {
   onSelect: (work: CatalogItem) => void;
 };
 
-type Availability = "all" | "missing" | "available" | "unindexed";
+type Availability = "all" | "missing" | "available" | "unindexed" | "editions";
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 function publisherList(raw: string): string[] {
@@ -40,6 +41,9 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
   const [destination, setDestination] = useState("all");
   const [limit, setLimit] = useState(80);
   const missing = works.filter((work) => !work.present).length;
+  const editionIndex = useMemo(() => indexEditions(files), [files]);
+  const editions = useMemo(() => new Map(works.map((work) => [work.id, alternateEditions(work, editionIndex)])), [works, editionIndex]);
+  const alternateCount = works.filter((work) => (editions.get(work.id)?.length || 0) > 0).length;
   const unindexed = useMemo(() => {
     const linked = new Set(works.flatMap((work) => work.associatedFiles));
     return files.filter((file) => !linked.has(file.path));
@@ -54,11 +58,12 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
   const destinations = useMemo(() => [...new Set(allRows.map((work) => work.destination).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR")), [allRows]);
   const filtered = useMemo(() => allRows.filter((work) => {
     if (availability === "unindexed" && !work.fileOnly) return false;
+    if (availability === "editions" && !(editions.get(work.id)?.length || 0)) return false;
     if (availability === "missing" && work.present) return false;
     if (availability === "available" && !work.present) return false;
     if (destination !== "all" && work.destination !== destination) return false;
     return !query || fold([work.title, work.author, work.destination, work.publishers].join(" ")).includes(fold(query));
-  }).sort((a, b) => Number(b.priority) - Number(a.priority) || a.title.localeCompare(b.title, "pt-BR")), [allRows, availability, destination, query]);
+  }).sort((a, b) => Number(b.priority) - Number(a.priority) || a.title.localeCompare(b.title, "pt-BR")), [allRows, availability, destination, query, editions]);
   useEffect(() => setLimit(80), [availability, destination, query]);
 
   const catalogDiscoveredJson = () => JSON.stringify({
@@ -77,6 +82,7 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
       editoras_indicadas: publisherList(work.publishers),
       local_indicado: work.destination,
       prioridade_alta: work.priority ? 1 : 0,
+      arquivos_encontrados: work.associatedFiles,
     })),
   }, null, 2);
 
@@ -98,7 +104,7 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
     </div>
     <div className="catalog-toolbar">
       <div className="catalog-tabs" role="group" aria-label="Filtrar catálogo por disponibilidade">
-        {([["all", "Todas", allRows.length], ["missing", "Faltantes", missing], ["available", "Disponíveis", allRows.length - missing], ["unindexed", "Sem ficha", unindexed.length]] as const).map(([id, label, count]) =>
+        {([["all", "Todas", allRows.length], ["missing", "Faltantes", missing], ["available", "Disponíveis", allRows.length - missing], ["unindexed", "Sem ficha", unindexed.length], ["editions", "Outros formatos", alternateCount]] as const).map(([id, label, count]) =>
           <button key={id} className={availability === id ? "active" : ""} aria-pressed={availability === id}
             onClick={() => setAvailability(id)}>{label} <span>{count}</span></button>
         )}
@@ -116,6 +122,7 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
           <small>{work.author || "Autor não informado"}</small>
           <span className="catalog-work-destination">{work.destination || "Destino não definido"}</span></span>
         <span className="catalog-work-badges">{work.priority && <span className="catalog-priority">Prioridade</span>}
+          {(editions.get(work.id)?.length || 0) > 0 && <span className="catalog-alternate" title="Mesmo título encontrado em outro arquivo; confirme a edição antes de associar">{work.present ? "Outro formato" : "Possível arquivo local"} · {editions.get(work.id)?.map((file) => file.format).join(", ")}</span>}
           <span className={work.fileOnly ? "catalog-unindexed" : work.present ? "catalog-available" : "catalog-missing"}>{work.fileOnly ? "Sem ficha" : work.present ? "Disponível" : "Faltante"}</span></span>
         <ArrowRight size={17} className="catalog-work-arrow"/>
       </button>)}
