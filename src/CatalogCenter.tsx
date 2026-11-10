@@ -16,6 +16,7 @@ type Props = {
   files: LocalBookFile[];
   onSelectFile: (file: LocalBookFile) => void;
   onCatalogUnindexed: (json: string) => void;
+  onCatalogWithAI: (files: LocalBookFile[]) => void;
   works: CatalogItem[];
   query: string;
   onImport: () => void;
@@ -36,7 +37,7 @@ function publisherList(raw: string): string[] {
   return [raw];
 }
 
-export function CatalogCenter({ works, files, query, onImport, onPrompt, onExport, onSelect, onSelectFile, onCatalogUnindexed }: Props) {
+export function CatalogCenter({ works, files, query, onImport, onPrompt, onExport, onSelect, onSelectFile, onCatalogUnindexed, onCatalogWithAI }: Props) {
   const [availability, setAvailability] = useState<Availability>("all");
   const [destination, setDestination] = useState("all");
   const [limit, setLimit] = useState(80);
@@ -100,7 +101,8 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
       <button className="button primary" onClick={onImport}><Upload size={17}/> Importar JSON</button>
       <button className="button secondary" onClick={onPrompt}><Sparkles size={17}/> Gerar lista com IA</button>
       <button className="button secondary" disabled={!works.length} onClick={() => onExport(exportJson())}><ClipboardCopy size={17}/> Copiar JSON</button>
-      {unindexed.length > 0 && <button className="button secondary" onClick={() => onCatalogUnindexed(catalogDiscoveredJson())}><Book size={17}/> Catalogar {unindexed.length} arquivo(s) sem ficha</button>}
+      {unindexed.length > 0 && <button className="button secondary" onClick={() => onCatalogWithAI(unindexed.slice(0, 50))}><Sparkles size={17}/> Preparar {Math.min(unindexed.length, 50)} arquivo(s) para IA</button>}
+      {unindexed.length > 0 && <button className="button secondary" onClick={() => onCatalogUnindexed(catalogDiscoveredJson())}><Book size={17}/> Catalogar sem IA ({unindexed.length})</button>}
     </div>
     <div className="catalog-toolbar">
       <div className="catalog-tabs" role="group" aria-label="Filtrar catálogo por disponibilidade">
