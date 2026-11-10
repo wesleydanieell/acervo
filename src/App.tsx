@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
-  Archive, ArrowRight, ArrowUpDown, Book, Check, ChevronDown, ChevronRight,
+  Archive, ArrowDownToLine, ArrowRight, ArrowUpDown, Book, Check, ChevronDown, ChevronRight,
   CircleHelp, ClipboardCopy, Filter, Folder, FolderOpen,
   FolderPlus, FolderTree, Globe2, Grid2X2, HardDrive, Home, Layers3, List, LoaderCircle, Menu,
   Palette, Plus, RefreshCw, Search, Settings2, X,
@@ -15,6 +15,7 @@ import "./context-menu.css";
 import "./organization.css";
 import { CatalogCenter } from "./CatalogCenter";
 import { SourcesCenter } from "./SourcesCenter";
+import { DownloadsCenter } from "./DownloadsCenter";
 import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
@@ -24,7 +25,7 @@ import { ContextMenu, type ContextAction } from "./ContextMenu";
 type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
 type Collection = { root: string; files: BookFile[]; folders: string[]; works: CatalogWork[]; warnings: string[] };
-type View = "catalog" | "lists" | "settings" | "sources";
+type View = "catalog" | "lists" | "settings" | "sources" | "downloads";
 type GroupBy = "none" | "folder" | "format" | "author";
 type Layout = "grid" | "list";
 type Entry = { key: string; type: "file" | "work"; title: string; author: string; format: string; folder: string; present: boolean; file?: BookFile; work?: CatalogWork };
@@ -88,7 +89,7 @@ function App() {
   const [promptLanguage, setPromptLanguage] = useState("Português");
   const [sourceFormat, setSourceFormat] = useState("");
   const [sourceLanguage, setSourceLanguage] = useState("");
-  const [sourceRequest, setSourceRequest] = useState<{ query: string; language: string; format: string } | null>(null);
+  const [sourceRequest, setSourceRequest] = useState<{ query: string; language: string; format: string; destination: string } | null>(null);
   const [newFolder, setNewFolder] = useState("");
   const [folderParent, setFolderParent] = useState("");
   const [contextMenu, setContextMenu] = useState<MenuState | null>(null);
@@ -335,6 +336,7 @@ ${JSON.stringify(sample, null, 2)}`;
       query: [entry.title, entry.author].filter(Boolean).join(" "),
       format: sourceFormat,
       language: sourceLanguage,
+      destination: entry.folder === "." ? "" : entry.folder,
     });
     setSelection(null);
     setView("sources");
@@ -465,6 +467,10 @@ ${JSON.stringify(sample, null, 2)}`;
             onClick={() => { setSourceRequest(null); setView("sources"); setSelectedFolder(""); setSideOpen(false); }}>
             <Globe2 size={18} strokeWidth={1.9}/> Fontes
           </button>
+          <button className={"nav-item" + (view === "downloads" ? " active" : "")}
+            onClick={() => { setView("downloads"); setSelectedFolder(""); setSideOpen(false); }}>
+            <ArrowDownToLine size={18} strokeWidth={1.9}/> Downloads
+          </button>
         </div>
         <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta na pasta atual" onClick={() => openFolderDialog(selectedFolder)}><Plus size={18} /></button></div>
         <div className="folder-tree-search"><Search size={14}/><input aria-label="Filtrar pastas" placeholder="Localizar pasta…" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)}/>{folderQuery && <button aria-label="Limpar filtro de pastas" onClick={() => setFolderQuery("")}><X size={13}/></button>}</div>
@@ -560,7 +566,7 @@ ${JSON.stringify(sample, null, 2)}`;
               </article>
             </div>
             <div className="settings-version">Acervo 0.1.0-alpha.1 · dados locais · <span>atualizações experimentais</span></div>
-          </section> : view === "sources" ? <SourcesCenter initialSearch={sourceRequest}/> : view === "lists" ? <>
+          </section> : view === "sources" ? <SourcesCenter initialSearch={sourceRequest} onShowDownloads={() => { setView("downloads"); setSelectedFolder(""); }}/> : view === "downloads" ? <DownloadsCenter root={collection?.root || ""} folders={collection?.folders || []} onSaved={async () => { await refresh(); }}/> : view === "lists" ? <>
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}

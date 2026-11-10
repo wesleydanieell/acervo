@@ -48,14 +48,24 @@ Implementado na etapa seguinte:
 - Sem proxies automáticos ou redirecionamentos; DNS resolvido e fixado para IPs públicos.
 - Fonte **Open Library (metadados)** opcional, instalável na interface, sem downloads diretos.
 
-**Ainda não implementado:** gerenciador de downloads, pausa/recomeço e associação automática do download à obra.
+Implementado nesta etapa:
+- Pesquisa da obra faltante no Catálogo encaminhada às fontes instaladas, sem site fixo.
+- Fila de até 3 downloads simultâneos a partir de URLs HTTPS informadas por fontes.
+- Progresso, cancelamento, tentativa novamente, descarte e seleção de pasta existente.
+- Download limitado a 512 MiB e feito em **cache temporário fora da biblioteca**.
+- Salvamento na biblioteca apenas com confirmação e sem substituir arquivos existentes.
+  Em bibliotecas montadas via FUSE, o arquivo final pode ficar visível durante a
+  cópia já autorizada; caso ocorra erro, a cópia incompleta é removida.
+- A fila é mantida durante a sessão; salve os downloads concluídos antes de fechar o app.
+
+**Ainda pendente:** pausa com retomada por HTTP Range, fila persistente entre sessões,
+validação aprofundada de conteúdo, criação automática de pastas planejadas e associação
+automática à obra do Catálogo (sem movimentação não autorizada).
 
 ## Próximas interfaces do motor
 
-1. Fila de downloads de arquivos autorizados, com destino planejado e **confirmação
-   do usuário antes de salvar na biblioteca**; arquivos parciais fora da raiz,
-   prevenção de sobrescrita e vinculação posterior ao catálogo.
-2. Pesquisa do Catálogo integrada aos resultados das fontes instaladas.
+1. Persistência e retomada segura da fila, com verificação de tamanho/hash e retry por parte.
+2. Integração de edição e obra no Catálogo depois de salvar um download.
 3. Extensões complexas, se realmente necessárias, só em sandbox isolada e com permissões explícitas.
 
 Uma fonte pode ser opcionalmente configurada para qualquer catálogo compatível.

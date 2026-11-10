@@ -1,5 +1,6 @@
 mod catalog_lists;
 mod covers;
+mod downloads;
 mod organization;
 mod source_search;
 mod sources;
@@ -508,6 +509,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(downloads::DownloadManager::default())
         .invoke_handler(tauri::generate_handler![
             load_collection,
             catalog_lists::import_catalog_json,
@@ -523,6 +525,12 @@ pub fn run() {
             sources::set_source_enabled,
             sources::remove_source,
             source_search::search_sources,
+            downloads::list_downloads,
+            downloads::queue_download,
+            downloads::cancel_download,
+            downloads::retry_download,
+            downloads::dismiss_download,
+            downloads::save_download,
             read_noctalia_colors
         ])
         .run(tauri::generate_context!())
