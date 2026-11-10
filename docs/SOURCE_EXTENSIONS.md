@@ -42,18 +42,21 @@ Implementado:
 - Ativar, desativar e remover fontes; gravação atômica com backup.
 - Listagem visual separada da biblioteca e das listas de obras.
 
-**Ainda não implementado:** requisição de rede, agregação de resultados nem downloads.
-Um manifesto instalado não faz chamadas externas nesta etapa.
+Implementado na etapa seguinte:
+- Pesquisa agregada nas fontes ativas por título/autor, com filtros de idioma, formato e fonte.
+- Respostas JSON limitadas a 2 MiB e 40 resultados por fonte; timeout de 15 segundos.
+- Sem proxies automáticos ou redirecionamentos; DNS resolvido e fixado para IPs públicos.
+- Fonte **Open Library (metadados)** opcional, instalável na interface, sem downloads diretos.
+
+**Ainda não implementado:** gerenciador de downloads, pausa/recomeço e associação automática do download à obra.
 
 ## Próximas interfaces do motor
 
-1. Pesquisa agregada usando as fontes ativas, com filtros por idioma e formato.
-2. Resposta limitada em quantidade e tamanho; timeouts; nenhuma execução de JavaScript.
-3. Verificação de URLs e IPs de destino, redirecionamentos e tipos de conteúdo.
-4. Fila de downloads de arquivos autorizados, com destino planejado e **confirmação
+1. Fila de downloads de arquivos autorizados, com destino planejado e **confirmação
    do usuário antes de salvar na biblioteca**; arquivos parciais fora da raiz,
    prevenção de sobrescrita e vinculação posterior ao catálogo.
-5. Extensões complexas, se realmente necessárias, só em sandbox isolada e com permissões explícitas.
+2. Pesquisa do Catálogo integrada aos resultados das fontes instaladas.
+3. Extensões complexas, se realmente necessárias, só em sandbox isolada e com permissões explícitas.
 
 Uma fonte pode ser opcionalmente configurada para qualquer catálogo compatível.
 O aplicativo não depende de um site fixo e não executa código vindo de extensões.

@@ -241,17 +241,21 @@ pub fn install_source(app: tauri::AppHandle, path: String) -> Result<Vec<Install
     let data = fs::read(path).map_err(|error| format!("Falha ao ler manifesto: {error}"))?;
     let manifest: SourceManifest = serde_json::from_slice(&data)
         .map_err(|error| format!("Manifesto incompatível: {error}"))?;
+    install_manifest(&app, manifest)
+}
+
+fn install_manifest(
+    app: &tauri::AppHandle,
+    manifest: SourceManifest,
+) -> Result<Vec<InstalledSource>, String> {
     validate(&manifest)?;
-    let registry = registry_path(&app)?;
+    let registry = registry_path(app)?;
     let mut sources = read_registry(&registry)?;
     if sources
         .iter()
         .any(|source| source.manifest.id == manifest.id)
     {
-        return Err(format!(
-            "A fonte '{}' já está instalada. Remova-a antes de substituí-la.",
-            manifest.id
-        ));
+        return Err(format!("A fonte '{}' já está instalada.", manifest.id));
     }
     if sources.len() >= MAX_SOURCES {
         return Err("Limite de 40 fontes atingido.".into());
@@ -262,6 +266,30 @@ pub fn install_source(app: tauri::AppHandle, path: String) -> Result<Vec<Install
     });
     write_registry(&registry, &sources)?;
     Ok(sources)
+}
+
+#[tauri::command]
+pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>, String> {
+    // Metadata-only optional example; all search behavior is still manifest-driven.
+    install_manifest(
+        &app,
+        SourceManifest {
+            schema_version: 1,
+            id: "open-library".into(),
+            name: "Open Library · metadados".into(),
+            description: "Catálogo público de livros; não fornece downloads diretos.".into(),
+            base_url: "https://openlibrary.org".into(),
+            search_path: "/search.json?q={query}&limit=20".into(),
+            items_path: "docs".into(),
+            title_field: "title".into(),
+            author_field: "author_name".into(),
+            format_field: "".into(),
+            language_field: "".into(),
+            download_url_field: "".into(),
+            formats: vec![],
+            languages: vec![],
+        },
+    )
 }
 
 #[tauri::command]
