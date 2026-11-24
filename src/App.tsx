@@ -13,6 +13,7 @@ import "./explorer.css";
 import "./catalog.css";
 import "./context-menu.css";
 import "./organization.css";
+import "./workspace.css";
 import { CatalogCenter } from "./CatalogCenter";
 import { SourcesCenter } from "./SourcesCenter";
 import { DownloadsCenter } from "./DownloadsCenter";
@@ -33,7 +34,7 @@ type GroupBy = "none" | "folder" | "format" | "author";
 type Layout = "grid" | "list";
 type Entry = { key: string; type: "file" | "work"; title: string; author: string; format: string; folder: string; present: boolean; file?: BookFile; work?: CatalogWork };
 type PaletteName = "noctalia" | "jade" | "indigo" | "rose" | "amber";
-type VisualStyle = "glass" | "material";
+type VisualStyle = "glass" | "material" | "workspace";
 type SortBy = "title" | "author" | "format" | "size";
 type ThemeTokens = Record<"primary" | "on_primary" | "surface" | "on_surface" | "surface_container" | "outline_variant", string> & { mode?: "light" | "dark" };
 type MenuState = { x: number; y: number; kind: "folder" | "file" | "background"; path: string };
@@ -73,16 +74,18 @@ function App() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [folderQuery, setFolderQuery] = useState("");
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
-  const [layout, setLayout] = useState<Layout>("grid");
+  const [layout, setLayout] = useState<Layout>(() => localStorage.getItem("acervo-layout") === "list" ? "list" : "grid");
+  useEffect(() => { localStorage.setItem("acervo-layout", layout); }, [layout]);
   const [sortBy, setSortBy] = useState<SortBy>("title");
   const [selectedFolder, setSelectedFolder] = useState("");
   const [search, setSearch] = useState("");
   const [format, setFormat] = useState("Todos");
   const [selection, setSelection] = useState<Entry | null>(null);
+  useEffect(() => { setSelection(null); }, [view, selectedFolder]);
   const [modal, setModal] = useState<"root" | "prompt" | "import" | "folder" | "move" | "organize" | null>(null);
   const [sideOpen, setSideOpen] = useState(false);
   const [palette, setPalette] = useState<PaletteName>(() => (localStorage.getItem("acervo-palette") as PaletteName) || "noctalia");
-  const [visualStyle, setVisualStyle] = useState<VisualStyle>(() => localStorage.getItem("acervo-visual-style") === "material" ? "material" : "glass");
+  const [visualStyle, setVisualStyle] = useState<VisualStyle>(() => { const saved = localStorage.getItem("acervo-workspace-style"); return saved === "material" || saved === "glass" ? saved : "workspace"; });
   const [theme, setTheme] = useState<ThemeTokens | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [importText, setImportText] = useState("");
@@ -148,14 +151,14 @@ function App() {
     const read = async () => {
       try {
         const tokens = await invoke<ThemeTokens | null>("read_noctalia_colors");
-        if (!cancelled) setTheme(tokens);
+        if (!cancelled) setTheme(previous => JSON.stringify(previous) === JSON.stringify(tokens) ? previous : tokens);
       } catch { if (!cancelled) setTheme(null); }
     };
     void read(); const timer = window.setInterval(read, 4000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
   useEffect(() => {
-    localStorage.setItem("acervo-visual-style", visualStyle);
+    localStorage.setItem("acervo-workspace-style", visualStyle);
     document.documentElement.dataset.visualStyle = visualStyle;
   }, [visualStyle]);
   useEffect(() => {
@@ -188,18 +191,19 @@ function App() {
         author: work?.author || "", format: file.format, folder: file.folder, present: true, file, work };
     });
   }, [collection]);
+  const searchNeedle = useMemo(() => fold(search), [search]);
   const filtered = useMemo(() => libraryEntries.filter((entry) => {
     if (!entry.present) return false; // A biblioteca é um explorador real: nunca exibe desejos.
     if (selectedFolder && !(entry.folder === selectedFolder || entry.folder.startsWith(selectedFolder + "/"))) return false;
     if (format !== "Todos" && entry.format !== format) return false;
-    if (search && !fold(entry.title + " " + entry.author + " " + entry.folder).includes(fold(search))) return false;
+    if (search && !fold(entry.title + " " + entry.author + " " + entry.folder).includes(searchNeedle)) return false;
     return true;
   }).sort((a, b) => {
     if (sortBy === "size") return (b.file?.bytes || 0) - (a.file?.bytes || 0) || a.title.localeCompare(b.title, "pt-BR");
     const left = sortBy === "author" ? a.author : sortBy === "format" ? a.format : a.title;
     const right = sortBy === "author" ? b.author : sortBy === "format" ? b.format : b.title;
     return left.localeCompare(right, "pt-BR") || a.title.localeCompare(b.title, "pt-BR");
-  }), [libraryEntries, selectedFolder, format, search, sortBy]);
+  }), [libraryEntries, selectedFolder, format, searchNeedle, sortBy]);
   const breadcrumbs = selectedFolder.split("/").filter(Boolean).map((label, index, parts) => ({ label, path: parts.slice(0, index + 1).join("/") }));
   useEffect(() => setVisibleLimit(80), [selectedFolder, format, search, sortBy, groupBy]);
   const groupLabel = (entry: Entry) => groupBy === "folder" ? entry.folder || "Raiz" : groupBy === "format" ? entry.format : groupBy === "author" ? entry.author || "Sem autor" : "";
@@ -225,7 +229,7 @@ function App() {
   const chooseSuggestion = (suggestion: { type: "Livro" | "Autor" | "Pasta"; value: string }) => {
     if (suggestion.type === "Pasta") { setSelectedFolder(suggestion.value); setSearch(""); }
     else setSearch(suggestion.value);
-    setView("catalog"); setSearchFocused(false); setActiveSuggestion(-1);
+    if (suggestion.type === "Pasta" || view !== "lists") setView("catalog"); setSearchFocused(false); setActiveSuggestion(-1);
   };
   const folderParents = useMemo(() => new Set(collection?.folders.map((folder) => folder.split("/").slice(0, -1).join("/")) || []), [collection]);
   const visibleFolders = useMemo(() => (collection?.folders || []).filter((folder) => {
@@ -488,25 +492,28 @@ ${JSON.stringify(sample, null, 2)}`;
       <div className="background-orb orb-a" /><div className="background-orb orb-b" />
       <aside className={"sidebar glass-panel" + (sideOpen ? " open" : "")} style={{ width: sidebarWidth }}>
         <div className="brand"><span className="brand-symbol"><img src={acervoIcon} alt="" aria-hidden="true" /></span><div><strong>Acervo</strong><small>Organização pessoal</small></div><button className="icon-button mobile-close" onClick={() => setSideOpen(false)} aria-label="Fechar menu"><X size={18} /></button></div>
-        <div className="nav-group">
-          <span className="nav-caption">ESPAÇO DE TRABALHO</span>
-          <button className={"nav-item" + (view === "catalog" && !selectedFolder ? " active" : "")}
+        <nav className="nav-group" aria-label="Biblioteca">
+          <span className="nav-caption">Biblioteca</span>
+          <button aria-current={view === "catalog" && !selectedFolder ? "page" : undefined} className={"nav-item" + (view === "catalog" && !selectedFolder ? " active" : "")}
             onClick={() => { setView("catalog"); setSelectedFolder(""); setSideOpen(false); }}>
             <Grid2X2 size={18} strokeWidth={1.9}/> Minha biblioteca <span className="nav-count">{collection?.files.length || 0}</span>
           </button>
-          <button className={"nav-item" + (view === "lists" ? " active" : "")}
+          <button aria-current={view === "lists" ? "page" : undefined} className={"nav-item" + (view === "lists" ? " active" : "")}
             onClick={() => { setView("lists"); setSelectedFolder(""); setSideOpen(false); }}>
             <Book size={18} strokeWidth={1.9}/> Catálogo <span className="nav-count">{collection?.works.length || 0}</span>
           </button>
-          <button className={"nav-item" + (view === "sources" ? " active" : "")}
+        </nav>
+        <nav className="nav-group acquisition-nav" aria-label="Aquisição">
+          <span className="nav-caption">Aquisição</span>
+          <button aria-current={view === "sources" ? "page" : undefined} className={"nav-item" + (view === "sources" ? " active" : "")}
             onClick={() => { setSourceRequest(null); setView("sources"); setSelectedFolder(""); setSideOpen(false); }}>
-            <Globe2 size={18} strokeWidth={1.9}/> Fontes
+            <Globe2 size={18} strokeWidth={1.9}/> Descobrir e fontes
           </button>
-          <button className={"nav-item" + (view === "downloads" ? " active" : "")}
+          <button aria-current={view === "downloads" ? "page" : undefined} className={"nav-item" + (view === "downloads" ? " active" : "")}
             onClick={() => { setView("downloads"); setSelectedFolder(""); setSideOpen(false); }}>
             <ArrowDownToLine size={18} strokeWidth={1.9}/> Downloads
           </button>
-        </div>
+        </nav>
         <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta na pasta atual" onClick={() => openFolderDialog(selectedFolder)}><Plus size={18} /></button></div>
         <div className="folder-tree-search"><Search size={14}/><input aria-label="Filtrar pastas" placeholder="Localizar pasta…" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)}/>{folderQuery && <button aria-label="Limpar filtro de pastas" onClick={() => setFolderQuery("")}><X size={13}/></button>}</div>
         <div className="folder-scroller" role="tree" aria-label="Estrutura da biblioteca">
@@ -522,7 +529,7 @@ ${JSON.stringify(sample, null, 2)}`;
           </div>
           {visibleFolders.map((folder) => (
             <div key={folder} role="treeitem" aria-expanded={folderParents.has(folder) ? expandedFolders.has(folder) : undefined}
-              className={"folder-row" + (selectedFolder === folder ? " active" : "") + (dragTarget === folder ? " drop-target" : "")}
+              className={"folder-row" + (view === "catalog" && selectedFolder === folder ? " active" : "") + (dragTarget === folder ? " drop-target" : "")}
               style={{ paddingLeft: 7 + Math.min(6, folder.split("/").length - 1) * 13 }} title={folder}
               onContextMenu={(event) => openContextMenu(event, "folder", folder)}
               onDragOver={(event) => { if (event.dataTransfer.types.includes("text/acervo-book")) { event.preventDefault(); setDragTarget(folder); } }}
@@ -580,11 +587,12 @@ ${JSON.stringify(sample, null, 2)}`;
         <main className="main-area" onContextMenu={(event) => { if (view === "catalog") openContextMenu(event, "background", selectedFolder); }}>
           {view === "settings" ? <section className="settings-page">
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
-            <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> PREFERÊNCIAS</div><h1>Configurações</h1><p>Personalize a aparência e escolha onde sua biblioteca está armazenada.</p></div></div>
+            <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> PREFERÊNCIAS</div><h1>Configurações</h1><p>Personalize a aparência e o armazenamento da biblioteca.</p></div></div>
             <div className="settings-grid">
               <article className="settings-card glass-panel">
-                <div className="settings-card-heading"><Palette size={22}/><div><h2>Aparência</h2><p>Alterne entre superfícies translúcidas e Material 3.</p></div></div>
+                <div className="settings-card-heading"><Palette size={22}/><div><h2>Aparência</h2><p>Escolha o estilo visual.</p></div></div>
                 <div className="style-choices" role="group" aria-label="Estilo da interface">
+                  <button className={"style-choice " + (visualStyle === "workspace" ? "chosen" : "")} onClick={() => setVisualStyle("workspace")} aria-pressed={visualStyle === "workspace"}><Book size={22}/><strong>Acervo</strong><small>Superfícies sólidas, capas em destaque</small></button>
                   <button className={"style-choice " + (visualStyle === "glass" ? "chosen" : "")} onClick={() => setVisualStyle("glass")} aria-pressed={visualStyle === "glass"}><Layers3 size={22}/><strong>Liquid Glass</strong><small>Transparência, brilho e profundidade</small></button>
                   <button className={"style-choice " + (visualStyle === "material" ? "chosen" : "")} onClick={() => setVisualStyle("material")} aria-pressed={visualStyle === "material"}><Grid2X2 size={22}/><strong>Material 3</strong><small>Superfícies sólidas e tonais</small></button>
                 </div>
@@ -614,7 +622,7 @@ ${JSON.stringify(sample, null, 2)}`;
               onSelect={(work) => { const entry = entries.find((candidate) => candidate.work?.id === work.id); if (entry) setSelection(entry); }}
               onSelectFile={(file) => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }} />
           </> : <>
-          <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> EXPLORADOR DE BIBLIOTECA</div><h1>{currentLabel}</h1><p>Pastas e livros existentes no disco. Para listas e faltantes, abra o Catálogo.</p></div><div className="page-actions"><button className="button secondary" onClick={openOrganizationDialog}><Layers3 size={17}/> Organizar por JSON</button><button className="button primary add-button" onClick={() => openFolderDialog(selectedFolder)}><FolderPlus size={18}/> Nova pasta</button></div></div>
+          <div className="page-intro"><div><h1>{currentLabel}</h1><p>{collection ? collection.files.length + " arquivos na biblioteca" : "Nenhuma biblioteca selecionada"}</p></div><div className="page-actions"><button className="button secondary" onClick={openOrganizationDialog}><Layers3 size={17}/> Organizar por JSON</button><button className="button primary add-button" onClick={() => openFolderDialog(selectedFolder)}><FolderPlus size={18}/> Nova pasta</button></div></div>
           {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
           {collection?.warnings.length ? <div className="warning">{collection.warnings.slice(0, 2).join(" · ")}</div> : null}
           {selectedFolder && <nav className="breadcrumbs" aria-label="Caminho da pasta"><button onClick={() => { setSelectedFolder(""); setView("catalog"); }}><Home size={15}/> Raiz</button>{breadcrumbs.map((crumb) => <span key={crumb.path}><ChevronRight size={14}/><button onClick={() => setSelectedFolder(crumb.path)}>{crumb.label}</button></span>)}</nav>}
@@ -623,7 +631,7 @@ ${JSON.stringify(sample, null, 2)}`;
               <Folder size={23}/><span><strong>{folder.split("/").slice(-1)[0]}</strong><small>{folderFileCounts.get(folder) || 0} livros dentro</small></span><ChevronRight size={17}/>
             </button>
           ))}</section>}
-          <div className="content-top"><div><h2>Arquivos <span>{filtered.length}</span></h2><p>Arraste livros para pastas. Ctrl+clique seleciona itens; Shift+clique seleciona intervalos. Obras faltantes ficam no Catálogo.</p></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); selectionAnchor.current = null; }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="pill-control sort-control"><ArrowUpDown size={16}/><select aria-label="Ordenar livros" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}><option value="title">Título</option><option value="author">Autor</option><option value="format">Formato</option><option value="size">Tamanho</option></select><ChevronDown size={14}/></div><div className="pill-control group-control"><Layers3 size={15}/><select aria-label="Agrupar livros" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="none">Sem grupos</option><option value="folder">Por pasta</option><option value="format">Por formato</option><option value="author">Por autor</option></select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
+          <div className="content-top"><div><h2>Arquivos <span>{filtered.length}</span></h2></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); selectionAnchor.current = null; }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="pill-control sort-control"><ArrowUpDown size={16}/><select aria-label="Ordenar livros" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}><option value="title">Título</option><option value="author">Autor</option><option value="format">Formato</option><option value="size">Tamanho</option></select><ChevronDown size={14}/></div><div className="pill-control group-control"><Layers3 size={15}/><select aria-label="Agrupar livros" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="none">Sem grupos</option><option value="folder">Por pasta</option><option value="format">Por formato</option><option value="author">Por autor</option></select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" aria-label="Grade" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" aria-label="Lista" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
           {bulkSelected.size > 0 && <div className="bulk-toolbar glass-panel"><div><Check size={17}/><strong>{bulkSelected.size} selecionado(s)</strong><small>Arraste para uma pasta ou escolha um destino.</small></div><button className="button primary" onClick={() => queueMove([...bulkSelected], selectedFolder || "")}><FolderOpen size={17}/> Mover para…</button><button className="icon-button" onClick={() => { setBulkSelected(new Set()); selectionAnchor.current = null; }} title="Limpar seleção" aria-label="Limpar seleção"><X size={17}/></button></div>}
           {!collection ? <div className="empty-state glass-panel"><Archive size={42}/><h3>Seu acervo, no seu controle.</h3><p>Selecione uma pasta para visualizar os livros e o catálogo existente. Nada será alterado ao abrir.</p><button className="button primary" onClick={() => void chooseRoot()}>Escolher pelo explorador <FolderOpen size={16}/></button></div>
           : filtered.length ? <><div className={"books-" + layout}>{visibleEntries.map((entry, index) => (
@@ -642,14 +650,14 @@ ${JSON.stringify(sample, null, 2)}`;
               onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
               {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
               <BookCover root={collection?.root || ""} file={entry.file} format={entry.format} present={entry.present} title={entry.title} />
-              <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || (entry.present ? "Arquivo local" : "Autor não informado")}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? "Disponível" : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
+              <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || "Autor não informado"}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? entry.format : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
             </Fragment>
           ))}</div>{visibleLimit < filtered.length && <button className="load-more" onClick={() => setVisibleLimit((current) => current + 80)}>Mostrar mais livros <span>{visibleEntries.length} de {filtered.length}</span><ChevronDown size={16}/></button>}</> : <div className="empty-state glass-panel"><Search size={35}/><h3>Nenhum arquivo nesta pasta</h3><p>Escolha outra pasta ou altere os filtros. Obras faltantes aparecem exclusivamente no Catálogo.</p></div>}
           {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
           </>}
         </main>
       </div>
-      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className={"drawer-cover " + (selection.present ? "present" : "missing")}><Book size={45}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <button key={file.path} className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>Pesquise nas fontes instaladas. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchInInstalledSources(selection)}><Search size={17}/> Pesquisar nas fontes</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
+      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside aria-label="Detalhes da obra" className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className="details-cover"><BookCover key={selection.key} root={collection?.root || ""} file={selection.file} format={selection.format} present={selection.present} title={selection.title}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <button key={file.path} className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>Pesquise nas fontes instaladas. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchInInstalledSources(selection)}><Search size={17}/> Pesquisar nas fontes</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
       {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className={"modal glass-panel" + (modal === "organize" ? " organize-modal" : "")} role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : modal === "move" ? "Mover livros" : modal === "organize" ? "Organizar biblioteca por JSON" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}
         {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label>
