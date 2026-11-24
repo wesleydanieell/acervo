@@ -115,17 +115,20 @@ function App() {
   const [visibleLimit, setVisibleLimit] = useState(80);
   useEffect(() => { localStorage.setItem("acervo-sidebar-width", String(sidebarWidth)); }, [sidebarWidth]);
 
+  const refreshGeneration = useRef(0);
   const refresh = async (location = root) => {
     if (!location.trim()) { setModal("root"); return; }
+    const generation = ++refreshGeneration.current;
     setLoading(true); setError("");
     try {
       const data = await invoke<Collection>("load_collection", { root: location.trim() });
+      if (generation !== refreshGeneration.current) return;
       if (data.root !== root) { setPromptFolders(null); setPromptDraft(null); }
       setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
       setStatus(data.files.length + " arquivos encontrados; nenhuma alteração feita nos livros.");
       setModal(null);
-    } catch (failure) { setError(String(failure)); }
-    finally { setLoading(false); }
+    } catch (failure) { if (generation === refreshGeneration.current) setError(String(failure)); }
+    finally { if (generation === refreshGeneration.current) setLoading(false); }
   };
 
   const chooseRoot = async () => {
@@ -192,18 +195,19 @@ function App() {
     });
   }, [collection]);
   const searchNeedle = useMemo(() => fold(search), [search]);
+  const librarySearchIndex = useMemo(() => new Map(libraryEntries.map(entry => [entry.key, fold(entry.title + " " + entry.author + " " + entry.folder)])), [libraryEntries]);
   const filtered = useMemo(() => libraryEntries.filter((entry) => {
     if (!entry.present) return false; // A biblioteca é um explorador real: nunca exibe desejos.
     if (selectedFolder && !(entry.folder === selectedFolder || entry.folder.startsWith(selectedFolder + "/"))) return false;
     if (format !== "Todos" && entry.format !== format) return false;
-    if (search && !fold(entry.title + " " + entry.author + " " + entry.folder).includes(searchNeedle)) return false;
+    if (searchNeedle && !librarySearchIndex.get(entry.key)?.includes(searchNeedle)) return false;
     return true;
   }).sort((a, b) => {
     if (sortBy === "size") return (b.file?.bytes || 0) - (a.file?.bytes || 0) || a.title.localeCompare(b.title, "pt-BR");
     const left = sortBy === "author" ? a.author : sortBy === "format" ? a.format : a.title;
     const right = sortBy === "author" ? b.author : sortBy === "format" ? b.format : b.title;
     return left.localeCompare(right, "pt-BR") || a.title.localeCompare(b.title, "pt-BR");
-  }), [libraryEntries, selectedFolder, format, searchNeedle, sortBy]);
+  }), [libraryEntries, librarySearchIndex, selectedFolder, format, searchNeedle, sortBy]);
   const breadcrumbs = selectedFolder.split("/").filter(Boolean).map((label, index, parts) => ({ label, path: parts.slice(0, index + 1).join("/") }));
   useEffect(() => setVisibleLimit(80), [selectedFolder, format, search, sortBy, groupBy]);
   const groupLabel = (entry: Entry) => groupBy === "folder" ? entry.folder || "Raiz" : groupBy === "format" ? entry.format : groupBy === "author" ? entry.author || "Sem autor" : "";
@@ -581,7 +585,7 @@ ${JSON.stringify(sample, null, 2)}`;
           </div>
           <div className="topbar-actions">
             <button className="icon-button" title="Configurações" aria-label="Configurações" onClick={() => { setView("settings"); setSelectedFolder(""); }}><Settings2 size={19}/></button>
-            <button className="icon-button" title="Atualizar catálogo" onClick={() => void refresh()}><RefreshCw className={loading ? "spinning" : ""} size={19} /></button>
+            <button className="icon-button" title="Atualizar catálogo" aria-label="Atualizar catálogo" disabled={loading} onClick={() => void refresh()}><RefreshCw className={loading ? "spinning" : ""} size={19} /></button>
           </div>
         </header>
         <main className="main-area" onContextMenu={(event) => { if (view === "catalog") openContextMenu(event, "background", selectedFolder); }}>
