@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDownToLine, Check, CircleAlert, Download, FolderCheck, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
+import { Check, CircleAlert, Download, FolderCheck, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
 import "./downloads.css";
+import { downloadDestination, downloadGroup, type DownloadFilter } from "./download-workspace";
+import { isServiceCatalogPath } from "./prompt-folder-selection";
 
 export type DownloadInfo = {
   id: string; title: string; sourceName: string; format: string; filename: string;
@@ -27,18 +29,34 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   const [confirmId, setConfirmId] = useState("");
   const [discardId, setDiscardId] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [filter, setFilter] = useState<DownloadFilter>("all");
+  const [query, setQuery] = useState("");
+  const refreshGeneration = useRef(0);
+  const allowedFolders = useMemo(() => folders.filter(folder => !isServiceCatalogPath(folder)), [folders]);
+  const counts = useMemo(() => {
+    const result = { all: items.length, active: 0, ready: 0, history: 0 };
+    for (const item of items) result[downloadGroup(item.status)]++;
+    return result;
+  }, [items]);
+  const visible = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase("pt-BR");
+    return items.filter(item => (filter === "all" || downloadGroup(item.status) === filter)
+      && (!needle || [item.title, item.sourceName, item.filename].some(value => value.toLocaleLowerCase("pt-BR").includes(needle))));
+  }, [items, filter, query]);
+  useEffect(() => { setDestinations({}); setConfirmId(""); setDiscardId(""); }, [root]);
 
   const refresh = async () => {
+    const generation = ++refreshGeneration.current;
     try {
       const result = await invoke<DownloadInfo[]>("list_downloads");
-      setItems(result);
-    } catch (failure) { setError(String(failure)); }
+      if (generation === refreshGeneration.current) setItems(previous => JSON.stringify(previous) === JSON.stringify(result) ? previous : result);
+    } catch (failure) { if (generation === refreshGeneration.current) setError(String(failure)); }
   };
 
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 900);
-    return () => window.clearInterval(timer);
+    return () => { window.clearInterval(timer); refreshGeneration.current++; };
   }, []);
 
   const action = async (command: string, id: string) => {
@@ -52,7 +70,8 @@ export function DownloadsCenter({ root, folders, onSaved }: {
 
   const save = async (item: DownloadInfo) => {
     if (!root) { setError("Selecione uma biblioteca em Configurações antes de salvar."); return; }
-    const destination = destinations[item.id] ?? (folders.includes(item.plannedDestination) ? item.plannedDestination : "");
+    const destination = downloadDestination(item.plannedDestination, destinations[item.id], allowedFolders);
+    if (destination === null) { setError("Escolha uma pasta de destino válida."); return; }
     setBusyId(item.id); setError(""); setNotice("");
     try {
       const saved = await invoke<string>("save_download", { id: item.id, root, destination });
@@ -69,16 +88,20 @@ export function DownloadsCenter({ root, folders, onSaved }: {
       <h1>Downloads</h1><p>Acompanhe transferências e decida onde cada livro será salvo na biblioteca.</p></div>
       <button className="button secondary" onClick={() => void refresh()}><RefreshCw size={17}/> Atualizar</button>
     </div>
-    <div className="downloads-note glass-panel"><ArrowDownToLine size={22}/>
-      <div><strong>Primeiro em área temporária, depois no acervo.</strong>
-        <p>Os arquivos ficam no cache até você confirmar o destino. A fila persiste entre reinícios; nada volta a baixar sozinho. Pause downloads sem perder os dados parciais. Use “Continuar” para tentar retomar de onde parou quando a fonte permitir (HTTP Range + ETag); sem esse suporte, a transferência recomeça do zero.</p></div>
+    <div className="download-workspace-toolbar">
+      <div className="download-filters" role="group" aria-label="Filtrar downloads">
+        {([["all", "Todos"], ["active", "Transferências"], ["ready", "A importar"], ["history", "Histórico"]] as const).map(([value, label]) =>
+          <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}<span>{counts[value]}</span></button>)}
+      </div>
+      <input className="download-search" aria-label="Pesquisar downloads" placeholder="Pesquisar downloads" value={query} onChange={event => setQuery(event.target.value)}/>
     </div>
     {error && <div className="alert" role="alert"><CircleAlert size={17}/>{error}<button className="icon-button" onClick={() => setError("")} aria-label="Fechar erro"><X size={16}/></button></div>}
     {notice && <div className="inline-status" role="status"><Check size={16}/>{notice}</div>}
     {items.length === 0 ? <div className="empty-state glass-panel downloads-empty"><Download size={39}/><h3>Sua fila está vazia</h3>
       <p>Abra Fontes, pesquise um livro e use “Baixar” para adicioná-lo à fila.</p></div> :
-      <div className="download-list">{items.map((item) => {
-        const destination = destinations[item.id] ?? (folders.includes(item.plannedDestination) ? item.plannedDestination : "");
+      visible.length === 0 ? <div className="empty-state glass-panel downloads-empty"><Download size={28}/><h3>Nenhum download neste filtro</h3><button className="button secondary" onClick={() => { setQuery(""); setFilter("all"); }}>Limpar filtros</button></div> :
+      <div className="download-list">{visible.map((item) => {
+        const destination = downloadDestination(item.plannedDestination, destinations[item.id], allowedFolders);
         const percentage = item.totalBytes ? Math.min(100, 100 * item.downloadedBytes / item.totalBytes) : undefined;
         return <article key={item.id} className="download-card glass-panel">
           <div className="download-card-top"><div className="download-icon"><Download size={21}/></div>
@@ -94,13 +117,14 @@ export function DownloadsCenter({ root, folders, onSaved }: {
           {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}</p>}
           {item.status === "ready" && <div className="download-destination">
             <label>Pasta de destino
-              <select value={destination} onChange={(event) => { setDestinations((values) => ({ ...values, [item.id]: event.target.value })); setConfirmId(""); }}>
+              <select value={destination ?? "__choose__"} onChange={(event) => { setDestinations((values) => ({ ...values, [item.id]: event.target.value })); setConfirmId(""); }}>
+                {destination === null && <option value="__choose__" disabled>Escolha uma pasta</option>}
                 <option value="">Raiz da biblioteca</option>
-                {folders.filter((folder) => folder !== "99 - Catálogo" && !folder.startsWith("99 - Catálogo/")).map((folder) =>
+                {allowedFolders.map((folder) =>
                   <option key={folder} value={folder}>{folder}</option>)}
               </select>
             </label>
-            {item.plannedDestination && !folders.includes(item.plannedDestination) && <small className="download-target-note">Pasta planejada “{item.plannedDestination}” não existe; selecione uma pasta válida.</small>}
+            {item.plannedDestination && !allowedFolders.includes(item.plannedDestination) && <small className="download-target-note">Pasta planejada “{item.plannedDestination}” não existe; selecione uma pasta válida.</small>}
             {discardId === item.id && <p className="download-confirm">Descartar definitivamente o arquivo temporário <strong>{item.filename}</strong>?</p>}
             {confirmId === item.id && <p className="download-confirm">Confirmar salvar <strong>{item.filename}</strong> em <strong>{destination || "Raiz"}</strong>? Nada será sobrescrito.</p>}
           </div>}
@@ -119,8 +143,8 @@ export function DownloadsCenter({ root, folders, onSaved }: {
               <button className="button secondary" onClick={() => void action("dismiss_download", item.id)}><Trash2 size={15}/> Remover da lista</button>}
             {item.status === "ready" && discardId !== item.id && (confirmId === item.id
               ? <><button className="button secondary" onClick={() => setConfirmId("")}>Voltar</button>
-                  <button className="button primary" disabled={busyId === item.id || !root} onClick={() => void save(item)}><Check size={15}/> Confirmar</button></>
-              : <button className="button primary" disabled={!root} onClick={() => setConfirmId(item.id)}><FolderCheck size={15}/> Salvar na biblioteca</button>)}
+                  <button className="button primary" disabled={busyId === item.id || !root || destination === null} onClick={() => void save(item)}><Check size={15}/> Confirmar</button></>
+              : <button className="button primary" disabled={!root || destination === null} onClick={() => setConfirmId(item.id)}><FolderCheck size={15}/> Salvar na biblioteca</button>)}
           </div>
         </article>;
       })}</div>}
