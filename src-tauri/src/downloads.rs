@@ -1,4 +1,5 @@
 //! Persistent staged download queue. Nothing enters the library before explicit approval.
+use super::catalog_lists::CatalogTarget;
 use super::source_search::{safe_url, secure_https_client};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -41,6 +42,10 @@ pub struct DownloadInfo {
     pub total_bytes: Option<u64>,
     pub error: String,
     pub saved_path: String,
+    #[serde(default)]
+    pub catalog_target: Option<CatalogTarget>,
+    #[serde(default)]
+    pub catalog_linked: bool,
 }
 
 #[derive(Clone)]
@@ -80,7 +85,7 @@ fn read_download_registry(path: &Path) -> Result<Vec<DownloadRecord>, String> {
         return Err("O registro de downloads não pode ser um link simbólico.".into());
     }
     let data = fs::read(path).map_err(|error| format!("Falha ao ler downloads: {error}"))?;
-    if data.len() > 256 * 1024 {
+    if data.len() > 1024 * 1024 {
         return Err("Registro de downloads excessivamente grande.".into());
     }
     let saved: Vec<StoredDownload> = serde_json::from_slice(&data)
@@ -142,8 +147,8 @@ fn write_download_registry(path: &Path, records: &[DownloadRecord]) -> Result<()
         })
         .collect();
     let data = serde_json::to_vec_pretty(&saved).map_err(|error| error.to_string())?;
-    if data.len() > 256 * 1024 {
-        return Err("Registro de downloads excede 256 KB.".into());
+    if data.len() > 1024 * 1024 {
+        return Err("Registro de downloads excede 1 MB.".into());
     }
     let tick = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -658,6 +663,7 @@ fn same_unfinished_download(existing: &DownloadRecord, candidate: &DownloadRecor
     ) && existing.url == candidate.url
         && existing.info.format == candidate.info.format
         && existing.info.planned_destination == candidate.info.planned_destination
+        && existing.info.catalog_target == candidate.info.catalog_target
 }
 
 #[tauri::command]
@@ -669,7 +675,11 @@ pub fn queue_download(
     source_name: String,
     format: String,
     planned_destination: String,
+    catalog_target: Option<CatalogTarget>,
 ) -> Result<Vec<DownloadInfo>, String> {
+    if let Some(target) = &catalog_target {
+        target.validate()?;
+    }
     if !safe_url(&url) {
         return Err("O link precisa ser HTTPS público e seguro.".into());
     }
@@ -699,6 +709,8 @@ pub fn queue_download(
             total_bytes: None,
             error: String::new(),
             saved_path: String::new(),
+            catalog_target,
+            catalog_linked: false,
         },
         url: url.clone(),
         etag: String::new(),
@@ -1038,6 +1050,7 @@ pub async fn save_download(
     root: String,
     destination: String,
     create_missing: Option<bool>,
+    link_catalog: Option<bool>,
 ) -> Result<String, String> {
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -1048,6 +1061,7 @@ pub async fn save_download(
             root,
             destination,
             create_missing.unwrap_or(false),
+            link_catalog.unwrap_or(false),
         )
     })
     .await
@@ -1061,8 +1075,9 @@ fn save_download_to_library(
     root: String,
     destination: String,
     create_missing: bool,
+    link_catalog: bool,
 ) -> Result<String, String> {
-    let (filename, format) = {
+    let (filename, format, catalog_target) = {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
         let item = items
             .iter_mut()
@@ -1072,39 +1087,35 @@ fn save_download_to_library(
             return Err("O download ainda não está pronto.".into());
         }
         item.info.status = "saving".into();
-        (item.info.filename.clone(), item.info.format.clone())
+        (
+            item.info.filename.clone(),
+            item.info.format.clone(),
+            item.info.catalog_target.clone(),
+        )
     };
-    let mut created = Vec::new();
-    let operation = (|| -> Result<String, String> {
-        let root =
-            fs::canonicalize(&root).map_err(|error| format!("Biblioteca inválida: {error}"))?;
-        let stage = staged_path(&app, &id)?;
-        // Validate before creating any directories.
-        super::download_validation::validate_staged_book(&stage, &format)?;
-        let directory = target_directory(&root, &destination, create_missing, &mut created)?;
-        let target = commit_staged(&stage, &directory, &filename, &id)?;
-        let relative = target
-            .strip_prefix(&root)
-            .map_err(|error| error.to_string())?
-            .to_string_lossy()
-            .replace('\\', "/");
-        Ok(relative)
-    })();
-    if operation.is_err() {
-        for path in created.iter().rev() {
-            // Only remove directories created by this operation, and only if empty.
-            if fs::symlink_metadata(path)
-                .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
-            {
-                let _ = fs::remove_dir(path);
-            }
-        }
-    }
+    let (operation, association_result) = match staged_path(&app, &id) {
+        Ok(stage) => import_staged_book(
+            &stage,
+            &root,
+            &destination,
+            &filename,
+            &format,
+            &id,
+            create_missing,
+            catalog_target.as_ref(),
+            link_catalog,
+        ),
+        Err(error) => (Err(error), None),
+    };
     manager.change(&id, |item| match &operation {
         Ok(path) => {
             item.info.status = "saved".into();
             item.info.saved_path = path.clone();
-            item.info.error.clear();
+            item.info.catalog_linked = matches!(&association_result, Some(Ok(())));
+            item.info.error = match &association_result {
+                Some(Err(error)) => format!("Arquivo salvo; associação não concluída: {error}"),
+                _ => String::new(),
+            };
         }
         Err(error) => {
             item.info.status = "ready".into();
@@ -1121,9 +1132,142 @@ fn save_download_to_library(
     operation
 }
 
+/// Keep physical import and optional association independently observable:
+/// a failed metadata write never invalidates a successfully imported book.
+#[allow(clippy::too_many_arguments)]
+fn import_staged_book(
+    stage: &Path,
+    root: &str,
+    destination: &str,
+    filename: &str,
+    format: &str,
+    id: &str,
+    create_missing: bool,
+    catalog_target: Option<&CatalogTarget>,
+    link_catalog: bool,
+) -> (Result<String, String>, Option<Result<(), String>>) {
+    let mut created = Vec::new();
+    let mut association_result = None;
+    let operation = (|| -> Result<String, String> {
+        let root =
+            fs::canonicalize(&root).map_err(|error| format!("Biblioteca inválida: {error}"))?;
+        if let Some(target) = catalog_target {
+            if root.to_str() != Some(target.root.as_str()) {
+                return Err("Selecione a biblioteca de origem deste download.".into());
+            }
+        } else if link_catalog {
+            return Err("Download sem ficha de origem.".into());
+        }
+        // Validate before creating any directories.
+        super::download_validation::validate_staged_book(stage, format)?;
+        let directory = target_directory(&root, destination, create_missing, &mut created)?;
+        let target = commit_staged(stage, &directory, filename, id)?;
+        let relative = target
+            .strip_prefix(&root)
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if link_catalog {
+            if let Some(target) = catalog_target {
+                association_result = Some(target.link(&root, &relative));
+            }
+        }
+        Ok(relative)
+    })();
+    if operation.is_err() {
+        for path in created.iter().rev() {
+            // Only remove directories created by this operation, and only if empty.
+            if fs::symlink_metadata(path)
+                .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
+            {
+                let _ = fs::remove_dir(path);
+            }
+        }
+    }
+    (operation, association_result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staged_import_links_only_the_requested_work_and_preserves_files_on_link_failure() {
+        let dir = std::env::temp_dir().join(format!(
+            "acervo-linked-import-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&dir).unwrap();
+        let dir = fs::canonicalize(dir).unwrap();
+        let root = dir.join("library");
+        let other = dir.join("other");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&other).unwrap();
+        let root_text = root.to_str().unwrap();
+        super::super::catalog_lists::import_catalog_json(
+            root_text.into(),
+            r#"{"obras":[{"titulo":"Book","autor":"Author","local_indicado":"Planned"}]}"#.into(),
+        )
+        .unwrap();
+        let target = CatalogTarget {
+            root: root_text.into(),
+            title: "Book".into(),
+            author: "Author".into(),
+            destination: "Planned".into(),
+        };
+        let stage = dir.join("download.part");
+        fs::write(&stage, b"%PDF-1.7\n%%EOF").unwrap();
+        let (result, link) = import_staged_book(
+            &stage,
+            other.to_str().unwrap(),
+            "Wrong",
+            "book.pdf",
+            "pdf",
+            "job-1",
+            true,
+            Some(&target),
+            true,
+        );
+        assert!(result.is_err() && link.is_none());
+        assert!(stage.exists() && !other.join("Wrong").exists());
+        let (result, link) = import_staged_book(
+            &stage,
+            root_text,
+            "Planned",
+            "book.pdf",
+            "pdf",
+            "job-1",
+            true,
+            Some(&target),
+            true,
+        );
+        assert_eq!(result.unwrap(), "Planned/book.pdf");
+        assert_eq!(link, Some(Ok(())));
+        assert!(!stage.exists());
+        let scanned = super::super::scan_collection(root_text.into()).unwrap();
+        assert!(scanned.works[0].present);
+        let mut stale = target.clone();
+        stale.title = "Missing".into();
+        fs::write(&stage, b"%PDF-1.7\n%%EOF").unwrap();
+        let (result, link) = import_staged_book(
+            &stage,
+            root_text,
+            "Planned",
+            "other.pdf",
+            "pdf",
+            "job-2",
+            false,
+            Some(&stale),
+            true,
+        );
+        assert_eq!(result.unwrap(), "Planned/other.pdf");
+        assert!(matches!(link, Some(Err(_))));
+        assert!(root.join("Planned/other.pdf").exists());
+        let scanned = super::super::scan_collection(root_text.into()).unwrap();
+        assert_eq!(scanned.works[0].associated_files, vec!["Planned/book.pdf"]);
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn transfer_signal_distinguishes_pause_from_cancel() {
@@ -1310,6 +1454,8 @@ mod tests {
                 total_bytes: Some(100),
                 error: String::new(),
                 saved_path: String::new(),
+                catalog_target: None,
+                catalog_linked: false,
             },
             url: "https://example.org/public-domain.epub".into(),
             etag: "\"edition-42\"".into(),
@@ -1333,7 +1479,29 @@ mod tests {
                 0o600
             );
         }
+        // Old registry entries omit the new optional fields.
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let info = json[0]["info"].as_object_mut().unwrap();
+        info.remove("catalogTarget");
+        info.remove("catalogLinked");
+        fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
         let mut loaded = read_download_registry(&path).unwrap();
+        assert!(loaded[0].info.catalog_target.is_none());
+        assert!(!loaded[0].info.catalog_linked);
+        loaded[0].info.catalog_target = Some(CatalogTarget {
+            root: "/books".into(),
+            title: "Teste".into(),
+            author: "Author".into(),
+            destination: "Literatura".into(),
+        });
+        write_download_registry(&path, &loaded).unwrap();
+        assert_eq!(
+            read_download_registry(&path).unwrap()[0]
+                .info
+                .catalog_target,
+            loaded[0].info.catalog_target
+        );
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].url, "https://example.org/public-domain.epub");
         assert_eq!(loaded[0].etag, "\"edition-42\"");

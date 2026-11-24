@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, CircleAlert, Download, FolderCheck, FolderPlus, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
 import "./downloads.css";
-import { planDownloadDestination, validDownloadPath, downloadGroup, type DownloadFilter } from "./download-workspace";
+import { planDownloadDestination, validDownloadPath, downloadGroup, canImportDownload, type CatalogTarget, type DownloadFilter } from "./download-workspace";
 import { isServiceCatalogPath } from "./prompt-folder-selection";
 
 export type DownloadInfo = {
   id: string; title: string; sourceName: string; format: string; filename: string;
   plannedDestination: string; status: string; downloadedBytes: number;
-  totalBytes: number | null; error: string; savedPath: string;
+  totalBytes: number | null; error: string; savedPath: string; catalogTarget?: CatalogTarget | null; catalogLinked?: boolean;
 };
 
 const sizes = (bytes: number) => bytes >= 1048576
@@ -28,6 +28,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   const [destinations, setDestinations] = useState<Record<string, string>>({});
   const [customPaths, setCustomPaths] = useState<Record<string, string>>({});
   const [confirmId, setConfirmId] = useState("");
+  const [linkChoices, setLinkChoices] = useState<Record<string, boolean>>({});
   const [discardId, setDiscardId] = useState("");
   const [busyId, setBusyId] = useState("");
   const [filter, setFilter] = useState<DownloadFilter>("all");
@@ -44,7 +45,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     return items.filter(item => (filter === "all" || downloadGroup(item.status) === filter)
       && (!needle || [item.title, item.sourceName, item.filename].some(value => value.toLocaleLowerCase("pt-BR").includes(needle))));
   }, [items, filter, query]);
-  useEffect(() => { setDestinations({}); setCustomPaths({}); setConfirmId(""); setDiscardId(""); }, [root]);
+  useEffect(() => { setDestinations({}); setCustomPaths({}); setLinkChoices({}); setConfirmId(""); setDiscardId(""); }, [root]);
 
   const refresh = async () => {
     const generation = ++refreshGeneration.current;
@@ -70,12 +71,12 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   };
 
   const save = async (item: DownloadInfo) => {
-    if (!root) { setError("Selecione uma biblioteca em Configurações antes de salvar."); return; }
+    if (!canImportDownload(root, item.catalogTarget)) { setError("Selecione a biblioteca de origem antes de salvar."); return; }
     const plan = planDownloadDestination(item.plannedDestination, destinations[item.id], customPaths[item.id], allowedFolders);
     if (plan === null) { setError("Escolha uma pasta de destino válida."); return; }
     setBusyId(item.id); setError(""); setNotice("");
     try {
-      const saved = await invoke<string>("save_download", { id: item.id, root, destination: plan.path, createMissing: plan.createMissing });
+      const saved = await invoke<string>("save_download", { id: item.id, root, destination: plan.path, createMissing: plan.createMissing, linkCatalog: Boolean(item.catalogTarget && (linkChoices[item.id] ?? true)) });
       setConfirmId("");
       setNotice("Salvo em " + saved);
       await onSaved();
@@ -105,6 +106,8 @@ export function DownloadsCenter({ root, folders, onSaved }: {
         const custom = customPaths[item.id];
         const plan = planDownloadDestination(item.plannedDestination, destinations[item.id], custom, allowedFolders);
         const destination = plan?.path ?? null;
+        const canImport = canImportDownload(root, item.catalogTarget);
+        const willLink = Boolean(item.catalogTarget && (linkChoices[item.id] ?? true));
         const percentage = item.totalBytes ? Math.min(100, 100 * item.downloadedBytes / item.totalBytes) : undefined;
         return <article key={item.id} className="download-card glass-panel">
           <div className="download-card-top"><div className="download-icon"><Download size={21}/></div>
@@ -117,7 +120,9 @@ export function DownloadsCenter({ root, folders, onSaved }: {
           {item.error && <p className="download-error" role="status">{item.error}</p>}
           {item.status === "failed" && item.downloadedBytes > 0 &&
             <p className="download-target-note">Arquivo parcial em cache: {sizes(item.downloadedBytes)}. A próxima tentativa verifica se a fonte permite retomá-lo.</p>}
-          {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}</p>}
+          {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}{item.catalogLinked ? " · Associado ao catálogo" : ""}</p>}
+          {item.catalogTarget && <small className="download-target-note">Obra: {item.catalogTarget.title}{item.catalogTarget.author ? " — " + item.catalogTarget.author : ""}</small>}
+          {item.status === "ready" && item.catalogTarget && !canImport && <p className="download-error">Biblioteca de origem: {item.catalogTarget.root}. Selecione essa biblioteca para importar.</p>}
           {item.status === "ready" && <div className="download-destination">
             {custom === undefined ? <label>Pasta de destino
               <select value={destination ?? "__choose__"} onChange={(event) => { setDestinations((values) => ({ ...values, [item.id]: event.target.value })); setConfirmId(""); }}>
@@ -140,7 +145,8 @@ export function DownloadsCenter({ root, folders, onSaved }: {
             {custom === undefined && item.plannedDestination && !allowedFolders.includes(item.plannedDestination) && <small className="download-target-note">Pasta planejada: {item.plannedDestination}. Escolha uma pasta existente ou crie o caminho planejado.</small>}
             {custom !== undefined && custom.length > 0 && !validDownloadPath(custom) && <small className="download-target-note" role="status">Caminho inválido. Use nomes de pastas separados por /.</small>}
             {discardId === item.id && <p className="download-confirm">Descartar definitivamente o arquivo temporário <strong>{item.filename}</strong>?</p>}
-            {confirmId === item.id && plan && <p className="download-confirm">Salvar <strong>{item.filename}</strong> em <strong>{root}{destination ? "/" + destination : ""}</strong>? {plan.createMissing ? "Pastas inexistentes serão criadas. " : ""}Nada será sobrescrito.</p>}
+            {item.catalogTarget && <label className="download-link-option"><input type="checkbox" checked={willLink} onChange={event => { setLinkChoices(values => ({ ...values, [item.id]: event.target.checked })); setConfirmId(""); }}/> Associar à obra do catálogo</label>}
+            {confirmId === item.id && plan && <p className="download-confirm">Salvar <strong>{item.filename}</strong> em <strong>{root}{destination ? "/" + destination : ""}</strong>? {plan.createMissing ? "Pastas inexistentes serão criadas. " : ""}{willLink ? "O arquivo será associado à obra selecionada. " : ""}Nada será sobrescrito.</p>}
           </div>}
           <div className="download-actions">
             {(item.status === "queued" || item.status === "downloading") &&
@@ -157,8 +163,8 @@ export function DownloadsCenter({ root, folders, onSaved }: {
               <button className="button secondary" onClick={() => void action("dismiss_download", item.id)}><Trash2 size={15}/> Remover da lista</button>}
             {item.status === "ready" && discardId !== item.id && (confirmId === item.id
               ? <><button className="button secondary" onClick={() => setConfirmId("")}>Voltar</button>
-                  <button className="button primary" disabled={busyId === item.id || !root || destination === null} onClick={() => void save(item)}><Check size={15}/> Confirmar</button></>
-              : <button className="button primary" disabled={!root || destination === null} onClick={() => setConfirmId(item.id)}><FolderCheck size={15}/> Salvar na biblioteca</button>)}
+                  <button className="button primary" disabled={busyId === item.id || !canImport || destination === null} onClick={() => void save(item)}><Check size={15}/> Confirmar</button></>
+              : <button className="button primary" disabled={!canImport || destination === null} onClick={() => setConfirmId(item.id)}><FolderCheck size={15}/> Salvar na biblioteca</button>)}
           </div>
         </article>;
       })}</div>}

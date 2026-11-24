@@ -101,3 +101,8 @@ O aplicativo não depende de um site fixo e não executa código vindo de extens
 
 - [Gutendex](https://github.com/garethbjohnson/gutendex): catálogo JSON com autores aninhados e formatos indexados por MIME. Referência para seletores, não uma extensão incorporada.
 - [Política do Project Gutenberg](https://www.gutenberg.org/policy/terms_of_use.html): usar meios autorizados para automação e espelhos para downloads em massa; não integrar downloads automáticos pelo site principal. Verificar permissões e disponibilidade de cada origem antes de publicar um provedor.
+
+
+## Importação vinculada à ficha
+
+Pesquisas iniciadas em uma ficha JSON guardam uma referência persistente com raiz canônica, título, autor e destino planejado. Na importação, o usuário pode manter ou desmarcar a associação, e precisa selecionar a biblioteca de origem. A referência é resolvida por identidade exata e única, não pelo índice da lista nem por similaridade de título. Se a ficha mudou, foi removida, está duplicada ou a gravação falhou, o livro permanece salvo e a fila apresenta o erro de associação; o vínculo pode ser feito manualmente no catálogo. Registros antigos continuam legíveis. Não há UUID estável, associação ao SQLite legado, nem importação sem confirmação neste incremento. Um desligamento durante a gravação ainda pode exigir reconciliação manual do histórico.
