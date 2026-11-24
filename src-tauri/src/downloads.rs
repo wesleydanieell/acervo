@@ -651,6 +651,15 @@ pub fn list_downloads(
     manager.snapshot()
 }
 
+fn same_unfinished_download(existing: &DownloadRecord, candidate: &DownloadRecord) -> bool {
+    matches!(
+        existing.info.status.as_str(),
+        "queued" | "downloading" | "pausing" | "paused" | "ready" | "saving"
+    ) && existing.url == candidate.url
+        && existing.info.format == candidate.info.format
+        && existing.info.planned_destination == candidate.info.planned_destination
+}
+
 #[tauri::command]
 pub fn queue_download(
     app: tauri::AppHandle,
@@ -698,6 +707,12 @@ pub fn queue_download(
     let manager = manager.inner().clone();
     {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
+        if items
+            .iter()
+            .any(|item| same_unfinished_download(item, &download))
+        {
+            return Err("Este arquivo já está na fila para o mesmo destino.".into());
+        }
         if items.len() >= MAX_HISTORY {
             return Err("A fila está cheia. Limpe downloads antigos.".into());
         }
@@ -1182,6 +1197,15 @@ mod tests {
             etag: "\"edition-42\"".into(),
             control: Arc::new(AtomicU8::new(RUNNING)),
         };
+        let mut candidate = original.clone();
+        candidate.info.id = "job-2".into();
+        assert!(same_unfinished_download(&original, &candidate));
+        candidate.info.planned_destination = "Outro".into();
+        assert!(!same_unfinished_download(&original, &candidate));
+        candidate.info.planned_destination = original.info.planned_destination.clone();
+        let mut finished = original.clone();
+        finished.info.status = "saved".into();
+        assert!(!same_unfinished_download(&finished, &candidate));
         write_download_registry(&path, &[original]).unwrap();
         #[cfg(unix)]
         {
