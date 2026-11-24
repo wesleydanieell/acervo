@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Acervo declarative JSON source v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion","id","name","baseUrl","searchPath","itemsPath","titleField"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "apiVersion": {"const": 1, "default": 1},
+    "version": {"type":"string","pattern":"^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$","default":"1.0.0"},
+    "adapter": {"const":"json","default":"json"},
+    "id": {"type":"string","pattern":"^[a-z][a-z0-9-]{2,63}$"},
+    "name": {"type":"string","minLength":1,"maxLength":100},
+    "description": {"type":"string","maxLength":500},
+    "baseUrl": {"type":"string","format":"uri","pattern":"^https://"},
+    "searchPath": {"type":"string","maxLength":1000,"pattern":"^/(?!/).*\\{query\\}"},
+    "itemsPath": {"$ref":"#/$defs/requiredSelector"},
+    "titleField": {"$ref":"#/$defs/requiredSelector"},
+    "authorField": {"$ref":"#/$defs/optionalSelector"},
+    "formatField": {"$ref":"#/$defs/optionalSelector"},
+    "languageField": {"$ref":"#/$defs/optionalSelector"},
+    "downloadUrlField": {"$ref":"#/$defs/optionalSelector"},
+    "formats": {"$ref":"#/$defs/codes"},
+    "languages": {"$ref":"#/$defs/codes"},
+    "localSearch": {"type":"boolean","default":false}
+  },
+  "$defs": {
+    "requiredSelector":{"type":"string","minLength":1,"maxLength":200},
+    "optionalSelector":{"type":"string","maxLength":200},
+    "codes":{"type":"array","maxItems":25,"items":{"type":"string","pattern":"^[A-Za-z0-9-]{1,25}$"}}
+  }
+}

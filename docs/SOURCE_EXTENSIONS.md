@@ -115,3 +115,7 @@ O botão Baixar abre um seletor pesquisável de fichas JSON e SQLite legado. A s
 ## Fontes de teste e domínio público
 
 Instale as fontes opcionais pela área Extensões ou importe os manifestos em integrations/test-source e integrations/gutenberg. O campo opcional localSearch aplica filtro por título e autor aos resultados JSON recebidos, útil para catálogos estáticos pequenos. A seleção Gutenberg usa o espelho PGLAF; não inclui o catálogo integral do Project Gutenberg. Testes de regressão são independentes da rede. Recuperação transacional após interrupção abrupta durante importação continua pendente.
+
+## Extension API v1
+
+O manifesto aceita apiVersion, version e adapter. Manifestos antigos recebem os valores 1, 1.0.0 e json; somente a API 1 e o adaptador JSON estão disponíveis. Consulte [arquitetura](architecture/extension-api.md) e [SDK preview](../sdk/extensions/README.md). O JSON Schema auxilia a edição; a validação Rust permanece obrigatória.
