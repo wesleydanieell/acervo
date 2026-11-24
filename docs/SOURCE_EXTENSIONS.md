@@ -33,6 +33,12 @@ extensão é executado dentro do aplicativo.
 - `downloadUrlField` é opcional: fontes de metadados não precisam fornecer downloads.
 - `formats` e `languages` descrevem filtros suportados e podem ser listas vazias.
 
+## Navegação
+
+- Descobrir: pesquisa nas fontes ativas e envio de resultados à fila.
+- Extensões: instalação, ativação e remoção de manifestos, além da documentação do contrato.
+- Quando a pesquisa vem do Catálogo, o destino planejado fica visível; alterar o texto da busca desvincula esse destino.
+
 ## Estado atual
 
 Implementado:

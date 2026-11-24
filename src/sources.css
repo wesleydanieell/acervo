@@ -31,3 +31,11 @@
 .source-help .source-disclaimer{display:flex;align-items:flex-start;gap:7px;font-size:11px}
 .source-empty{max-width:none;padding:34px}
 @media(max-width:700px){.sources-summary{align-items:flex-start;padding:15px}.sources-summary-icon{display:none}.sources-summary>span{font-size:10px}.sources-center .page-intro{align-items:stretch}.sources-top-actions{width:100%}.source-list{grid-template-columns:1fr}}
+
+.source-no-active{display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px}
+.source-no-active span{flex:1;font-size:13px}
+.source-no-active>svg{color:var(--accent)}
+.source-help>summary{cursor:pointer;font-weight:650;font-size:13px}
+.source-help[open]>summary{margin-bottom:12px}
+.source-help:not([open]){padding:14px 18px}
+.source-search-from-catalog{display:flex;align-items:center;justify-content:space-between;gap:8px}

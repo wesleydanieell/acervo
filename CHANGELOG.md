@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Descobrir e Extensões em áreas distintas, com destino do catálogo visível, busca invalidada ao alterar filtros e proteção contra cliques repetidos ao baixar.
 - Centro de downloads com filtros de estado, contadores e pesquisa; destinos planejados inexistentes exigem escolha explícita.
 - Validação e importação de downloads fora da thread da interface.
 - Novo workspace Acervo, inspirado no BookLore, com capas verticais, navegação agrupada e detalhes laterais.
