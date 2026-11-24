@@ -611,17 +611,22 @@ fn spawn_download(
 ) {
     tauri::async_runtime::spawn(async move {
         let outcome = fetch_to_stage(&app, &manager, &id, &url, &control).await;
-        let cancelled = control.load(Ordering::Relaxed) == CANCEL_REQUESTED;
-        if cancelled {
-            // Covers cancel arriving after fetch returned but before status was set.
-            if let Ok(path) = staged_path(&app, &id) {
-                let _ = fs::remove_file(path);
-            }
-        }
+        // Finalize under the same queue lock used by cancel_download. A retry cannot
+        // observe "cancelled" until the previous worker has removed its staged file.
         manager.change(&id, |item| {
-            if cancelled {
-                item.info.status = "cancelled".into();
-                item.info.error.clear();
+            if control.load(Ordering::Relaxed) == CANCEL_REQUESTED {
+                let cleanup = staged_path(&app, &id).and_then(|path| match fs::remove_file(path) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                });
+                item.info.status = if cleanup.is_ok() {
+                    "cancelled"
+                } else {
+                    "failed"
+                }
+                .into();
+                item.info.error = cleanup.err().unwrap_or_default();
                 item.info.downloaded_bytes = 0;
                 item.info.total_bytes = None;
                 item.etag.clear();
@@ -943,7 +948,13 @@ pub fn retry_download(
         item.control = Arc::new(AtomicU8::new(RUNNING));
         (item.url.clone(), item.control.clone())
     };
-    manager.persist()?;
+    if let Err(error) = manager.persist() {
+        manager.change(&id, |item| {
+            item.info.status = "failed".into();
+            item.info.error = format!("Não foi possível registrar a retomada: {error}");
+        });
+        return Err(error);
+    }
     spawn_download(app, manager.clone(), id, url, control);
     manager.snapshot()
 }

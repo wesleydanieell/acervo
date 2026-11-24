@@ -125,20 +125,19 @@ function App() {
 
   const refreshGeneration = useRef(0);
   const requestedRoot = useRef(root);
-  const eventGeneration = useRef(0);
   useEffect(() => {
     let disposed = false;
     const subscription = listen<string>("acervo-library-changed", async ({payload}) => {
       if (disposed || payload !== currentCollectionRoot.current || payload !== requestedRoot.current) return;
-      const generation = ++eventGeneration.current;
-      const currentRefresh = refreshGeneration.current;
+      const generation = ++refreshGeneration.current;
       try {
         const data = await invoke<Collection>("load_collection", { root: payload });
-        if (!disposed && generation === eventGeneration.current && currentRefresh === refreshGeneration.current && payload === currentCollectionRoot.current) {
+        if (!disposed && generation === refreshGeneration.current && payload === currentCollectionRoot.current) {
           setCollection(data);
           setSelection(null);
         }
-      } catch (failure) { if (!disposed) setError(String(failure)); }
+      } catch (failure) { if (!disposed && generation === refreshGeneration.current) setError(String(failure)); }
+      finally { if (!disposed && generation === refreshGeneration.current) setLoading(false); }
     });
     return () => { disposed = true; void subscription.then(unlisten => unlisten()); };
   }, []);
