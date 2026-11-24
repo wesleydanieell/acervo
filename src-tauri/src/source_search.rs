@@ -250,7 +250,7 @@ async fn search_one(
     extract_results(&source, &data, &language, &format)
 }
 
-fn extract_results(
+pub(crate) fn extract_results(
     source: &SourceManifest,
     data: &Value,
     language: &str,

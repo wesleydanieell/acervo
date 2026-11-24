@@ -1265,6 +1265,112 @@ mod tests {
     use super::*;
 
     #[test]
+    fn extension_fixture_search_to_import_rejects_html_and_preserves_catalog() {
+        use super::super::{catalog_lists, source_search, sources};
+        let manifest: sources::SourceManifest =
+            serde_json::from_str(include_str!("../../integrations/test-source/manifest.json"))
+                .unwrap();
+        sources::validate(&manifest).unwrap();
+        let data =
+            serde_json::from_str(include_str!("../../integrations/test-source/catalog.json"))
+                .unwrap();
+        let results = source_search::extract_results(&manifest, &data, "pt", "epub").unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(
+            source_search::extract_results(&manifest, &data, "en", "epub")
+                .unwrap()
+                .is_empty()
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "acervo-source-fixture-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&dir).unwrap();
+        let dir = fs::canonicalize(dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir(&root).unwrap();
+        let root_text = root.to_str().unwrap();
+        catalog_lists::import_catalog_json(
+            root_text.into(),
+            include_str!("../../integrations/test-source/test-wishlist.json").into(),
+        )
+        .unwrap();
+        let before = super::super::scan_collection(root_text.into()).unwrap();
+        let stage = dir.join("download.part");
+        for (item, payload) in [
+            (
+                &results[0],
+                include_bytes!("../../integrations/test-source/test-book.epub").as_slice(),
+            ),
+            (
+                &results[1],
+                include_bytes!("../../integrations/test-source/invalid-book.html").as_slice(),
+            ),
+        ] {
+            let work = before.works.iter().find(|w| w.title == item.title).unwrap();
+            let target = CatalogTarget {
+                root: root_text.into(),
+                title: work.title.clone(),
+                author: work.author.clone(),
+                destination: work.destination.clone(),
+                legacy_id: None,
+            };
+            target.validate().unwrap();
+            fs::write(&stage, payload).unwrap();
+            let filename = safe_filename(&target.title, &item.format).unwrap();
+            let (result, link) = import_staged_book(
+                &stage,
+                root_text,
+                &target.destination,
+                &filename,
+                &item.format,
+                "fixture-job",
+                true,
+                Some(&target),
+                true,
+            );
+            if item.download_url.ends_with(".epub") {
+                assert!(result.is_ok() && matches!(link, Some(Ok(()))));
+                assert!(!stage.exists());
+                fs::write(&stage, payload).unwrap();
+                let (collision, _) = import_staged_book(
+                    &stage,
+                    root_text,
+                    &target.destination,
+                    &filename,
+                    &item.format,
+                    "fixture-repeat",
+                    true,
+                    Some(&target),
+                    true,
+                );
+                assert!(collision.is_err() && stage.exists());
+                assert_eq!(
+                    fs::read(root.join(&target.destination).join(&filename)).unwrap(),
+                    payload
+                );
+            } else {
+                assert!(result.is_err() && link.is_none());
+                assert!(stage.exists());
+                assert!(!root.join(&target.destination).exists());
+            }
+        }
+        let after = super::super::scan_collection(root_text.into()).unwrap();
+        assert_eq!(after.files.len(), 1);
+        assert_eq!(after.works.iter().filter(|work| work.present).count(), 1);
+        assert!(
+            after
+                .works
+                .iter()
+                .find(|work| work.title == results[0].title)
+                .unwrap()
+                .present
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn staged_import_links_only_the_requested_work_and_preserves_files_on_link_failure() {
         let dir = std::env::temp_dir().join(format!(
             "acervo-linked-import-{}-{}",
