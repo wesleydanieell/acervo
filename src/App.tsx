@@ -6,6 +6,7 @@ import {
   Palette, Plug, Plus, RefreshCw, Link2, Search, Settings2, X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import "./theme.css";
@@ -123,18 +124,38 @@ function App() {
   useEffect(() => { localStorage.setItem("acervo-sidebar-width", String(sidebarWidth)); }, [sidebarWidth]);
 
   const refreshGeneration = useRef(0);
+  const requestedRoot = useRef(root);
+  const eventGeneration = useRef(0);
+  useEffect(() => {
+    let disposed = false;
+    const subscription = listen<string>("acervo-library-changed", async ({payload}) => {
+      if (disposed || payload !== currentCollectionRoot.current || payload !== requestedRoot.current) return;
+      const generation = ++eventGeneration.current;
+      const currentRefresh = refreshGeneration.current;
+      try {
+        const data = await invoke<Collection>("load_collection", { root: payload });
+        if (!disposed && generation === eventGeneration.current && currentRefresh === refreshGeneration.current && payload === currentCollectionRoot.current) {
+          setCollection(data);
+          setSelection(null);
+        }
+      } catch (failure) { if (!disposed) setError(String(failure)); }
+    });
+    return () => { disposed = true; void subscription.then(unlisten => unlisten()); };
+  }, []);
+
   const refresh = async (location = root) => {
     if (!location.trim()) { setModal("root"); return; }
     const generation = ++refreshGeneration.current;
+    requestedRoot.current = location.trim();
     setLoading(true); setError("");
     try {
       const data = await invoke<Collection>("load_collection", { root: location.trim() });
       if (generation !== refreshGeneration.current) return;
       if (data.root !== root) { setPromptFolders(null); setPromptDraft(null); setSourceRequest(null); }
-      setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
+      requestedRoot.current = data.root; setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
       setStatus(data.files.length + " arquivos encontrados; nenhuma alteração feita nos livros.");
       setModal(null);
-    } catch (failure) { if (generation === refreshGeneration.current) setError(String(failure)); }
+    } catch (failure) { if (generation === refreshGeneration.current) { requestedRoot.current = currentCollectionRoot.current; setError(String(failure)); } }
     finally { if (generation === refreshGeneration.current) setLoading(false); }
   };
 
@@ -408,8 +429,8 @@ ${JSON.stringify(sample, null, 2)}`;
       format: sourceFormat,
       language: sourceLanguage,
       destination: entry.folder === "." ? "" : entry.folder,
-      catalogTarget: entry.work && entry.work.id < 0 && collection ? {
-        root: collection.root, title: entry.work.title, author: entry.work.author, destination: entry.work.destination,
+      catalogTarget: entry.work && collection ? {
+        root: collection.root, title: entry.work.title, author: entry.work.author, destination: entry.work.destination, legacyId: entry.work.id > 0 ? entry.work.id : undefined,
       } : undefined,
     });
     setSelection(null);
@@ -656,7 +677,7 @@ ${JSON.stringify(sample, null, 2)}`;
               </article>
             </div>
             <div className="settings-version">Acervo 0.1.0-alpha.2 · dados locais · <span>atualizações experimentais</span></div>
-          </section> : (view === "sources" || view === "extensions") ? <SourcesCenter mode={view === "sources" ? "discover" : "extensions"} initialSearch={sourceRequest} onClearRequest={() => setSourceRequest(null)} onShowExtensions={() => setView("extensions")} onShowDiscover={() => setView("sources")} onShowDownloads={() => { setView("downloads"); setSelectedFolder(""); }}/> : view === "downloads" ? <DownloadsCenter root={collection?.root || ""} folders={collection?.folders || []} onSaved={async () => { await refresh(); }}/> : view === "lists" ? <>
+          </section> : (view === "sources" || view === "extensions") ? <SourcesCenter root={collection?.root || ""} works={collection?.works || []} mode={view === "sources" ? "discover" : "extensions"} initialSearch={sourceRequest} onClearRequest={() => setSourceRequest(null)} onShowExtensions={() => setView("extensions")} onShowDiscover={() => setView("sources")} onShowDownloads={() => { setView("downloads"); setSelectedFolder(""); }}/> : view === "downloads" ? <DownloadsCenter root={collection?.root || ""} folders={collection?.folders || []} onSaved={async () => { await refresh(); }}/> : view === "lists" ? <>
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}

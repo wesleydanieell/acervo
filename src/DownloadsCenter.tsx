@@ -8,7 +8,7 @@ import { isServiceCatalogPath } from "./prompt-folder-selection";
 export type DownloadInfo = {
   id: string; title: string; sourceName: string; format: string; filename: string;
   plannedDestination: string; status: string; downloadedBytes: number;
-  totalBytes: number | null; error: string; savedPath: string; catalogTarget?: CatalogTarget | null; catalogLinked?: boolean;
+  totalBytes: number | null; error: string; savedPath: string; catalogTarget?: CatalogTarget | null; catalogLinked?: boolean; autoImport?: boolean;
 };
 
 const sizes = (bytes: number) => bytes >= 1048576
@@ -121,6 +121,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
           {item.status === "failed" && item.downloadedBytes > 0 &&
             <p className="download-target-note">Arquivo parcial em cache: {sizes(item.downloadedBytes)}. A próxima tentativa verifica se a fonte permite retomá-lo.</p>}
           {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}{item.catalogLinked ? " · Associado ao catálogo" : ""}</p>}
+          {item.autoImport && ["queued","downloading","saving"].includes(item.status) && <small className="download-target-note">Importação automática: {item.plannedDestination || "Raiz"}</small>}
           {item.catalogTarget && <small className="download-target-note">Obra: {item.catalogTarget.title}{item.catalogTarget.author ? " — " + item.catalogTarget.author : ""}</small>}
           {item.status === "ready" && item.catalogTarget && !canImport && <p className="download-error">Biblioteca de origem: {item.catalogTarget.root}. Selecione essa biblioteca para importar.</p>}
           {item.status === "ready" && <div className="download-destination">

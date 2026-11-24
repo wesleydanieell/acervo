@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Seletor de obras ao baixar, com metadados e destino do catálogo, importação automática opcional e associação a fichas JSON ou SQLite legado.
 - Downloads iniciados no catálogo JSON preservam a obra de origem e podem associar a edição após a confirmação de importação.
 - Fichas JSON podem vincular edições existentes por seleção e confirmação, sem mover os arquivos ou alterar o SQLite legado.
 - Downloads podem criar destinos aninhados personalizados após confirmação, sem sobrescrever arquivos.

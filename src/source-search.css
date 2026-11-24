@@ -27,3 +27,19 @@
 .source-no-results{font-size:12px;color:var(--text-muted)}
 @media(max-width:1000px){.source-search-form{grid-template-columns:repeat(3,minmax(0,1fr))}.source-query{grid-column:1/-1}.source-search-form>button{grid-column:1/-1}}
 @media(max-width:570px){.source-search-form{grid-template-columns:repeat(2,minmax(0,1fr))}.source-search-form>button{grid-column:1/-1}.source-result{align-items:flex-start;flex-direction:column}.source-result-actions{justify-content:flex-start}.source-results-heading{align-items:flex-start;flex-direction:column}}
+
+.download-picker{color:var(--text);background:var(--glass-base);border:1px solid var(--stroke);border-radius:14px;padding:0;width:min(620px,calc(100vw - 32px));max-height:calc(100vh - 40px);overflow:auto}
+.download-picker::backdrop{background:rgba(0,0,0,.48)}
+.download-picker-header,.download-picker-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px}
+.download-picker-header{border-bottom:1px solid var(--stroke)}
+.download-picker-header h2{font-size:19px;margin:0 0 5px}.download-picker-header p{font-size:12px;color:var(--text-muted);margin:0;overflow-wrap:anywhere}
+.download-picker-body{display:grid;gap:12px;padding:16px 20px}
+.download-picker-search{display:flex;align-items:center;gap:8px;border:1px solid var(--stroke);border-radius:8px;padding:0 10px}
+.download-picker-search input{width:100%;height:38px;color:var(--text);background:transparent;border:0;outline:none;font:inherit;font-size:13px}
+.download-picker-list{display:grid;gap:4px;max-height:260px;overflow:auto}
+.download-picker-row{display:flex;align-items:center;gap:10px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text);padding:9px;text-align:left;cursor:pointer}
+.download-picker-row[aria-pressed=true]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--glass-base))}
+.download-picker-row span{display:grid;gap:3px;flex:1;min-width:0}.download-picker-row strong{font-size:13px;overflow-wrap:anywhere}.download-picker-row small,.download-picker-details small{font-size:11px;color:var(--text-muted);overflow-wrap:anywhere}
+.download-picker-details{display:grid;gap:7px;padding:12px;border:1px solid var(--stroke);border-radius:8px;font-size:13px}
+.download-picker-details>div,.download-picker-details label{display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}.download-picker-details input{accent-color:var(--accent)}
+.download-picker-footer{border-top:1px solid var(--stroke);justify-content:flex-end}

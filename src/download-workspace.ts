@@ -36,9 +36,28 @@ export function planDownloadDestination(
 }
 
 
-export type CatalogTarget = { root: string; title: string; author: string; destination: string };
+export type CatalogTarget = { root: string; title: string; author: string; destination: string; legacyId?: number | null };
 export type DiscoveryRequest = { query: string; language: string; format: string; destination: string; catalogTarget?: CatalogTarget };
 
 export function canImportDownload(root: string, target?: CatalogTarget | null): boolean {
   return Boolean(root) && (!target || target.root === root);
+}
+
+export type DownloadCatalogWork = { id: number; title: string; author: string; destination: string; present: boolean };
+
+export function catalogChoice(root: string, work: DownloadCatalogWork): CatalogTarget {
+  return { root, title: work.title, author: work.author, destination: work.destination, ...(work.id > 0 ? { legacyId: work.id } : {}) };
+}
+
+export function filterDownloadWorks<T extends DownloadCatalogWork>(works: readonly T[], query: string): T[] {
+  const fold = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+  const terms = fold(query.trim()).split(/\s+/).filter(Boolean);
+  return works.filter(work => terms.every(term => fold([work.title, work.author, work.destination].join(" ")).includes(term)))
+    .sort((a,b) => Number(a.present) - Number(b.present) || a.title.localeCompare(b.title, "pt-BR"));
+}
+
+
+export function sameCatalogChoice(a: CatalogTarget, b: CatalogTarget): boolean {
+  return a.root === b.root && a.title === b.title && a.author === b.author &&
+    a.destination === b.destination && (a.legacyId ?? null) === (b.legacyId ?? null);
 }
