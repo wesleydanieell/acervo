@@ -899,15 +899,67 @@ pub fn dismiss_download(
     manager.snapshot()
 }
 
-fn target_directory(root_text: &str, relative: &str) -> Result<PathBuf, String> {
-    let root =
-        fs::canonicalize(root_text).map_err(|error| format!("Biblioteca inválida: {error}"))?;
+fn protected_folder(name: &str) -> bool {
+    let normalized = name
+        .trim()
+        .to_lowercase()
+        .replace(['–', '—'], "-")
+        .replace('á', "a");
+    normalized
+        .split_once('-')
+        .is_some_and(|(left, right)| left.trim() == "99" && right.trim() == "catalogo")
+        || name.starts_with('.')
+        || name == "node_modules"
+}
+
+/// Validate the entire path before creating anything; reject symlink traversal.
+fn destination_parts(relative: &str) -> Result<Vec<&str>, String> {
+    if relative.is_empty() {
+        return Ok(vec![]);
+    }
+    let parts: Vec<_> = relative.split('/').collect();
+    if relative.len() > 600
+        || parts.len() > 80
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || part.len() > 255
+                || part.trim() != *part
+                || part.contains('\\')
+                || part.chars().any(char::is_control)
+                || protected_folder(part)
+        })
+    {
+        return Err("Use um caminho relativo válido, fora das pastas protegidas.".into());
+    }
+    Ok(parts)
+}
+
+fn target_directory(
+    root: &Path,
+    relative: &str,
+    create_missing: bool,
+    created: &mut Vec<PathBuf>,
+) -> Result<PathBuf, String> {
     if !root.is_dir() {
         return Err("A raiz da biblioteca não é uma pasta.".into());
     }
-    let directory = super::resolve_inside(&root, relative)?;
-    if !directory.is_dir() || directory.starts_with(root.join("99 - Catálogo")) {
-        return Err("Escolha uma pasta existente fora do catálogo de serviço.".into());
+    let parts = destination_parts(relative)?;
+    let mut directory = root.to_path_buf();
+    for part in parts {
+        directory.push(part);
+        match fs::symlink_metadata(&directory) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Ok(_) => return Err("O destino contém arquivo ou link simbólico.".into()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && create_missing => {
+                fs::create_dir(&directory)
+                    .map_err(|error| format!("Falha ao criar destino: {error}"))?;
+                created.push(directory.clone());
+            }
+            Err(error) => return Err(format!("Destino indisponível: {error}")),
+        }
+        if fs::canonicalize(&directory).map_err(|error| error.to_string())? != directory {
+            return Err("O destino mudou ou aponta para fora da biblioteca.".into());
+        }
     }
     Ok(directory)
 }
@@ -985,10 +1037,18 @@ pub async fn save_download(
     id: String,
     root: String,
     destination: String,
+    create_missing: Option<bool>,
 ) -> Result<String, String> {
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        save_download_to_library(app, manager, id, root, destination)
+        save_download_to_library(
+            app,
+            manager,
+            id,
+            root,
+            destination,
+            create_missing.unwrap_or(false),
+        )
     })
     .await
     .map_err(|error| format!("Falha ao executar a importação: {error}"))?
@@ -1000,6 +1060,7 @@ fn save_download_to_library(
     id: String,
     root: String,
     destination: String,
+    create_missing: bool,
 ) -> Result<String, String> {
     let (filename, format) = {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
@@ -1013,19 +1074,32 @@ fn save_download_to_library(
         item.info.status = "saving".into();
         (item.info.filename.clone(), item.info.format.clone())
     };
+    let mut created = Vec::new();
     let operation = (|| -> Result<String, String> {
-        let directory = target_directory(&root, &destination)?;
+        let root =
+            fs::canonicalize(&root).map_err(|error| format!("Biblioteca inválida: {error}"))?;
         let stage = staged_path(&app, &id)?;
-        // Revalidate an already-ready cache entry, including one restored from disk.
+        // Validate before creating any directories.
         super::download_validation::validate_staged_book(&stage, &format)?;
+        let directory = target_directory(&root, &destination, create_missing, &mut created)?;
         let target = commit_staged(&stage, &directory, &filename, &id)?;
         let relative = target
-            .strip_prefix(fs::canonicalize(root).map_err(|error| error.to_string())?)
+            .strip_prefix(&root)
             .map_err(|error| error.to_string())?
             .to_string_lossy()
             .replace('\\', "/");
         Ok(relative)
     })();
+    if operation.is_err() {
+        for path in created.iter().rev() {
+            // Only remove directories created by this operation, and only if empty.
+            if fs::symlink_metadata(path)
+                .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
+            {
+                let _ = fs::remove_dir(path);
+            }
+        }
+    }
     manager.change(&id, |item| match &operation {
         Ok(path) => {
             item.info.status = "saved".into();
@@ -1145,6 +1219,50 @@ mod tests {
         assert!(!safe_filename("../", "pdf").unwrap().contains("/"));
         assert!(safe_filename("Livro", "exe").is_err());
         assert!(safe_filename("", "pdf").is_err());
+    }
+
+    #[test]
+    fn planned_destinations_require_permission_and_reject_unsafe_components() {
+        let dir = std::env::temp_dir().join(format!(
+            "acervo-dest-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&dir).unwrap();
+        let dir = fs::canonicalize(dir).unwrap();
+        let mut created = Vec::new();
+        assert!(target_directory(&dir, "Books/History", false, &mut created).is_err());
+        assert!(!dir.join("Books").exists());
+        for path in [
+            "/outside",
+            "Books/../escape",
+            "Books//History",
+            "Books/.private",
+            "99 — Catalogo/Hidden",
+            "Books/node_modules",
+        ] {
+            assert!(
+                target_directory(&dir, path, true, &mut created).is_err(),
+                "{path}"
+            );
+            assert!(created.is_empty());
+        }
+        let target = target_directory(&dir, "Books/History", true, &mut created).unwrap();
+        assert_eq!(target, dir.join("Books/History"));
+        assert_eq!(created.len(), 2);
+        let mut existing = Vec::new();
+        assert_eq!(
+            target_directory(&dir, "Books/History", false, &mut existing).unwrap(),
+            target
+        );
+        assert!(existing.is_empty());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&target, dir.join("Alias")).unwrap();
+            assert!(target_directory(&dir, "Alias/New", true, &mut existing).is_err());
+            assert!(!target.join("New").exists());
+        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

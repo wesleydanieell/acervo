@@ -33,3 +33,7 @@
 .download-filters button[aria-pressed=true]{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--glass-base));border-color:var(--stroke)}
 .download-filters span{font-size:10px;opacity:.85;font-variant-numeric:tabular-nums}
 .download-search{min-width:0;max-width:100%;flex:0 1 220px;height:36px;background:var(--glass-base);color:var(--text);border:1px solid var(--stroke);border-radius:7px;padding:0 10px;font-size:12px}
+
+.download-custom-path{height:40px;width:100%;min-width:0;border:1px solid var(--stroke);border-radius:8px;padding:0 12px;background:var(--glass-base);color:var(--text);font-size:12px}
+.download-custom-path[aria-invalid=true]{border-color:#c97e70}
+.download-path-actions{display:flex;justify-content:flex-start}

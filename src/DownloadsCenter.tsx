@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, CircleAlert, Download, FolderCheck, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
+import { Check, CircleAlert, Download, FolderCheck, FolderPlus, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
 import "./downloads.css";
-import { downloadDestination, downloadGroup, type DownloadFilter } from "./download-workspace";
+import { planDownloadDestination, validDownloadPath, downloadGroup, type DownloadFilter } from "./download-workspace";
 import { isServiceCatalogPath } from "./prompt-folder-selection";
 
 export type DownloadInfo = {
@@ -26,6 +26,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [destinations, setDestinations] = useState<Record<string, string>>({});
+  const [customPaths, setCustomPaths] = useState<Record<string, string>>({});
   const [confirmId, setConfirmId] = useState("");
   const [discardId, setDiscardId] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -43,7 +44,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     return items.filter(item => (filter === "all" || downloadGroup(item.status) === filter)
       && (!needle || [item.title, item.sourceName, item.filename].some(value => value.toLocaleLowerCase("pt-BR").includes(needle))));
   }, [items, filter, query]);
-  useEffect(() => { setDestinations({}); setConfirmId(""); setDiscardId(""); }, [root]);
+  useEffect(() => { setDestinations({}); setCustomPaths({}); setConfirmId(""); setDiscardId(""); }, [root]);
 
   const refresh = async () => {
     const generation = ++refreshGeneration.current;
@@ -70,11 +71,11 @@ export function DownloadsCenter({ root, folders, onSaved }: {
 
   const save = async (item: DownloadInfo) => {
     if (!root) { setError("Selecione uma biblioteca em Configurações antes de salvar."); return; }
-    const destination = downloadDestination(item.plannedDestination, destinations[item.id], allowedFolders);
-    if (destination === null) { setError("Escolha uma pasta de destino válida."); return; }
+    const plan = planDownloadDestination(item.plannedDestination, destinations[item.id], customPaths[item.id], allowedFolders);
+    if (plan === null) { setError("Escolha uma pasta de destino válida."); return; }
     setBusyId(item.id); setError(""); setNotice("");
     try {
-      const saved = await invoke<string>("save_download", { id: item.id, root, destination });
+      const saved = await invoke<string>("save_download", { id: item.id, root, destination: plan.path, createMissing: plan.createMissing });
       setConfirmId("");
       setNotice("Salvo em " + saved);
       await onSaved();
@@ -98,10 +99,12 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     {error && <div className="alert" role="alert"><CircleAlert size={17}/>{error}<button className="icon-button" onClick={() => setError("")} aria-label="Fechar erro"><X size={16}/></button></div>}
     {notice && <div className="inline-status" role="status"><Check size={16}/>{notice}</div>}
     {items.length === 0 ? <div className="empty-state glass-panel downloads-empty"><Download size={39}/><h3>Sua fila está vazia</h3>
-      <p>Abra Fontes, pesquise um livro e use “Baixar” para adicioná-lo à fila.</p></div> :
+      <p>Abra Descobrir, pesquise um livro e use “Baixar” para adicioná-lo à fila.</p></div> :
       visible.length === 0 ? <div className="empty-state glass-panel downloads-empty"><Download size={28}/><h3>Nenhum download neste filtro</h3><button className="button secondary" onClick={() => { setQuery(""); setFilter("all"); }}>Limpar filtros</button></div> :
       <div className="download-list">{visible.map((item) => {
-        const destination = downloadDestination(item.plannedDestination, destinations[item.id], allowedFolders);
+        const custom = customPaths[item.id];
+        const plan = planDownloadDestination(item.plannedDestination, destinations[item.id], custom, allowedFolders);
+        const destination = plan?.path ?? null;
         const percentage = item.totalBytes ? Math.min(100, 100 * item.downloadedBytes / item.totalBytes) : undefined;
         return <article key={item.id} className="download-card glass-panel">
           <div className="download-card-top"><div className="download-icon"><Download size={21}/></div>
@@ -116,17 +119,28 @@ export function DownloadsCenter({ root, folders, onSaved }: {
             <p className="download-target-note">Arquivo parcial em cache: {sizes(item.downloadedBytes)}. A próxima tentativa verifica se a fonte permite retomá-lo.</p>}
           {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}</p>}
           {item.status === "ready" && <div className="download-destination">
-            <label>Pasta de destino
+            {custom === undefined ? <label>Pasta de destino
               <select value={destination ?? "__choose__"} onChange={(event) => { setDestinations((values) => ({ ...values, [item.id]: event.target.value })); setConfirmId(""); }}>
                 {destination === null && <option value="__choose__" disabled>Escolha uma pasta</option>}
                 <option value="">Raiz da biblioteca</option>
                 {allowedFolders.map((folder) =>
                   <option key={folder} value={folder}>{folder}</option>)}
               </select>
-            </label>
-            {item.plannedDestination && !allowedFolders.includes(item.plannedDestination) && <small className="download-target-note">Pasta planejada “{item.plannedDestination}” não existe; selecione uma pasta válida.</small>}
+            </label> : <label>Caminho relativo à biblioteca
+              <input className="download-custom-path" value={custom} maxLength={600}
+                placeholder="Literatura/Clássicos" aria-invalid={custom.length > 0 && !validDownloadPath(custom)}
+                onChange={event => { setCustomPaths(values => ({ ...values, [item.id]: event.target.value })); setConfirmId(""); }}/>
+            </label>}
+            <div className="download-path-actions">
+              {custom === undefined ? <button className="button secondary" disabled={!root} onClick={() => {
+                setCustomPaths(values => ({ ...values, [item.id]: validDownloadPath(item.plannedDestination) ? item.plannedDestination : "" })); setConfirmId("");
+              }}><FolderPlus size={15}/> Caminho personalizado</button> :
+              <button className="button secondary" onClick={() => { setCustomPaths(values => { const next = { ...values }; delete next[item.id]; return next; }); setConfirmId(""); }}>Escolher pasta existente</button>}
+            </div>
+            {custom === undefined && item.plannedDestination && !allowedFolders.includes(item.plannedDestination) && <small className="download-target-note">Pasta planejada: {item.plannedDestination}. Escolha uma pasta existente ou crie o caminho planejado.</small>}
+            {custom !== undefined && custom.length > 0 && !validDownloadPath(custom) && <small className="download-target-note" role="status">Caminho inválido. Use nomes de pastas separados por /.</small>}
             {discardId === item.id && <p className="download-confirm">Descartar definitivamente o arquivo temporário <strong>{item.filename}</strong>?</p>}
-            {confirmId === item.id && <p className="download-confirm">Confirmar salvar <strong>{item.filename}</strong> em <strong>{destination || "Raiz"}</strong>? Nada será sobrescrito.</p>}
+            {confirmId === item.id && plan && <p className="download-confirm">Salvar <strong>{item.filename}</strong> em <strong>{root}{destination ? "/" + destination : ""}</strong>? {plan.createMissing ? "Pastas inexistentes serão criadas. " : ""}Nada será sobrescrito.</p>}
           </div>}
           <div className="download-actions">
             {(item.status === "queued" || item.status === "downloading") &&

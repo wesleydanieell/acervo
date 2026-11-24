@@ -63,6 +63,7 @@ Implementado nesta etapa:
 - Progresso, cancelamento, tentativa novamente, descarte e seleção de pasta existente.
 - Download limitado a 512 MiB e feito em **cache temporário fora da biblioteca**.
 - Salvamento na biblioteca apenas com confirmação e sem substituir arquivos existentes.
+- O usuário pode escolher uma pasta existente ou informar caminho relativo personalizado. A criação de subpastas inexistentes ocorre somente após confirmação e validação do conteúdo. Caminhos absolutos, segmentos protegidos e links simbólicos são rejeitados; em caso de falha, tenta-se remover apenas as novas pastas vazias.
   Em bibliotecas montadas via FUSE, o arquivo final pode ficar visível durante a
   cópia já autorizada; caso ocorra erro, a cópia incompleta é removida.
 - A fila é persistida em `downloads.json` na configuração local do Acervo (modo 0600
@@ -84,8 +85,7 @@ Implementado nesta etapa:
   e DjVu (FORM). Respostas HTML disfarçadas ou arquivos incompatíveis
   ficam no cache como falha e não entram automaticamente na biblioteca.
 
-**Ainda pendente:** checagem de hash confiável fornecido pela origem, criação automática
-de pastas planejadas e associação automática à obra do Catálogo
+**Ainda pendente:** checagem de hash confiável fornecido pela origem, associação automática à obra do Catálogo
 (sem movimentação não autorizada).
 
 ## Próximas interfaces do motor
