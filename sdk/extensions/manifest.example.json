@@ -13,6 +13,15 @@
   "authorField": "/authors/0/name",
   "languageField": "languages",
   "downloadUrlField": "/formats/application~1epub+zip",
-  "formats": ["epub"],
-  "languages": ["pt", "en"]
+  "formats": [
+    "epub"
+  ],
+  "languages": [
+    "pt",
+    "en"
+  ],
+  "remoteIdField": "id",
+  "downloadDomains": [
+    "example.org"
+  ]
 }

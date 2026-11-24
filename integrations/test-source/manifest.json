@@ -11,6 +11,13 @@
   "formatField": "format",
   "languageField": "language",
   "downloadUrlField": "download_url",
-  "formats": ["epub"],
-  "languages": ["pt"]
+  "formats": [
+    "epub"
+  ],
+  "languages": [
+    "pt"
+  ],
+  "downloadDomains": [
+    "raw.githubusercontent.com"
+  ]
 }
