@@ -29,7 +29,10 @@ extensão é executado dentro do aplicativo.
 - `searchPath` é um caminho começando com `/`, contém `{query}` e pode aceitar
   `{language}` e `{format}`. Nenhuma URL ou rota com `//` no começo.
 - `itemsPath` localiza o array de resultados na resposta JSON (ex.: `data.books`).
-- Campos `*Field` são seletores de propriedades JSON (ex.: `metadata.title`), não código.
+- Campos `*Field` e `itemsPath` aceitam seletores simples por pontos (ex.: `metadata.title`) ou JSON Pointer (RFC 6901), ex.: `/authors/0/name`, `/formats/application~1epub+zip`. Não são código; os pointers têm limites de tamanho e profundidade.
+- Para fonte de formato único com `formatField` vazio, `formats: ["epub"]` e `downloadUrlField` definido, o formato é atribuído somente se houver URL HTTPS válida. A validação do arquivo continua obrigatória.
+- Filtros de idioma aceitam campos de texto e arrays de códigos; um idioma presente em qualquer posição é reconhecido.
+- URLs de download não são truncadas como metadados; continuam sujeitas aos limites e à política de rede existentes.
 - `downloadUrlField` é opcional: fontes de metadados não precisam fornecer downloads.
 - `formats` e `languages` descrevem filtros suportados e podem ser listas vazias.
 
@@ -93,3 +96,8 @@ de pastas planejadas e associação automática à obra do Catálogo
 
 Uma fonte pode ser opcionalmente configurada para qualquer catálogo compatível.
 O aplicativo não depende de um site fixo e não executa código vindo de extensões.
+
+## Pesquisa de provedores
+
+- [Gutendex](https://github.com/garethbjohnson/gutendex): catálogo JSON com autores aninhados e formatos indexados por MIME. Referência para seletores, não uma extensão incorporada.
+- [Política do Project Gutenberg](https://www.gutenberg.org/policy/terms_of_use.html): usar meios autorizados para automação e espelhos para downloads em massa; não integrar downloads automáticos pelo site principal. Verificar permissões e disponibilidade de cada origem antes de publicar um provedor.
