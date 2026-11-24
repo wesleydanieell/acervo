@@ -79,6 +79,8 @@ pub struct SourceBook {
     pub format: String,
     pub language: String,
     pub download_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

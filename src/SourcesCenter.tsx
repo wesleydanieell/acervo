@@ -1,3 +1,4 @@
+import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome } from "./discovery-pagination";
 import { DownloadCatalogPicker } from "./DownloadCatalogPicker";
 import type { CatalogItem } from "./CatalogCenter";
 import type { CatalogTarget, DiscoveryRequest } from "./download-workspace";
@@ -14,10 +15,9 @@ export type SourceManifest = {
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
+  remoteIdField?: string; pagination?: { initialCursor: string; nextCursorField: string } | null; downloadDomains?: string[] | null;
 };
 export type InstalledSource = { manifest: SourceManifest; enabled: boolean };
-type SourceResult = { sourceId: string; sourceName: string; title: string; author: string; format: string; language: string; downloadUrl: string };
-type SearchOutcome = { results: SourceResult[]; errors: string[] };
 
 const sampleManifest = JSON.stringify({
   schemaVersion: 1, apiVersion: 1, version: "1.0.0", adapter: "json", id: "minha-fonte", name: "Minha fonte", description: "Catálogo JSON público",
@@ -49,6 +49,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   const [format, setFormat] = useState(initialSearch?.format ?? "");
   const [sourceId, setSourceId] = useState("");
   const [searching, setSearching] = useState(false);
+  const [loadingPage, setLoadingPage] = useState("");
+  const pageLock = useRef(false);
   const [searchOutcome, setSearchOutcome] = useState<SearchOutcome | null>(null);
   const [queued, setQueued] = useState<Set<string>>(new Set());
   const queuePending = useRef(new Set<string>());
@@ -56,8 +58,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   const searchGeneration = useRef(0);
   const activeSources = sources.filter(item => item.enabled);
   const discover = mode === "discover";
-  const resultKey = (item: SourceResult) => JSON.stringify([item.sourceId, item.downloadUrl, item.format, initialSearch?.destination ?? "", initialSearch?.catalogTarget ?? null]);
-  const invalidateSearch = () => { searchGeneration.current++; setSearching(false); setSearchOutcome(null); setQueued(new Set()); };
+  const resultKey = (item: SourceResult) => JSON.stringify([resultIdentity(item), initialSearch?.destination ?? "", initialSearch?.catalogTarget ?? null]);
+  const invalidateSearch = () => { searchGeneration.current++; setSearching(false); setLoadingPage(""); pageLock.current = false; setSearchOutcome(null); setQueued(new Set()); };
   useEffect(() => {
     if (sourceId && !sources.some(item => item.enabled && item.manifest.id === sourceId)) {
       setSourceId(""); invalidateSearch();
@@ -129,7 +131,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     setQueueError(""); setError(""); setNotice("");
     try {
       await invoke("queue_download", {
-        url: item.downloadUrl, title: item.title, sourceName: item.sourceName,
+        url: item.downloadUrl, title: item.title, sourceId: item.sourceId,
         format: item.format, plannedDestination: target?.destination === "." ? "" : target?.destination ?? "", catalogTarget: target, autoImport,
       });
       setQueued(previous => new Set(previous).add(key));
@@ -141,14 +143,26 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
 
   const search = async () => {
     const generation = ++searchGeneration.current;
-    setSearching(true); setError(""); setSearchOutcome(null); setQueued(new Set());
+    setSearching(true); setLoadingPage(""); pageLock.current = false; setError(""); setSearchOutcome(null); setQueued(new Set());
     try {
       const outcome = await invoke<SearchOutcome>("search_sources", {
-        query: query.trim(), language, format, sourceIds: sourceId ? [sourceId] : [],
+        query: query.trim(), language, format, sourceIds: sourceId ? [sourceId] : [], cursor: null,
       });
       if (generation === searchGeneration.current) setSearchOutcome(outcome);
     } catch (failure) { if (generation === searchGeneration.current) setError(String(failure)); }
     finally { if (generation === searchGeneration.current) setSearching(false); }
+  };
+
+  const loadNext = async (id: string, cursor: string) => {
+    if (pageLock.current || searching) return;
+    pageLock.current = true;
+    const generation = searchGeneration.current;
+    setLoadingPage(id); setError("");
+    try {
+      const outcome = await invoke<SearchOutcome>("search_sources", { query: query.trim(), language, format, sourceIds: [id], cursor });
+      if (generation === searchGeneration.current) setSearchOutcome(previous => previous ? mergeSourcePage(previous, outcome, id) : previous);
+    } catch (failure) { if (generation === searchGeneration.current) setError(String(failure)); }
+    finally { if (generation === searchGeneration.current) { pageLock.current = false; setLoadingPage(""); } }
   };
 
   return <section className="sources-center">
@@ -176,13 +190,17 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         <label><span>Fonte</span><select aria-label="Filtrar fonte" value={sourceId} onChange={(event) => { setSourceId(event.target.value); invalidateSearch(); }}><option value="">Todas as ativas</option>{sources.filter((item) => item.enabled).map((item) => <option key={item.manifest.id} value={item.manifest.id}>{item.manifest.name}</option>)}</select></label>
         <label><span>Idioma</span><select aria-label="Filtrar idioma" value={language} onChange={(event) => { setLanguage(event.target.value); invalidateSearch(); }}><option value="">Todos</option><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="fr">Francês</option></select></label>
         <label><span>Formato</span><select aria-label="Filtrar formato" value={format} onChange={(event) => { setFormat(event.target.value); invalidateSearch(); }}><option value="">Todos</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option><option value="azw3">AZW3</option></select></label>
-        <button className="button primary" type="submit" disabled={searching || query.trim().length < 2 || !sources.some((item) => item.enabled)}>{searching ? <RefreshCw className="spinning" size={17}/> : <Search size={17}/>} Buscar</button>
+        <button className="button primary" type="submit" disabled={searching || !!loadingPage || query.trim().length < 2 || !sources.some((item) => item.enabled)}>{searching ? <RefreshCw className="spinning" size={17}/> : <Search size={17}/>} Buscar</button>
       </form>
       {searchOutcome && <div className="source-results"><div className="source-results-heading"><strong>{searchOutcome.results.length} resultado(s)</strong><small>Resultados por fonte · links externos abrem no navegador</small></div>
         {searchOutcome.errors.length > 0 && <div className="source-errors" role="status">{searchOutcome.errors.map((text, index) => <p key={index}>{text}</p>)}</div>}
-        {searchOutcome.results.length ? <div className="source-results-list">{searchOutcome.results.map((item, index) => <article key={item.sourceId + index} className="source-result"><div><strong>{item.title}</strong><small>{item.author || "Autor não informado"} · {item.sourceName}</small></div><div className="source-result-actions">{item.format && <span>{item.format.toUpperCase()}</span>}{item.language && <span>{item.language}</span>}{item.downloadUrl && ["pdf", "epub", "mobi", "azw3", "djvu"].includes(item.format.toLowerCase()) &&
+        {searchOutcome.results.length ? <div className="source-results-list">{searchOutcome.results.map((item, index) => <article key={resultIdentity(item) + ":" + index} className="source-result"><div><strong>{item.title}</strong><small>{item.author || "Autor não informado"} · {item.sourceName}</small></div><div className="source-result-actions">{item.format && <span>{item.format.toUpperCase()}</span>}{item.language && <span>{item.language}</span>}{item.downloadUrl && ["pdf", "epub", "mobi", "azw3", "djvu"].includes(item.format.toLowerCase()) &&
             <button className="button primary" type="button" title="Baixar primeiro para área temporária" disabled={pending.has(resultKey(item))} onClick={() => { setQueueError(""); setDownloadChoice(item); }}>{queued.has(resultKey(item)) ? <Check size={15}/> : <Download size={15}/>} {pending.has(resultKey(item)) ? "Adicionando…" : queued.has(resultKey(item)) ? "Baixar novamente" : "Baixar"}</button>}
           {item.downloadUrl && <button className="button secondary" type="button" title="Abrir link externo informado pela fonte" onClick={() => void openUrl(item.downloadUrl).catch((failure) => setError(String(failure)))}><ExternalLink size={15}/> Link</button>}</div></article>)}</div> : <p className="source-no-results">Nenhuma obra encontrada. Experimente outro termo, idioma ou fonte.</p>}
+        {Object.entries(searchOutcome.nextPages ?? {}).length > 0 && <div className="source-pagination">{Object.entries(searchOutcome.nextPages ?? {}).map(([id, cursor]) =>
+          <button key={id} className="button secondary" disabled={!!loadingPage || searching} onClick={() => void loadNext(id, cursor)}>
+            {loadingPage === id && <RefreshCw className="spinning" size={14}/>} Mais resultados · {sources.find(s => s.manifest.id === id)?.manifest.name ?? id}
+          </button>)}</div>}
       </div>}
     </section>
     </> : <>
@@ -196,6 +214,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         {manifest.languages.map((language) => <span key={"l:"+language}>{language}</span>)}
         <span><Search size={13}/> Busca JSON</span>
         {manifest.downloadUrlField && <span><Download size={13}/> Link de download</span>}
+        {manifest.pagination && <span>Paginação</span>}
+        {manifest.downloadUrlField && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
       <div className="source-actions">
         <button className="button secondary" disabled={busy} onClick={() => void toggle(manifest.id, !enabled)}>
@@ -214,7 +234,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     <details className="source-help glass-panel">
       <summary>Manifesto de extensão e documentação</summary>
       <div><h2>Formato de extensão v1</h2>
-        <p>Uma fonte descreve um endpoint HTTPS e os campos JSON para títulos e autores. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. Antes de entrar na biblioteca, cada arquivo precisa ser conferido e salvo por você.</p></div>
+        <p>Uma fonte descreve um endpoint HTTPS e os campos JSON para títulos e autores. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. A importação é validada e pode ser automática quando autorizada.</p></div>
       <div className="source-help-actions">
         <button className="button secondary" onClick={() => setShowExample((current) => !current)}><FileJson2 size={16}/> {showExample ? "Ocultar exemplo" : "Ver exemplo"}</button>
         <button className="button secondary" onClick={() => void copyExample()}><ClipboardCopy size={16}/> Copiar JSON</button>

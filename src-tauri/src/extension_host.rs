@@ -5,12 +5,14 @@ use super::extension_api::{
 use super::source_search::JsonSource;
 use super::sources::{self, AdapterKind, SourceManifest};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchOutcome {
     results: Vec<SourceBook>,
     errors: Vec<String>,
+    next_pages: BTreeMap<String, String>,
 }
 
 pub(crate) fn create_source(manifest: SourceManifest) -> Result<Box<dyn BookSource>, SourceError> {
@@ -44,17 +46,29 @@ async fn search_adapters(
         let request = request.clone();
         jobs.spawn(async move {
             let descriptor = adapter.descriptor();
-            (descriptor.name, adapter.search(request).await)
+            (
+                descriptor.id,
+                descriptor.name,
+                adapter.search(request).await,
+            )
         });
     }
     let mut outcome = SearchOutcome {
         results: vec![],
         errors: vec![],
+        next_pages: BTreeMap::new(),
     };
     while let Some(done) = jobs.join_next().await {
         match done {
-            Ok((_, Ok(page))) => outcome.results.extend(page.results),
-            Ok((name, Err(error))) => outcome.errors.push(format!("{name}: {}", error.message)),
+            Ok((id, _, Ok(page))) => {
+                outcome
+                    .results
+                    .extend(page.results.into_iter().filter(|book| book.source_id == id));
+                if let Some(cursor) = page.next_cursor {
+                    outcome.next_pages.insert(id, cursor);
+                }
+            }
+            Ok((_, name, Err(error))) => outcome.errors.push(format!("{name}: {}", error.message)),
             Err(error) => outcome
                 .errors
                 .push(format!("Erro interno de pesquisa: {error}")),
@@ -77,13 +91,17 @@ pub async fn search_sources(
     language: String,
     format: String,
     source_ids: Vec<String>,
+    cursor: Option<String>,
 ) -> Result<SearchOutcome, String> {
     let request = SearchRequest {
         query,
         language,
         format,
-        cursor: None,
+        cursor,
     };
+    if request.cursor.is_some() && source_ids.len() != 1 {
+        return Err("Paginação exige uma única fonte.".into());
+    }
     request.validate().map_err(|error| error.message)?;
     let installed = sources::list_sources(app)?
         .into_iter()
@@ -98,6 +116,7 @@ pub async fn search_sources(
         return Ok(SearchOutcome {
             results: vec![],
             errors: vec!["Nenhuma fonte ativa selecionada.".into()],
+            next_pages: BTreeMap::new(),
         });
     }
     let adapters = installed
@@ -154,8 +173,9 @@ mod tests {
                         format: String::new(),
                         language: request.language,
                         download_url: String::new(),
+                        remote_id: None,
                     }],
-                    next_cursor: None,
+                    next_cursor: (self.name == "a").then(|| "2".into()),
                 })
             })
         }
@@ -198,6 +218,8 @@ mod tests {
             vec!["a", "z"]
         );
         assert_eq!(response.errors, vec!["broken: offline"]);
+        assert_eq!(response.next_pages.get("a").map(String::as_str), Some("2"));
+        assert_eq!(response.next_pages.len(), 1);
         let data = serde_json::to_value(response).unwrap();
         assert_eq!(data["results"][0]["sourceId"], "a");
         assert!(data["results"][0].get("downloadUrl").is_some());

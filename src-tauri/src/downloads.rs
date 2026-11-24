@@ -730,12 +730,20 @@ pub fn queue_download(
     manager: tauri::State<'_, DownloadManager>,
     url: String,
     title: String,
-    source_name: String,
+    source_id: String,
     format: String,
     planned_destination: String,
     catalog_target: Option<CatalogTarget>,
     auto_import: Option<bool>,
 ) -> Result<Vec<DownloadInfo>, String> {
+    let source = super::sources::list_sources(app.clone())?
+        .into_iter()
+        .find(|source| source.enabled && source.manifest.id == source_id)
+        .ok_or("Fonte ausente ou desativada.")?;
+    if !super::sources::permits_download(&source.manifest, &url) {
+        return Err("O domínio do download não é permitido por esta extensão.".into());
+    }
+    let source_name = source.manifest.name;
     let auto_import = auto_import.unwrap_or(false);
     let (title, planned_destination) = if let Some(target) = &catalog_target {
         target.validate()?;
