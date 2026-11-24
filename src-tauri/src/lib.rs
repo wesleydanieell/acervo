@@ -2,6 +2,9 @@ mod catalog_lists;
 mod covers;
 mod download_validation;
 mod downloads;
+mod extension_api;
+mod extension_host;
+mod extension_network;
 mod organization;
 mod source_search;
 mod sources;
@@ -538,7 +541,8 @@ pub fn run() {
             sources::install_example_source,
             sources::set_source_enabled,
             sources::remove_source,
-            source_search::search_sources,
+            extension_host::search_sources,
+            extension_host::list_source_descriptors,
             downloads::list_downloads,
             downloads::queue_download,
             downloads::pause_download,

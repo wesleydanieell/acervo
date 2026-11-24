@@ -1,4 +1,5 @@
 //! Declarative source registry. Manifests contain data mappings, never executable code.
+use crate::extension_api::API_VERSION;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -10,10 +11,30 @@ use tauri::Manager;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_SOURCES: usize = 40;
 
+fn default_api_version() -> u32 {
+    API_VERSION
+}
+fn default_version() -> String {
+    "1.0.0".into()
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AdapterKind {
+    #[default]
+    Json,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceManifest {
     pub schema_version: u32,
+    #[serde(default = "default_api_version")]
+    pub api_version: u32,
+    #[serde(default = "default_version")]
+    pub version: String,
+    #[serde(default)]
+    pub adapter: AdapterKind,
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -72,6 +93,23 @@ fn validate_field(field: &str, required: bool) -> bool {
 }
 
 pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
+    if manifest.api_version != API_VERSION {
+        return Err(format!(
+            "API de extensão incompatível: {} (esperada {}).",
+            manifest.api_version, API_VERSION
+        ));
+    }
+    let version_parts: Vec<_> = manifest.version.split('.').collect();
+    if version_parts.len() != 3
+        || version_parts.iter().any(|part| {
+            part.is_empty()
+                || part.len() > 9
+                || (part.len() > 1 && part.starts_with('0'))
+                || !part.bytes().all(|b| b.is_ascii_digit())
+        })
+    {
+        return Err("version deve usar três componentes numéricos MAJOR.MINOR.PATCH.".into());
+    }
     if manifest.schema_version != 1 {
         return Err("Versão de manifesto incompatível; use schemaVersion 1.".into());
     }
@@ -292,6 +330,9 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
         &app,
         SourceManifest {
             schema_version: 1,
+            api_version: API_VERSION,
+            version: default_version(),
+            adapter: AdapterKind::Json,
             id: "open-library".into(),
             name: "Open Library · metadados".into(),
             description: "Catálogo público de livros; não fornece downloads diretos.".into(),
@@ -361,6 +402,9 @@ mod tests {
     fn example() -> SourceManifest {
         SourceManifest {
             schema_version: 1,
+            api_version: API_VERSION,
+            version: default_version(),
+            adapter: AdapterKind::Json,
             id: "catalogo-publico".into(),
             name: "Catálogo público".into(),
             description: "".into(),
@@ -376,6 +420,24 @@ mod tests {
             languages: vec!["pt".into(), "en".into()],
             local_search: false,
         }
+    }
+
+    #[test]
+    fn manifest_defaults_preserve_v1_and_reject_incompatible_contracts() {
+        let old = include_str!("../../integrations/test-source/manifest.json");
+        let mut manifest: SourceManifest = serde_json::from_str(old).unwrap();
+        assert_eq!(manifest.api_version, API_VERSION);
+        assert_eq!(manifest.version, "1.0.0");
+        assert_eq!(manifest.adapter, AdapterKind::Json);
+        validate(&manifest).unwrap();
+        manifest.api_version = API_VERSION + 1;
+        assert!(validate(&manifest).is_err());
+        manifest.api_version = API_VERSION;
+        manifest.version = "1.02.3".into();
+        assert!(validate(&manifest).is_err());
+        let mut data: serde_json::Value = serde_json::from_str(old).unwrap();
+        data["adapter"] = serde_json::json!("wasm");
+        assert!(serde_json::from_value::<SourceManifest>(data).is_err());
     }
 
     #[test]
