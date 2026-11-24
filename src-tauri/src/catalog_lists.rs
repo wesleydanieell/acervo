@@ -289,6 +289,8 @@ pub struct CatalogTarget {
     pub title: String,
     pub author: String,
     pub destination: String,
+    #[serde(default)]
+    pub legacy_id: Option<i64>,
 }
 
 impl CatalogTarget {
@@ -313,6 +315,22 @@ impl CatalogTarget {
         if fs::canonicalize(&catalog_dir).map_err(|error| error.to_string())? != catalog_dir {
             return Err("Diretório de catálogo inválido ou simbólico.".into());
         }
+        if let Some(id) = self.legacy_id {
+            let db = catalog_dir.join("Catalogo_Conhecimento.db");
+            if id <= 0
+                || !fs::symlink_metadata(&db)
+                    .is_ok_and(|m| m.is_file() && !m.file_type().is_symlink())
+            {
+                return Err("Banco legado inválido.".into());
+            }
+            let conn = rusqlite::Connection::open_with_flags(
+                db,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .map_err(|e| e.to_string())?;
+            self.check_legacy_identity(&conn, id)?;
+            return Ok(id);
+        }
         let works = load_values(&list_path(root))?;
         let matches: Vec<_> = works
             .iter()
@@ -331,6 +349,91 @@ impl CatalogTarget {
         Ok(-(matches[0].0 as i64) - 1)
     }
 
+    fn check_legacy_identity(&self, conn: &rusqlite::Connection, id: i64) -> Result<(), String> {
+        let current: (String, String, String) = conn.query_row(
+            "SELECT COALESCE(titulo,''), COALESCE(autor,''), COALESCE(local_indicado,'') FROM livros WHERE id=?1",
+            [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        ).map_err(|e| e.to_string())?;
+        if current
+            != (
+                self.title.clone(),
+                self.author.clone(),
+                self.destination.clone(),
+            )
+        {
+            return Err("Ficha legada alterada; confirme a associação manualmente.".into());
+        }
+        Ok(())
+    }
+
+    fn link_legacy(&self, root: &Path, id: i64, relative: &str) -> Result<(), String> {
+        let file = super::resolve_inside(root, relative)?;
+        let catalog_dir = root.join("99 - Catálogo");
+        if file != root.join(relative)
+            || !file.is_file()
+            || !super::is_book(&file)
+            || file.starts_with(&catalog_dir)
+        {
+            return Err("Arquivo de livro inválido.".into());
+        }
+        let db = catalog_dir.join("Catalogo_Conhecimento.db");
+        if !fs::symlink_metadata(&db).is_ok_and(|m| m.is_file() && !m.file_type().is_symlink()) {
+            return Err("Banco legado inválido.".into());
+        }
+        let works = load_values(&list_path(root))?;
+        if works.iter().any(|work| {
+            work.get("arquivos_encontrados")
+                .and_then(Value::as_array)
+                .is_some_and(|paths| paths.iter().any(|p| p.as_str() == Some(relative)))
+        }) {
+            return Err("Arquivo já associado a uma ficha JSON.".into());
+        }
+        let mut conn =
+            rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+                .map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        self.check_legacy_identity(&tx, id)?;
+        let mut selected = None;
+        {
+            let mut stmt = tx
+                .prepare("SELECT id, arquivos_encontrados FROM livros")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?))
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                let (other, raw) = row.map_err(|e| e.to_string())?;
+                let paths: Vec<String> = match raw.as_deref().map(str::trim) {
+                    None | Some("") => vec![],
+                    Some(text) => serde_json::from_str(text)
+                        .map_err(|_| "Associações legadas inválidas; banco preservado.")?,
+                };
+                if other == id {
+                    selected = Some(paths);
+                } else if paths.iter().any(|p| p == relative) {
+                    return Err("Arquivo já associado a outra obra.".into());
+                }
+            }
+        }
+        let mut paths = selected.ok_or("Ficha legada ausente.")?;
+        if !paths.iter().any(|p| p == relative) {
+            paths.push(relative.into());
+            tx.execute(
+                "UPDATE livros SET arquivos_encontrados=?1 WHERE id=?2",
+                rusqlite::params![
+                    serde_json::to_string(&paths).map_err(|e| e.to_string())?,
+                    id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())
+    }
+
     pub fn link(&self, root: &Path, relative: &str) -> Result<(), String> {
         if root.to_str() != Some(self.root.as_str()) {
             return Err("O download pertence a outra biblioteca.".into());
@@ -339,6 +442,9 @@ impl CatalogTarget {
             .lock()
             .map_err(|_| "Catálogo indisponível.")?;
         let id = self.resolve_id(root)?;
+        if id > 0 {
+            return self.link_legacy(root, id, relative);
+        }
         link_catalog_file_locked(
             self.root.clone(),
             id,
@@ -544,6 +650,49 @@ mod tests {
     }
 
     #[test]
+    fn legacy_download_link_updates_only_associations_transactionally() {
+        let root = std::env::temp_dir().join(format!(
+            "acervo-legacy-link-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("99 - Catálogo")).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let db = root.join("99 - Catálogo/Catalogo_Conhecimento.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE livros(id INTEGER PRIMARY KEY,titulo TEXT,autor TEXT,editoras_indicadas TEXT,local_indicado TEXT,arquivos_encontrados TEXT,prioridade_alta INTEGER); INSERT INTO livros VALUES(1,'Book','Author','Publisher','Planned','[]',1),(2,'Other','','','','[]',0);").unwrap();
+        fs::write(root.join("book.pdf"), b"%PDF-1.7").unwrap();
+        let target = CatalogTarget {
+            root: root.to_str().unwrap().into(),
+            title: "Book".into(),
+            author: "Author".into(),
+            destination: "Planned".into(),
+            legacy_id: Some(1),
+        };
+        target.validate().unwrap();
+        target.link(&root, "book.pdf").unwrap();
+        target.link(&root, "book.pdf").unwrap();
+        let row: (String,String,String,i64) = conn.query_row("SELECT arquivos_encontrados,local_indicado,editoras_indicadas,prioridade_alta FROM livros WHERE id=1", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+        assert_eq!(
+            row,
+            (
+                "[\"book.pdf\"]".into(),
+                "Planned".into(),
+                "Publisher".into(),
+                1
+            )
+        );
+        conn.execute("UPDATE livros SET titulo='Changed' WHERE id=1", [])
+            .unwrap();
+        assert!(target.link(&root, "book.pdf").is_err());
+        drop(conn);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn download_reference_survives_reordering_but_not_identity_changes() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -558,6 +707,7 @@ mod tests {
             title: "Book".into(),
             author: "Author".into(),
             destination: "Planned".into(),
+            legacy_id: None,
         };
         let first = json!({"titulo":"Book","autor":"Author","local_indicado":"Planned"});
         let other = json!({"titulo":"Other"});

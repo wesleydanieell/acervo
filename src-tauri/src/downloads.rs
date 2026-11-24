@@ -1215,6 +1215,7 @@ mod tests {
             title: "Book".into(),
             author: "Author".into(),
             destination: "Planned".into(),
+            legacy_id: None,
         };
         let stage = dir.join("download.part");
         fs::write(&stage, b"%PDF-1.7\n%%EOF").unwrap();
@@ -1494,6 +1495,7 @@ mod tests {
             title: "Teste".into(),
             author: "Author".into(),
             destination: "Literatura".into(),
+            legacy_id: None,
         });
         write_download_registry(&path, &loaded).unwrap();
         assert_eq!(
