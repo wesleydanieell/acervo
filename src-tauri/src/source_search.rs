@@ -247,7 +247,33 @@ async fn search_one(
     }
     let data: Value =
         serde_json::from_slice(&body).map_err(|error| format!("JSON inválido: {error}"))?;
-    extract_results(&source, &data, &language, &format)
+    let mut results = extract_results(&source, &data, &language, &format)?;
+    if source.local_search {
+        results.retain(|item| matches_local_query(&item.title, &item.author, &query));
+    }
+    Ok(results)
+}
+
+fn matches_local_query(title: &str, author: &str, query: &str) -> bool {
+    fn fold(text: &str) -> String {
+        text.to_lowercase()
+            .chars()
+            .map(|c| match c {
+                'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
+                'é' | 'è' | 'ê' | 'ë' => 'e',
+                'í' | 'ì' | 'î' | 'ï' => 'i',
+                'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+                'ú' | 'ù' | 'û' | 'ü' => 'u',
+                'ç' => 'c',
+                _ if c.is_alphanumeric() => c,
+                _ => ' ',
+            })
+            .collect()
+    }
+    let haystack = fold(&format!("{title} {author}"));
+    fold(query)
+        .split_whitespace()
+        .all(|term| haystack.contains(term))
 }
 
 pub(crate) fn extract_results(
@@ -457,6 +483,46 @@ mod tests {
             ""
         ));
     }
+    #[test]
+    fn curated_gutenberg_source_uses_mirror_and_matches_portuguese_queries() {
+        let manifest: SourceManifest =
+            serde_json::from_str(include_str!("../../integrations/gutenberg/manifest.json"))
+                .unwrap();
+        sources::validate(&manifest).unwrap();
+        assert!(manifest.local_search);
+        let data = serde_json::from_str(include_str!("../../integrations/gutenberg/catalog.json"))
+            .unwrap();
+        let results = extract_results(&manifest, &data, "pt", "epub").unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|item| {
+            item.download_url
+                .starts_with("https://gutenberg.pglaf.org/")
+        }));
+        assert_eq!(
+            results
+                .iter()
+                .filter(|item| matches_local_query(
+                    &item.title,
+                    &item.author,
+                    "memorias bras cubas"
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|item| matches_local_query(&item.title, &item.author, "machado assis"))
+                .count(),
+            2
+        );
+        assert!(!matches_local_query(
+            "Dom Casmurro",
+            "Machado de Assis",
+            "Shakespeare"
+        ));
+    }
+
     #[test]
     fn structured_catalogs_extract_nested_mime_links_and_match_any_language() {
         let source: SourceManifest = serde_json::from_value(serde_json::json!({

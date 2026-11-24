@@ -111,3 +111,7 @@ Pesquisas iniciadas em uma ficha JSON guardam uma referência persistente com ra
 ## Escolha da obra antes da transferência
 
 O botão Baixar abre um seletor pesquisável de fichas JSON e SQLite legado. A seleção define título de arquivo, referência à obra e pasta indicada; autor e editoras são mostrados a partir da ficha, sem sobrescrever metadados. O usuário pode escolher baixar sem vínculo ou desmarcar a importação automática. Com a opção automática confirmada, após validar a transferência o worker revalida a obra, cria pastas necessárias, salva sem sobrescrever e atualiza a associação. O catálogo aberto é recarregado por evento. Se a ficha mudou antes da importação, o arquivo continua na fila para revisão. Se o vínculo falhar depois de gravar, o arquivo permanece salvo. O SQLite é atualizado em transação apenas no campo de referências. A fila antiga permanece compatível; downloads restaurados não são automaticamente iniciados.
+
+## Fontes de teste e domínio público
+
+Instale as fontes opcionais pela área Extensões ou importe os manifestos em integrations/test-source e integrations/gutenberg. O campo opcional localSearch aplica filtro por título e autor aos resultados JSON recebidos, útil para catálogos estáticos pequenos. A seleção Gutenberg usa o espelho PGLAF; não inclui o catálogo integral do Project Gutenberg. Testes de regressão são independentes da rede. Recuperação transacional após interrupção abrupta durante importação continua pendente.

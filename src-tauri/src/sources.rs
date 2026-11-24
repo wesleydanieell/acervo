@@ -34,6 +34,8 @@ pub struct SourceManifest {
     pub formats: Vec<String>,
     #[serde(default)]
     pub languages: Vec<String>,
+    #[serde(default)]
+    pub local_search: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,8 +305,23 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             download_url_field: "".into(),
             formats: vec![],
             languages: vec![],
+            local_search: false,
         },
     )
+}
+
+#[tauri::command]
+pub fn install_example_source(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Vec<InstalledSource>, String> {
+    let raw = match id.as_str() {
+        "acervo-test-source" => include_str!("../../integrations/test-source/manifest.json"),
+        "gutenberg-curated" => include_str!("../../integrations/gutenberg/manifest.json"),
+        _ => return Err("Fonte de exemplo desconhecida.".into()),
+    };
+    let manifest = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+    install_manifest(&app, manifest)
 }
 
 #[tauri::command]
@@ -357,6 +374,7 @@ mod tests {
             download_url_field: "download_url".into(),
             formats: vec!["epub".into(), "pdf".into()],
             languages: vec!["pt".into(), "en".into()],
+            local_search: false,
         }
     }
 
