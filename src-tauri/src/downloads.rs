@@ -1,4 +1,5 @@
 //! Persistent staged download queue. Nothing enters the library before explicit approval.
+pub(crate) mod restructure;
 use super::catalog_lists::CatalogTarget;
 use super::extension_network::{safe_url, secure_https_client};
 use super::import_fingerprint::{FileFingerprint, fingerprint};

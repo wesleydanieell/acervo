@@ -34,6 +34,8 @@ pub struct StructuralPreview {
     moved_folders: Vec<FolderImpact>,
     execution_supported: bool,
     reference_impact: crate::library_reference_impact::ReferenceImpact,
+    download_impact: Option<crate::downloads::restructure::DownloadImpact>,
+    rule_impact: Option<Vec<crate::smart_organization::RuleDestinationImpact>>,
 }
 
 fn relative(value: &str) -> Result<PathBuf, String> {
@@ -134,6 +136,8 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
         moved_folders: vec![],
         execution_supported: false,
         reference_impact: Default::default(),
+        download_impact: None,
+        rule_impact: None,
     };
     let mut remaining = MAX_ENTRIES;
     for operation in operations {
@@ -191,11 +195,34 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
 
 /// Preview only: no persistent token or authorization to execute is returned.
 #[tauri::command]
-pub fn preview_library_restructure(
+pub async fn preview_library_restructure(
     root: String,
     operations: Vec<StructuralOperation>,
+    manager: tauri::State<'_, crate::downloads::DownloadManager>,
+    rules: Option<crate::smart_organization::Rules>,
 ) -> Result<StructuralPreview, String> {
-    plan(Path::new(&root), operations)
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
+        let mut preview = plan(&root, operations)?;
+        let remap = crate::library_reference_impact::PathRemap::new(
+            preview
+                .moved_folders
+                .iter()
+                .map(|m| (m.source.as_str(), m.target.as_str()))
+                .collect(),
+        );
+        preview.download_impact = Some(crate::downloads::restructure::preview(
+            &root, &remap, &manager,
+        )?);
+        preview.rule_impact = rules
+            .as_ref()
+            .map(|rules| crate::smart_organization::preview_restructure_rules(rules, &remap))
+            .transpose()?;
+        Ok(preview)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

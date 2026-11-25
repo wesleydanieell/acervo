@@ -157,6 +157,61 @@ fn validate_rules(rules: &Rules) -> Result<(), String> {
     Ok(())
 }
 
+/// Preview persisted rule destinations, including disabled rules that may be enabled later.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuleDestinationImpact {
+    rule_name: String,
+    enabled: bool,
+    destination: crate::library_reference_impact::PathChange,
+}
+
+pub(crate) fn preview_restructure_rules(
+    rules: &Rules,
+    remap: &crate::library_reference_impact::PathRemap<'_>,
+) -> Result<Vec<RuleDestinationImpact>, String> {
+    validate_rules(rules)?;
+    let mut result = Vec::new();
+    let mut add = |name: &str, enabled, destination: &str| -> Result<(), String> {
+        if let Some(destination) = remap.map(destination)? {
+            destination_parts(&destination.after)?;
+            result.push(RuleDestinationImpact {
+                rule_name: name.into(),
+                enabled,
+                destination,
+            });
+        }
+        Ok(())
+    };
+    if let (Some(format), Some(destination)) = (&rules.format, &rules.destination) {
+        add(format, true, destination)?;
+    }
+    for rule in &rules.custom {
+        add(&rule.name, rule.enabled, &rule.destination)?;
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+#[test]
+fn restructure_rules_include_disabled_rules_without_changing_settings() {
+    let rules: Rules = serde_json::from_value(serde_json::json!({
+        "catalog": true, "format":"PDF", "destination":"A/Future",
+        "custom":[
+          {"name":"Disabled","enabled":false,"format":"EPUB","author":"","language":"","publisher":"","destination":"A/More"},
+          {"name":"Unchanged","enabled":true,"format":"PDF","author":"","language":"","publisher":"","destination":"AB/More"}
+        ]
+    })).unwrap();
+    let map = crate::library_reference_impact::PathRemap::new(vec![("A", "New")]);
+    let impact = preview_restructure_rules(&rules, &map).unwrap();
+    assert_eq!(impact.len(), 2);
+    assert_eq!(impact[0].destination.after, "New/Future");
+    assert_eq!(impact[1].destination.after, "New/More");
+    assert!(!impact[1].enabled);
+    assert_eq!(rules.destination.as_deref(), Some("A/Future"));
+    assert_eq!(rules.custom[0].destination, "A/More");
+}
+
 #[tauri::command]
 pub fn validate_organization_rules(rules: Rules) -> Result<(), String> {
     validate_rules(&rules)

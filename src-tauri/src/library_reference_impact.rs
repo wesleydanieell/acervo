@@ -41,7 +41,7 @@ impl<'a> PathRemap<'a> {
         Self { moves }
     }
 
-    fn map(&self, path: &str) -> Result<Option<PathChange>, String> {
+    pub(crate) fn map(&self, path: &str) -> Result<Option<PathChange>, String> {
         if path.is_empty() || path == "." {
             return Ok(None);
         }

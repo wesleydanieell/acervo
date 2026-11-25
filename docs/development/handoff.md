@@ -20,9 +20,17 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Decisão: não há executor estrutural nem integração visual nesta etapa. A prévia não é autorização para executar e não garante snapshot consistente durante mudanças concorrentes. Sem escrita nem alteração na biblioteca real.
 - Pendências: validar identidade dos arquivos antes da aplicação; mapear fila e referências de aquisição, regras persistidas e cache; estabelecer snapshots exatos e coordenação de mutações; journal durável com recuperação; integrar editor visual. Validar etapa 1 no executável e nos três temas. PR #77 (morph de retorno de capas) estava em draft na sessão anterior; conferir estado remoto antes de agir.
 
+## 2026-11-25 — impacto de aquisição e regras
+
+- Prévia integrada ao estado de downloads: separa destino planejado e destino da ficha; preserva histórico salvo e ignora outra raiz. Bloqueia raiz ambígua quando destino afetado, importação pendente, transferência ativa afetada, ficha inválida ou destino inválido. Não altera fila.
+- Regras: armazenamento atual em localStorage por raiz; backend calcula mudanças de destinos de regras de formato e personalizadas, inclusive desativadas, a partir de snapshot opcional. null indica ausência de análise, não ausência de impacto. Não grava configurações. Frontend do editor ainda não consome o contrato.
+- Chamada IPC de prévia passou a executar I/O em spawn_blocking.
+- Testes: cargo test --manifest-path src-tauri/Cargo.toml --lib: 162 aprovados (inclui fixtures de fila, histórico, outra raiz, importação pendente e regras desativadas). git diff --check aprovado. Nenhuma validação visual ou execução estrutural. Nenhum dado da biblioteca real alterado.
+- Limitações: mudanças concorrentes podem invalidar a prévia; colisões entre destinos futuros ainda não analisadas; raiz de downloads avulsos não é persistida. Bloqueios são diagnósticos e não um mecanismo de exclusão mútua. Regras precisam de persistência coordenada para integrar ao journal.
+
 ## Próximo incremento recomendado
 
-1. Identificar persistência de destinos/regras e semântica da raiz em cada download. Não tratar saved_path histórico como destino atual.
-2. Definir política de bloqueio para importações em andamento ou recuperação pendente e prévia de referências de aquisição.
-3. Adicionar fixtures de downloads de outra raiz, obras futuras, múltiplas edições, estados pendentes e histórico.
-4. Só depois desenhar o journal e o executor com revalidação de identidades e snapshots, sem liberar a mutação estrutural prematuramente.
+1. Definir snapshot de identidade de origem e inventário determinístico, revalidável antes da execução. Validar paths com política consistente entre módulos e testar alterações externas.
+2. Definir coordenação de mutações e reservas por raiz, política de colisões de destinos futuros e snapshots exatos da fila e regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
+3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
+4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.
