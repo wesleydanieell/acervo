@@ -44,6 +44,19 @@ pub struct InstalledSource {
 }
 
 fn validate_field(field: &str, required: bool) -> bool {
+    // RFC 6901 JSON pointers support array indices and MIME keys without executing code.
+    if field.starts_with('/') {
+        return field.len() <= 200
+            && field.split('/').skip(1).count() <= 16
+            && field.split('/').skip(1).all(|part| {
+                !part.is_empty()
+                    && !part.chars().any(char::is_control)
+                    && part
+                        .split('~')
+                        .skip(1)
+                        .all(|suffix| suffix.starts_with('0') || suffix.starts_with('1'))
+            });
+    }
     (!required && field.is_empty())
         || (!field.is_empty()
             && field.len() <= 100
@@ -122,7 +135,9 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
         || !validate_field(&manifest.language_field, false)
         || !validate_field(&manifest.download_url_field, false)
     {
-        return Err("Seletores JSON inválidos; use nomes de campos separados por pontos.".into());
+        return Err(
+            "Seletores JSON inválidos; use campos separados por pontos ou JSON Pointer.".into(),
+        );
     }
     for items in [&manifest.formats, &manifest.languages] {
         if items.len() > 25
@@ -348,6 +363,23 @@ mod tests {
     #[test]
     fn accepts_basic_manifest() {
         validate(&example()).unwrap();
+    }
+
+    #[test]
+    fn accepts_bounded_json_pointers_without_breaking_legacy_selectors() {
+        let mut sample = example();
+        sample.author_field = "/authors/0/name".into();
+        sample.download_url_field = "/formats/application~1epub+zip".into();
+        validate(&sample).unwrap();
+        for invalid in [
+            "/formats/~2",
+            "/authors//name",
+            "/authors/~",
+            "/authors/\u{0001}",
+        ] {
+            sample.author_field = invalid.into();
+            assert!(validate(&sample).is_err());
+        }
     }
 
     #[test]

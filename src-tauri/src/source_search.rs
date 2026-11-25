@@ -129,6 +129,9 @@ fn field<'a>(record: &'a Value, path: &str) -> Option<&'a Value> {
     if path.is_empty() {
         return None;
     }
+    if path.starts_with('/') {
+        return record.pointer(path);
+    }
     let mut value = record;
     for part in path.split('.') {
         value = value.get(part)?;
@@ -152,6 +155,28 @@ fn read_string(record: &Value, path: &str) -> String {
     text.trim().chars().take(300).collect()
 }
 
+fn field_matches(record: &Value, path: &str, value: &str) -> bool {
+    match field(record, path) {
+        Some(Value::Array(values)) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|item| item.eq_ignore_ascii_case(value)),
+        Some(Value::String(item)) => item.eq_ignore_ascii_case(value),
+        _ => false,
+    }
+}
+
+fn fixed_format(source: &SourceManifest) -> Option<&str> {
+    if source.format_field.is_empty()
+        && !source.download_url_field.is_empty()
+        && source.formats.len() == 1
+    {
+        source.formats.first().map(String::as_str)
+    } else {
+        None
+    }
+}
+
 fn supports_filter(
     declared: &[String],
     field: &str,
@@ -172,7 +197,11 @@ async fn search_one(
 ) -> Result<Vec<SourceResult>, String> {
     if !supports_filter(
         &source.formats,
-        &source.format_field,
+        if fixed_format(&source).is_some() {
+            &source.download_url_field
+        } else {
+            &source.format_field
+        },
         &source.search_path,
         "{format}",
         &format,
@@ -218,7 +247,16 @@ async fn search_one(
     }
     let data: Value =
         serde_json::from_slice(&body).map_err(|error| format!("JSON inválido: {error}"))?;
-    let records = field(&data, &source.items_path)
+    extract_results(&source, &data, &language, &format)
+}
+
+fn extract_results(
+    source: &SourceManifest,
+    data: &Value,
+    language: &str,
+    format: &str,
+) -> Result<Vec<SourceResult>, String> {
+    let records = field(data, &source.items_path)
         .and_then(Value::as_array)
         .ok_or_else(|| format!("Resposta não contém array em '{}'.", source.items_path))?;
 
@@ -228,26 +266,44 @@ async fn search_one(
         if title.is_empty() {
             continue;
         }
-        let item_format = read_string(record, &source.format_field).to_ascii_lowercase();
-        let item_language = read_string(record, &source.language_field).to_ascii_lowercase();
+        let candidate_url = field(record, &source.download_url_field)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let download_url = if safe_url(candidate_url) {
+            candidate_url.to_owned()
+        } else {
+            String::new()
+        };
+        let item_format = if !download_url.is_empty() {
+            fixed_format(source)
+                .map(str::to_owned)
+                .unwrap_or_else(|| read_string(record, &source.format_field))
+        } else {
+            read_string(record, &source.format_field)
+        }
+        .to_ascii_lowercase();
+        let language_matches =
+            !language.is_empty() && field_matches(record, &source.language_field, language);
+        let item_language = if language_matches {
+            language.to_ascii_lowercase()
+        } else {
+            read_string(record, &source.language_field).to_ascii_lowercase()
+        };
         if !format.is_empty()
-            && !item_format.eq_ignore_ascii_case(&format)
-            && (!item_format.is_empty() || !source.search_path.contains("{format}"))
+            && !item_format.eq_ignore_ascii_case(format)
+            && (fixed_format(source).is_some()
+                || !item_format.is_empty()
+                || !source.search_path.contains("{format}"))
         {
             continue;
         }
         if !language.is_empty()
-            && !item_language.eq_ignore_ascii_case(&language)
+            && !language_matches
             && (!item_language.is_empty() || !source.search_path.contains("{language}"))
         {
             continue;
         }
-        let candidate_url = read_string(record, &source.download_url_field);
-        let download_url = if safe_url(&candidate_url) {
-            candidate_url
-        } else {
-            String::new()
-        };
         result.push(SourceResult {
             source_id: source.id.clone(),
             source_name: source.name.clone(),
@@ -401,6 +457,33 @@ mod tests {
             ""
         ));
     }
+    #[test]
+    fn structured_catalogs_extract_nested_mime_links_and_match_any_language() {
+        let source: SourceManifest = serde_json::from_value(serde_json::json!({
+            "schemaVersion":1,"id":"example-source","name":"Example","baseUrl":"https://example.org",
+            "searchPath":"/api/search?q={query}","itemsPath":"/results","titleField":"title",
+            "authorField":"/authors/0/name","languageField":"languages",
+            "formats":["epub"],"downloadUrlField":"/formats/application~1epub+zip"
+        })).unwrap();
+        let long_url = format!("https://example.org/file.epub?token={}", "a".repeat(400));
+        let data = serde_json::json!({"results":[
+            {"title":"Test","authors":[{"name":"Author"}],"languages":["en","pt","es"],"formats":{"application/epub+zip":long_url}},
+            {"title":"No EPUB","languages":["pt"],"formats":{"text/html":"https://example.org/page"}},
+            {"title":"Other language","languages":["fr"],"formats":{"application/epub+zip":"https://example.org/other.epub"}}
+        ]});
+        let results = extract_results(&source, &data, "es", "epub").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].author, "Author");
+        assert_eq!(results[0].format, "epub");
+        assert_eq!(results[0].language, "es");
+        assert_eq!(results[0].download_url, long_url);
+        assert!(
+            extract_results(&source, &data, "es", "pdf")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     #[test]
     fn encodes_search_values_and_extracts_arrays() {
         let source: SourceManifest = serde_json::from_value(serde_json::json!({
