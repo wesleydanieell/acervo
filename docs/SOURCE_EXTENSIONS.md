@@ -152,3 +152,8 @@ O seletor de download exibe a edição e permite um complemento de nome opcional
 ## Recuperar importação interrompida
 
 Na central Downloads, o filtro A importar inclui registros com Recuperar importação. Selecione a biblioteca original e confirme a verificação. O Acervo compara tamanho e SHA-256 com os dados registrados antes de salvar. Se o arquivo final for idêntico, tenta completar a associação autorizada; caso apenas o cache esteja íntegro, permite confirmar a importação novamente. Arquivos divergentes não são sobrescritos. Se nenhuma cópia íntegra for localizada, a fila permite refazer o download. Arquivos temporários órfãos no destino podem exigir limpeza manual.
+
+
+## Metadados permanentes da edição
+
+Novas importações com dados da fonte gravam um registro próprio em 99 - Catálogo/Acervo_Edicoes.json. O registro independe da fila e do histórico. O painel de detalhes mostra título original, autor, idioma, editora, descrição e fonte, e a pesquisa considera esses campos. O catálogo continua sendo a autoridade sobre as fichas. Mover livros pelo Acervo mantém o registro de edição; movimentos externos ainda não são reconciliados. Em caso de erro de gravação, use Recuperar importação; não baixe novamente nem substitua um arquivo existente. Metadados não são verificados bibliograficamente. Históricos anteriores não são migrados automaticamente.

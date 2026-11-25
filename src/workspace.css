@@ -60,3 +60,5 @@
  :root[data-visual-style="workspace"] .books-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,120px),1fr));gap:10px}
  :root[data-visual-style="workspace"] .collection-controls{justify-content:flex-start}
 }
+
+.associated-edition-label{display:block;margin-top:4px;color:var(--text-muted);font-size:11px;overflow-wrap:anywhere}

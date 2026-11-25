@@ -50,7 +50,7 @@ pub struct DownloadEdition {
 }
 
 impl DownloadEdition {
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<(), String> {
         if [
             &self.title,
             &self.author,
@@ -1420,6 +1420,25 @@ fn update_import_record(
     Ok(())
 }
 
+fn persist_edition(
+    info: &DownloadInfo,
+    intent: &ImportIntent,
+    relative: &str,
+) -> Result<(), String> {
+    if let Some(metadata) = &info.edition {
+        super::library_editions::record(
+            Path::new(&intent.root),
+            super::library_editions::EditionRecord {
+                path: relative.into(),
+                source_name: info.source_name.clone(),
+                metadata: metadata.clone(),
+                fingerprint: intent.fingerprint.clone(),
+            },
+        )?;
+    }
+    Ok(())
+}
+
 fn mark_saved(item: &mut DownloadRecord, path: &str, association: Option<Result<(), String>>) {
     item.info.status = "saved".into();
     item.info.saved_path = path.into();
@@ -1502,6 +1521,18 @@ fn save_download_to_library(
         info.catalog_target.as_ref(),
         link_catalog,
     );
+    if let Ok(path) = &operation {
+        if let Err(error) = persist_edition(&info, &intent, path) {
+            let message = format!("Livro salvo; registro da edição pendente: {error}");
+            manager.change(&id, |item| {
+                item.info.status = "recovery".into();
+                item.info.error = message.clone();
+            });
+            let _ = manager.persist();
+            let _ = app.emit("acervo-library-changed", intent.root);
+            return Err(message);
+        }
+    }
     if let Err(error) = update_import_record(&manager, &id, |item| match &operation {
         Ok(path) => mark_saved(item, path, association),
         Err(error) => {
@@ -1627,6 +1658,17 @@ pub async fn recover_download_import(
                 return Err(error);
             }
         };
+        if let RecoveryOutcome::Saved(relative, _) = &outcome {
+            if let Err(error) = persist_edition(&info, &intent, relative) {
+                let message = format!("Livro preservado; registro da edição pendente: {error}");
+                manager.change(&id, |item| {
+                    item.info.status = "recovery".into();
+                    item.info.error = message.clone();
+                });
+                let _ = manager.persist();
+                return Err(message);
+            }
+        }
         let saved = matches!(&outcome, RecoveryOutcome::Saved(..));
         if let Err(error) = update_import_record(&manager, &id, |item| match outcome {
             RecoveryOutcome::Saved(path, association) => mark_saved(item, &path, association),
@@ -1837,6 +1879,27 @@ mod tests {
                 matches!(inspect_interrupted_import(&stage,&info,&intent,&root).unwrap(),RecoveryOutcome::Saved(path,Some(Ok(()))) if path=="Books/Book.pdf")
             );
         }
+        let mut with_edition = info.clone();
+        with_edition.edition = Some(DownloadEdition {
+            title: "Original title".into(),
+            author: "Author".into(),
+            publisher: "Fixture Publisher".into(),
+            language: "pt".into(),
+            source_id: "fixture".into(),
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            persist_edition(&with_edition, &intent, "Books/Book.pdf").unwrap();
+        }
+        let saved_editions = crate::library_editions::load(&root).unwrap();
+        assert_eq!(saved_editions.len(), 1);
+        assert_eq!(
+            saved_editions["Books/Book.pdf"].metadata.publisher,
+            "Fixture Publisher"
+        );
+        let mut conflicting = with_edition.clone();
+        conflicting.edition.as_mut().unwrap().publisher = "Other publisher".into();
+        assert!(persist_edition(&conflicting, &intent, "Books/Book.pdf").is_err());
         let scanned = super::super::scan_collection(root_text.into()).unwrap();
         let work = scanned.works.iter().find(|w| w.title == "Book").unwrap();
         assert!(work.present);
