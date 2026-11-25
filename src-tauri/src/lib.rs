@@ -638,6 +638,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(downloads::DownloadManager::restore(app.handle()));
+            #[cfg(target_os = "macos")]
+            source_browser::setup_macos_menu(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
         })
         .invoke_handler(move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
