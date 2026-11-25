@@ -1,6 +1,6 @@
 # Sincronização com Noctalia 5.4+
 
-O Noctalia renderiza os tokens Material 3 a cada mudança de esquema, modo ou wallpaper. O Acervo verifica o arquivo gerado em intervalos curtos e atualiza a interface sem reiniciar.
+O Noctalia renderiza os tokens Material 3 a cada mudança de esquema, modo ou wallpaper. O Acervo observa alterações no diretório do arquivo gerado e anima a paleta sem reiniciar. Uma consulta de contingência a cada dois segundos cobre arquivos ou diretórios criados posteriormente e eventos perdidos. A integração é somente leitura; o Acervo não modifica o wallpaper nem a configuração do Noctalia.
 
 ## Instalação (Linux + Noctalia)
 

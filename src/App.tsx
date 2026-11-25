@@ -30,7 +30,8 @@ import { BookCover } from "./BookCover";
 import { VirtualBookList } from "./VirtualBookList";
 import "./virtual-list.css";
 import {usePaletteMotion} from "./usePaletteMotion";
-import type {PaletteName,ThemeTokens} from "./palette-motion";
+import type {PaletteName} from "./palette-motion";
+import {useNoctaliaPalette} from "./useNoctaliaPalette";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import { selectVisibleRange } from "./library-selection";
@@ -106,7 +107,7 @@ function App() {
   const [sideOpen, setSideOpen] = useState(false);
   const [palette, setPalette] = useState<PaletteName>(() => (localStorage.getItem("acervo-palette") as PaletteName) || "noctalia");
   const [visualStyle, setVisualStyle] = useState<VisualStyle>(() => { const saved = localStorage.getItem("acervo-workspace-style"); return saved === "material" || saved === "glass" ? saved : "workspace"; });
-  const [theme, setTheme] = useState<ThemeTokens | null>(null);
+  const theme=useNoctaliaPalette();
   const searchRef = useRef<HTMLInputElement>(null);
   const mainRef=useRef<HTMLElement>(null);
   useEffect(()=>{
@@ -239,23 +240,6 @@ function App() {
     window.addEventListener("keydown", onKeyboard);
     return () => window.removeEventListener("keydown", onKeyboard);
   }, []);
-  useEffect(()=>{
-    let cancelled=false,pending=false,misses=0;
-    const read=async()=>{
-      if(pending||cancelled)return;
-      pending=true;
-      try{
-        const tokens=await invoke<ThemeTokens|null>("read_noctalia_colors");
-        if(cancelled)return;
-        if(tokens){misses=0;setTheme(previous=>JSON.stringify(previous)===JSON.stringify(tokens)?previous:tokens);}
-        else if(++misses>=3)setTheme(null);
-      }catch{if(!cancelled&&++misses>=3)setTheme(null);}
-      finally{pending=false;}
-    };
-    void read();
-    const timer=window.setInterval(read,1000);
-    return()=>{cancelled=true;window.clearInterval(timer);};
-  },[]);
   useEffect(()=>{
     localStorage.setItem("acervo-workspace-style",visualStyle);
     document.documentElement.dataset.visualStyle=visualStyle;
@@ -738,7 +722,7 @@ ${JSON.stringify(sample, null, 2)}`;
                 <label className="settings-field">Paleta de cores
                   <select aria-label="Paleta de cores" value={palette} onChange={(event) => setPalette(event.target.value as PaletteName)}><option value="noctalia">Automática · Noctalia</option><option value="jade">Jade</option><option value="indigo">Índigo</option><option value="rose">Rosé</option><option value="amber">Âmbar</option></select>
                 </label>
-                <div className="theme-sync"><span className={"status-dot " + (theme ? "" : "muted")}/><div><strong>{theme ? "Noctalia conectado" : "Aguardando paleta do Noctalia"}</strong><small>{theme ? "As cores acompanham as alterações do wallpaper automaticamente." : "Para sincronizar, habilite o template do Acervo no Noctalia."}</small></div></div>
+                <div className="theme-sync"><span className={"status-dot " + (palette==="noctalia"&&theme ? "" : "muted")}/><div><strong>{palette!=="noctalia"?"Paleta manual ativa":theme?"Noctalia conectado":"Aguardando paleta do Noctalia"}</strong><small>{palette!=="noctalia"?"As mudanças do Noctalia não afetam a paleta manual.":theme?"As cores acompanham as alterações do wallpaper automaticamente.":"Para sincronizar, habilite o template do Acervo no Noctalia."}</small></div></div>
               </article>
               <article className="settings-card glass-panel">
                 <div className="settings-card-heading"><HardDrive size={22}/><div><h2>Biblioteca</h2></div></div>

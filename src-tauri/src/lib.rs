@@ -19,6 +19,7 @@ mod library_index_disk;
 mod library_monitor;
 mod manual_metadata;
 mod metadata_cache;
+mod noctalia;
 mod opds_parser;
 mod opds_source;
 mod organization;
@@ -807,42 +808,6 @@ fn move_books(
     Ok(done.into_iter().map(|(_, new)| new).collect())
 }
 
-#[tauri::command]
-fn read_noctalia_colors() -> Option<serde_json::Value> {
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var("HOME")
-                .ok()
-                .map(|home| PathBuf::from(home).join(".config"))
-        })?;
-    let content = fs::read_to_string(base.join("acervo").join("noctalia-colors.json")).ok()?;
-    let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&content).ok()?;
-    let allowed = [
-        "primary",
-        "on_primary",
-        "surface",
-        "on_surface",
-        "surface_container",
-        "outline_variant",
-    ];
-    if !allowed.iter().all(|key| {
-        map.get(*key)
-            .and_then(|value| value.as_str())
-            .map(|color| {
-                color.starts_with('#')
-                    && (color.len() == 7 || color.len() == 9)
-                    && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
-            .unwrap_or(false)
-    }) {
-        return None;
-    }
-    Some(serde_json::Value::Object(map))
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
@@ -897,7 +862,7 @@ pub fn run() {
         downloads::save_download,
         downloads::rename_ready_download,
         downloads::recover_download_import,
-        read_noctalia_colors
+        noctalia::read_noctalia_colors
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -905,6 +870,9 @@ pub fn run() {
         .setup(|app| {
             app.manage(downloads::DownloadManager::restore(app.handle()));
             app.manage(library_monitor::LibraryMonitor::default());
+            if let Some(watcher) = noctalia::PaletteWatcher::start(app.handle()) {
+                app.manage(watcher);
+            }
             #[cfg(target_os = "macos")]
             source_browser::setup_macos_menu(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
