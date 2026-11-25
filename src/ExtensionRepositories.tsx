@@ -89,6 +89,7 @@ export function ExtensionRepositories({sources,onInstalled,disabled}:{sources:In
       <small>v{preview.manifest.version??"1.0.0"} · {(preview.manifest.adapter??"json").toUpperCase()} · API {preview.manifest.apiVersion??1}</small>
       <p>{preview.manifest.description}</p>
       <small>Origem de pesquisa: {preview.manifest.baseUrl}</small>
+      {preview.manifest.websiteUrl && <small>Site: {preview.manifest.websiteUrl}</small>}
       <small>Domínios de download: {preview.manifest.downloadDomains?.join(", ")||"Nenhum"}</small>
       <small>SHA-256 verificado em relação ao índice. Isso não comprova a identidade do autor; confie apenas em repositórios conhecidos.</small>
       <button className="button primary" disabled={unavailable} onClick={()=>void install()}>Confirmar instalação / atualização</button>

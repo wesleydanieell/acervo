@@ -196,6 +196,15 @@
           "$ref": "#/$defs/optionalSelector"
         }
       }
+    },
+    "websiteUrl": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri",
+      "pattern": "^https://",
+      "maxLength": 2047
     }
   },
   "$defs": {

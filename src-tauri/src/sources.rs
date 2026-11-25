@@ -43,6 +43,8 @@ pub struct SourceManifest {
     #[serde(default)]
     pub description: String,
     pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub website_url: Option<String>,
     pub search_path: String,
     #[serde(default)]
     pub items_path: String,
@@ -185,6 +187,11 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
         || manifest.description.len() > 500
     {
         return Err("Nome ou descrição da fonte fora do limite.".into());
+    }
+    if let Some(website) = &manifest.website_url {
+        if !crate::extension_network::safe_url(website) {
+            return Err("websiteUrl deve ser uma URL HTTPS pública.".into());
+        }
     }
     let url = url::Url::parse(&manifest.base_url).map_err(|_| "baseUrl inválida.")?;
     if url.scheme() != "https"
@@ -585,6 +592,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             download_domains: None,
             html: None,
             editions: None,
+            website_url: None,
         },
     )
 }
@@ -668,6 +676,7 @@ mod tests {
             download_domains: None,
             html: None,
             editions: None,
+            website_url: None,
         }
     }
 
