@@ -95,6 +95,12 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     } catch (failure) { setError(String(failure)); }
     finally { setBusy(false); }
   };
+  const installExample = async (id: string) => {
+    setBusy(true); setError(""); setNotice("");
+    try { setSources(await invoke<InstalledSource[]>("install_example_source", { id })); setNotice("Fonte instalada."); }
+    catch (failure) { setError(String(failure)); }
+    finally { setBusy(false); }
+  };
   const toggle = async (id: string, enabled: boolean) => {
     setBusy(true); setError("");
     try { setSources(await invoke<InstalledSource[]>("set_source_enabled", { id, enabled })); invalidateSearch(); }
@@ -153,6 +159,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         {discover ? <><button className="button secondary" onClick={onShowExtensions}><Globe2 size={16}/> Extensões</button><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Downloads</button></> :
           <><button className="button secondary" onClick={onShowDiscover}><Search size={16}/> Descobrir</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
           <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "open-library")} onClick={() => void installDemo()}><Globe2 size={16}/> Open Library</button>
+          <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "gutenberg-curated")} onClick={() => void installExample("gutenberg-curated")}><Plus size={16}/> Gutenberg</button>
+          <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "acervo-test-source")} onClick={() => void installExample("acervo-test-source")}><Plus size={16}/> Fonte de teste</button>
           <button className="button primary" disabled={busy} onClick={() => void install()}><Plus size={17}/> Instalar JSON</button></>}
       </div>
     </div>

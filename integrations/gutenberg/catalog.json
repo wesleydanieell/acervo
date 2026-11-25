@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "title": "Dom Casmurro",
+      "author": "Machado de Assis",
+      "language": "pt",
+      "format": "epub",
+      "download_url": "https://gutenberg.pglaf.org/cache/epub/55752/pg55752-images.epub",
+      "original": "https://www.gutenberg.org/ebooks/55752"
+    },
+    {
+      "title": "Memórias Póstumas de Brás Cubas",
+      "author": "Machado de Assis",
+      "language": "pt",
+      "format": "epub",
+      "download_url": "https://gutenberg.pglaf.org/cache/epub/54829/pg54829-images.epub",
+      "original": "https://www.gutenberg.org/ebooks/54829"
+    }
+  ]
+}

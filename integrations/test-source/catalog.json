@@ -1,0 +1,18 @@
+{
+  "results": [
+    {
+      "title": "Acervo: Livro de teste",
+      "author": "Acervo Fixtures",
+      "format": "epub",
+      "language": "pt",
+      "download_url": "https://raw.githubusercontent.com/wesleydanieell/acervo/256ca5b63916c7419de7163331879d2695c5975e/integrations/test-source/test-book.epub"
+    },
+    {
+      "title": "Acervo: Arquivo inválido",
+      "author": "Acervo Fixtures",
+      "format": "epub",
+      "language": "pt",
+      "download_url": "https://raw.githubusercontent.com/wesleydanieell/acervo/256ca5b63916c7419de7163331879d2695c5975e/integrations/test-source/invalid-book.html"
+    }
+  ]
+}

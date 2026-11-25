@@ -535,6 +535,7 @@ pub fn run() {
             sources::list_sources,
             sources::install_source,
             sources::install_demo_source,
+            sources::install_example_source,
             sources::set_source_enabled,
             sources::remove_source,
             source_search::search_sources,
