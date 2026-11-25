@@ -11,7 +11,7 @@ import "./sources.css";
 import "./source-search.css";
 
 export type SourceManifest = {
-  schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json"; id: string; name: string; description: string;
+  schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds"; id: string; name: string; description: string;
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
@@ -212,10 +212,10 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       <div className="source-capabilities">
         {manifest.formats.map((format) => <span key={"f:"+format}>{format.toUpperCase()}</span>)}
         {manifest.languages.map((language) => <span key={"l:"+language}>{language}</span>)}
-        <span><Search size={13}/> Busca JSON</span>
-        {manifest.downloadUrlField && <span><Download size={13}/> Link de download</span>}
-        {manifest.pagination && <span>Paginação</span>}
-        {manifest.downloadUrlField && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
+        <span><Search size={13}/> Busca {manifest.adapter === "opds" ? "OPDS" : "JSON"}</span>
+        {(manifest.adapter === "opds" || manifest.downloadUrlField) && (manifest.downloadDomains == null || manifest.downloadDomains.length > 0) && <span><Download size={13}/> Link de download</span>}
+        {(manifest.adapter === "opds" || manifest.pagination) && <span>Paginação</span>}
+        {(manifest.adapter === "opds" || manifest.downloadUrlField) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
       <div className="source-actions">
         <button className="button secondary" disabled={busy} onClick={() => void toggle(manifest.id, !enabled)}>

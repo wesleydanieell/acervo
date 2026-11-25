@@ -23,6 +23,7 @@ fn default_version() -> String {
 pub enum AdapterKind {
     #[default]
     Json,
+    Opds,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +42,9 @@ pub struct SourceManifest {
     pub description: String,
     pub base_url: String,
     pub search_path: String,
+    #[serde(default)]
     pub items_path: String,
+    #[serde(default)]
     pub title_field: String,
     #[serde(default)]
     pub author_field: String,
@@ -181,28 +184,54 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
                 .into(),
         );
     }
-    if !validate_field(&manifest.items_path, true)
-        || !validate_field(&manifest.title_field, true)
-        || !validate_field(&manifest.author_field, false)
-        || !validate_field(&manifest.format_field, false)
-        || !validate_field(&manifest.language_field, false)
-        || !validate_field(&manifest.download_url_field, false)
-        || !validate_field(&manifest.remote_id_field, false)
-    {
-        return Err(
-            "Seletores JSON inválidos; use campos separados por pontos ou JSON Pointer.".into(),
-        );
-    }
-    if let Some(pagination) = &manifest.pagination {
-        if !manifest.search_path.contains("{cursor}")
-            || manifest.local_search
-            || !validate_field(&pagination.next_cursor_field, true)
-            || !valid_cursor(&pagination.initial_cursor)
+    if manifest.adapter == AdapterKind::Json {
+        if !validate_field(&manifest.items_path, true)
+            || !validate_field(&manifest.title_field, true)
+            || !validate_field(&manifest.author_field, false)
+            || !validate_field(&manifest.format_field, false)
+            || !validate_field(&manifest.language_field, false)
+            || !validate_field(&manifest.download_url_field, false)
+            || !validate_field(&manifest.remote_id_field, false)
         {
-            return Err("Paginação JSON inválida: use cursor inicial, seletor e {cursor}; busca local não é paginada.".into());
+            return Err(
+                "Seletores JSON inválidos; use campos separados por pontos ou JSON Pointer.".into(),
+            );
         }
-    } else if manifest.search_path.contains("{cursor}") {
-        return Err("O placeholder {cursor} exige configuração de paginação.".into());
+        if let Some(pagination) = &manifest.pagination {
+            if !manifest.search_path.contains("{cursor}")
+                || manifest.local_search
+                || !validate_field(&pagination.next_cursor_field, true)
+                || !valid_cursor(&pagination.initial_cursor)
+            {
+                return Err("Paginação JSON inválida: use cursor inicial, seletor e {cursor}; busca local não é paginada.".into());
+            }
+        } else if manifest.search_path.contains("{cursor}") {
+            return Err("O placeholder {cursor} exige configuração de paginação.".into());
+        }
+    } else {
+        if manifest.pagination.is_some()
+            || manifest.local_search
+            || manifest.search_path.contains("{cursor}")
+            || [
+                &manifest.items_path,
+                &manifest.title_field,
+                &manifest.author_field,
+                &manifest.format_field,
+                &manifest.language_field,
+                &manifest.download_url_field,
+                &manifest.remote_id_field,
+            ]
+            .iter()
+            .any(|value| !value.is_empty())
+        {
+            return Err("OPDS utiliza campos e paginação padronizados, sem seletores JSON.".into());
+        }
+        if manifest.download_domains.is_none() {
+            return Err(
+                "Fontes OPDS exigem downloadDomains explícito (lista vazia bloqueia aquisições)."
+                    .into(),
+            );
+        }
     }
     if let Some(domains) = &manifest.download_domains {
         if domains.len() > 20
@@ -250,7 +279,9 @@ pub(crate) fn valid_cursor(cursor: &str) -> bool {
 }
 
 pub(crate) fn permits_download(manifest: &SourceManifest, link: &str) -> bool {
-    if manifest.download_url_field.is_empty() || !super::extension_network::safe_url(link) {
+    if (manifest.adapter == AdapterKind::Json && manifest.download_url_field.is_empty())
+        || !super::extension_network::safe_url(link)
+    {
         return false;
     }
     match &manifest.download_domains {
@@ -550,6 +581,25 @@ mod tests {
             manifest.download_domains = Some(vec![domain.into()]);
             assert!(validate(&manifest).is_err(), "{domain}");
         }
+    }
+
+    #[test]
+    fn opds_requires_explicit_domains_and_no_json_selectors() {
+        let mut manifest: SourceManifest = serde_json::from_str(include_str!(
+            "../../sdk/extensions/manifest.opds.example.json"
+        ))
+        .unwrap();
+        validate(&manifest).unwrap();
+        manifest.download_domains = None;
+        assert!(validate(&manifest).is_err());
+        manifest.download_domains = Some(vec![]);
+        validate(&manifest).unwrap();
+        assert!(!permits_download(
+            &manifest,
+            "https://example.org/book.epub"
+        ));
+        manifest.title_field = "title".into();
+        assert!(validate(&manifest).is_err());
     }
 
     #[test]
