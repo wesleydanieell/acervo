@@ -68,6 +68,9 @@ pub async fn get_source_cover(
         .into_iter()
         .find(|s| s.enabled && s.manifest.id == id)
         .ok_or("Fonte indisponível.")?;
+    if !source.preferences.load_covers {
+        return Ok(None);
+    }
     let base = Url::parse(&source.manifest.base_url).map_err(|_| "Origem inválida.")?;
     let Some(url) = resolve_cover(&source.manifest, &base, &url) else {
         return Ok(None);

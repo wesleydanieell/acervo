@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ChevronRight, Download, Globe2, RefreshCw, Search } from "lucide-react";
+import { ChevronRight, Download, Globe2, RefreshCw, Search, Settings } from "lucide-react";
 import { SourceCover } from "./SourceCover";
 import { groupDiscoveryWorks } from "./discovery-works";
 import { mergeSourcePage, resultIdentity, type SearchOutcome, type SourceResult } from "./discovery-pagination";
@@ -14,12 +14,15 @@ type Props = {
   onWeb: () => void;
   onDownload: (item: SourceResult) => void;
   onResolve: (item:SourceResult)=>void;
+  onSettings:()=>void;
 };
-export function SourceFeed({source,full=false,onOpen,onWeb,onDownload,onResolve}:Props) {
+export function SourceFeed({source,full=false,onOpen,onWeb,onDownload,onResolve,onSettings}:Props) {
   const {manifest,enabled}=source;
   const hasDefault=!!manifest.feedPath || (manifest.adapter !== "opds" && manifest.adapter !== "html" && !!manifest.localSearch);
   const categories=useMemo(()=>[...(hasDefault?[{id:"",label:"Catálogo"}]:[]),...(manifest.feedCategories??[])],[hasDefault,manifest.feedCategories]);
-  const [selectedCategory,setSelectedCategory]=useState("");
+  const preferred=source.preferences?.preferredCategory??"";
+  const [selection,setSelection]=useState<{preferred:string;id:string}|null>(null);
+  const selectedCategory=selection?.preferred===preferred?selection.id:preferred;
   const category=categories.some(item=>item.id===selectedCategory)?selectedCategory:categories[0]?.id??"";
   const supported=categories.length>0;
   const [outcome,setOutcome]=useState<SearchOutcome|null>(null);
@@ -64,20 +67,21 @@ export function SourceFeed({source,full=false,onOpen,onWeb,onDownload,onResolve}
   return <section className={"source-feed glass-panel"+(full?" source-feed-full":"")}>
     <header className="source-feed-header"><div className="source-feed-title"><Globe2 size={19}/><div><h2>{manifest.name}</h2>{full&&manifest.description&&<small>{manifest.description}</small>}</div></div>
       <div className="source-feed-actions">
+        {full&&<button className="icon-button" onClick={onSettings} aria-label="Configurar extensão" title="Configurar extensão"><Settings size={17}/></button>}
         <button className="button secondary" onClick={onWeb} title={manifest.websiteUrl||manifest.baseUrl}><Globe2 size={15}/> WebView</button>
         {supported&&enabled&&<button className="icon-button" disabled={loading} aria-label={"Atualizar feed de "+manifest.name} title="Atualizar feed" onClick={()=>void load()}><RefreshCw size={16} className={loading?"spinning":""}/></button>}
         {!full&&<button className="button secondary" onClick={onOpen}>Ver fonte <ChevronRight size={15}/></button>}
       </div>
     </header>
     {enabled&&categories.length>1&&<div className="feed-category-bar" role="group" aria-label={"Categorias de "+manifest.name}>
-      {categories.map(item=><button key={item.id} type="button" aria-pressed={category===item.id} onClick={()=>setSelectedCategory(item.id)}>{item.label}</button>)}
+      {categories.map(item=><button key={item.id} type="button" aria-pressed={category===item.id} onClick={()=>setSelection({preferred,id:item.id})}>{item.label}</button>)}
     </div>}
     {!enabled?<p className="feed-empty">Fonte desativada.</p>:!supported?<div className="feed-empty"><Search size={17}/> Esta fonte oferece pesquisa, mas não declara um feed.</div>:<>
       {outcomeKey===activeKey&&error&&<div className="source-errors" role="alert">{error}<button className="button secondary" disabled={loading} onClick={()=>void load(currentOutcome?cursor??null:null)}>Tentar novamente</button></div>}
       {loading&&!currentOutcome&&<div className="feed-empty" role="status"><RefreshCw size={16} className="spinning"/> Carregando livros…</div>}
       {currentOutcome&&!grouped.length&&<p className="feed-empty">Nenhum livro disponível neste feed.</p>}
       {!!shown.length&&<div className="feed-books">{shown.map(work=><article key={work.key} className="feed-book">
-        <div className="feed-book-main"><SourceCover sourceId={work.sourceId} url={[...work.editions,...work.metadata].find(item=>item.coverUrl)?.coverUrl} title={work.title}/><div className="feed-book-text"><strong title={work.title}>{work.title}</strong><small title={work.author}>{work.author||"Autor não informado"}</small><small>{[...new Set(work.editions.map(item=>item.format.toUpperCase()))].join(" · ")||"Metadados"}</small></div></div>
+        <div className="feed-book-main"><SourceCover sourceId={work.sourceId} url={source.preferences?.loadCovers===false?undefined:[...work.editions,...work.metadata].find(item=>item.coverUrl)?.coverUrl} title={work.title}/><div className="feed-book-text"><strong title={work.title}>{work.title}</strong><small title={work.author}>{work.author||"Autor não informado"}</small><small>{[...new Set(work.editions.map(item=>item.format.toUpperCase()))].join(" · ")||"Metadados"}</small></div></div>
         {work.editions.length===1?<button className="button secondary" onClick={()=>onDownload(work.editions[0])}><Download size={14}/> Baixar</button>:work.editions.length>1?<button className="button secondary" aria-expanded={expanded===work.key} onClick={()=>setExpanded(old=>old===work.key?null:work.key)}>{work.editions.length} opções <ChevronRight size={14}/></button>:null}
         {work.metadata.filter(item=>item.acquisitionPage).slice(0,1).map(item=><button key={resultIdentity(item)} className="button secondary" onClick={()=>onResolve(item)}><Download size={14}/> Ver arquivos</button>)}
         {expanded===work.key&&<div className="feed-editions">{work.editions.map(item=><button key={resultIdentity(item)} className="button secondary" onClick={()=>onDownload(item)}><Download size={14}/><span>{[item.format.toUpperCase(),item.language,item.publisher,item.editionLabel].filter(Boolean).join(" · ")}</span></button>)}</div>}
