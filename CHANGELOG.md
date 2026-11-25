@@ -5,6 +5,8 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Centro de downloads com filtros de estado, contadores e pesquisa; destinos planejados inexistentes exigem escolha explícita.
+- Validação e importação de downloads fora da thread da interface.
 - Novo workspace Acervo, inspirado no BookLore, com capas verticais, navegação agrupada e detalhes laterais.
 - Indexação em worker Rust e cache de termos de pesquisa para reduzir bloqueios e trabalho repetido.
 

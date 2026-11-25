@@ -26,3 +26,10 @@
 .download-confirm{margin:0;padding:11px 13px;background:color-mix(in srgb,var(--accent) 11%,transparent);border-radius:10px;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
 .download-actions{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}
 @media(max-width:650px){.download-card-top{flex-wrap:wrap}.download-status{margin-left:55px}.download-actions{justify-content:stretch}.download-actions .button{flex:1}}
+
+.download-workspace-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.download-filters{display:flex;gap:4px;flex-wrap:wrap}
+.download-filters button{display:flex;align-items:center;gap:7px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text-muted);font-size:12px;padding:8px 10px}
+.download-filters button[aria-pressed=true]{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--glass-base));border-color:var(--stroke)}
+.download-filters span{font-size:10px;opacity:.85;font-variant-numeric:tabular-nums}
+.download-search{min-width:0;max-width:100%;flex:0 1 220px;height:36px;background:var(--glass-base);color:var(--text);border:1px solid var(--stroke);border-radius:7px;padding:0 10px;font-size:12px}

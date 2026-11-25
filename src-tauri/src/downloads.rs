@@ -964,7 +964,7 @@ fn commit_staged_with_mode(
 /// User-approved commit into the library. Prefer atomic hard links; fallback to
 /// exclusive creation on FUSE without ever replacing an existing book.
 #[tauri::command]
-pub fn save_download(
+pub async fn save_download(
     app: tauri::AppHandle,
     manager: tauri::State<'_, DownloadManager>,
     id: String,
@@ -972,6 +972,20 @@ pub fn save_download(
     destination: String,
 ) -> Result<String, String> {
     let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        save_download_to_library(app, manager, id, root, destination)
+    })
+    .await
+    .map_err(|error| format!("Falha ao executar a importação: {error}"))?
+}
+
+fn save_download_to_library(
+    app: tauri::AppHandle,
+    manager: DownloadManager,
+    id: String,
+    root: String,
+    destination: String,
+) -> Result<String, String> {
     let (filename, format) = {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
         let item = items
