@@ -63,7 +63,7 @@ fn read_entries<'de, D: Deserializer<'de>>(
     d.deserialize_map(Entries)
 }
 
-fn valid_path(path: &str) -> Result<(), String> {
+pub(crate) fn valid_path(path: &str) -> Result<(), String> {
     if path.is_empty()
         || path.len() > 855
         || Path::new(path).is_absolute()
@@ -105,7 +105,7 @@ fn validate(entry: &EditionRecord) -> Result<(), String> {
     entry.fingerprint.validate()
 }
 
-fn canonical_root(root: &Path) -> Result<(), String> {
+pub(crate) fn canonical_root(root: &Path) -> Result<(), String> {
     let metadata = fs::symlink_metadata(root).map_err(|e| e.to_string())?;
     if !metadata.file_type().is_dir()
         || fs::canonicalize(root)
@@ -119,7 +119,7 @@ fn canonical_root(root: &Path) -> Result<(), String> {
 }
 
 // Missing service data is an empty index; malformed or redirected data is an error.
-fn service(root: &Path) -> Result<Option<PathBuf>, String> {
+pub(crate) fn service(root: &Path) -> Result<Option<PathBuf>, String> {
     let path = root.join(SERVICE);
     match fs::symlink_metadata(&path) {
         Ok(m) if m.file_type().is_dir() => Ok(Some(path)),
@@ -129,7 +129,7 @@ fn service(root: &Path) -> Result<Option<PathBuf>, String> {
     }
 }
 
-fn open_regular(path: &Path) -> Result<File, String> {
+pub(crate) fn open_regular(path: &Path) -> Result<File, String> {
     if !fs::symlink_metadata(path)
         .map_err(|e| e.to_string())?
         .file_type()

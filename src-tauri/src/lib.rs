@@ -4,6 +4,7 @@ mod download_naming;
 mod download_resolver;
 mod download_validation;
 mod downloads;
+mod embedded_metadata;
 mod extension_api;
 mod extension_host;
 mod extension_network;
@@ -12,6 +13,7 @@ mod html_parser;
 mod html_source;
 mod import_fingerprint;
 mod library_editions;
+mod metadata_cache;
 mod opds_parser;
 mod opds_source;
 mod organization;
@@ -39,6 +41,8 @@ struct BookFile {
     bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     edition: Option<library_editions::EditionRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    embedded: Option<metadata_cache::CachedMetadata>,
 }
 
 #[derive(Debug, Serialize)]
@@ -164,6 +168,7 @@ fn scan_dir(
                 format,
                 bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
                 edition: None,
+                embedded: None,
             });
         }
     }
@@ -271,6 +276,22 @@ fn scan_collection(root: String) -> Result<Collection, String> {
             }
         }
         Err(error) => warnings.push(format!("Registro de edições: {error}")),
+    }
+    match metadata_cache::load(&path) {
+        Ok(mut records) => {
+            for file in &mut files {
+                if let Some(record) = records.remove(&file.path) {
+                    if metadata_cache::current_signature(&path, &file.path)
+                        .ok()
+                        .as_ref()
+                        == Some(&record.signature)
+                    {
+                        file.embedded = Some(record.result);
+                    }
+                }
+            }
+        }
+        Err(error) => warnings.push(format!("Cache de metadados: {error}")),
     }
     files.sort_by_cached_key(|file| file.title.to_lowercase());
     let mut works = read_catalog(&path, &files, &mut warnings);
@@ -534,6 +555,7 @@ fn move_book_with_policy(
         .unwrap()
         .to_string_lossy()
         .replace('\\', "/");
+    let embedded_signature = metadata_cache::current_signature(&root, &old_relative).ok();
     // Fail before touching the filesystem if the edition index is already invalid.
     library_editions::load(&root)?;
     rename_without_replace(&source, &target).map_err(|e| format!("Falha ao mover o livro: {e}"))?;
@@ -570,6 +592,7 @@ fn move_book_with_policy(
             "Falha ao mover registro de edição: {error}; reversão de listas: {lists:?}, catálogo: {catalog:?}, arquivo: {file:?}."
         ));
     }
+    metadata_cache::after_move(&root, &old_relative, &new_relative, embedded_signature);
     Ok(new_relative)
 }
 
@@ -695,6 +718,8 @@ fn read_noctalia_colors() -> Option<serde_json::Value> {
 pub fn run() {
     let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
         load_collection,
+        metadata_cache::extract_book_metadata,
+        metadata_cache::reset_invalid_metadata_cache,
         catalog_lists::import_catalog_json,
         catalog_lists::link_catalog_file,
         catalog_lists::save_catalog_csv,
