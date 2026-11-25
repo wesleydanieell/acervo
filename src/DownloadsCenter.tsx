@@ -8,7 +8,7 @@ import { isServiceCatalogPath } from "./prompt-folder-selection";
 export type DownloadInfo = {
   id: string; title: string; sourceName: string; format: string; filename: string;
   plannedDestination: string; status: string; downloadedBytes: number;
-  totalBytes: number | null; error: string; savedPath: string; catalogTarget?: CatalogTarget | null; catalogLinked?: boolean; autoImport?: boolean; edition?: DownloadEdition | null; filenameSuffix?: string | null;
+  totalBytes: number | null; error: string; savedPath: string; catalogTarget?: CatalogTarget | null; catalogLinked?: boolean; autoImport?: boolean; importIntent?: {root:string;destination:string;linkCatalog:boolean} | null; edition?: DownloadEdition | null; filenameSuffix?: string | null;
 };
 
 const sizes = (bytes: number) => bytes >= 1048576
@@ -16,7 +16,7 @@ const sizes = (bytes: number) => bytes >= 1048576
   : (bytes / 1024).toFixed(1) + " KB";
 const statuses: Record<string, string> = {
   queued: "Na fila", downloading: "Baixando", pausing: "Pausando", paused: "Pausado", ready: "Pronto para salvar",
-  failed: "Falhou", cancelled: "Cancelado", saving: "Salvando", saved: "Na biblioteca",
+  failed: "Falhou", cancelled: "Cancelado", saving: "Salvando", recovery: "Recuperar importação", saved: "Na biblioteca",
 };
 
 export function DownloadsCenter({ root, folders, onSaved }: {
@@ -27,6 +27,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   const [notice, setNotice] = useState("");
   const [destinations, setDestinations] = useState<Record<string, string>>({});
   const [customPaths, setCustomPaths] = useState<Record<string, string>>({});
+  const [recoverId, setRecoverId] = useState("");
   const [rename, setRename] = useState<{id:string;suffix:string}|null>(null);
   const [confirmId, setConfirmId] = useState("");
   const [linkChoices, setLinkChoices] = useState<Record<string, boolean>>({});
@@ -46,7 +47,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     return items.filter(item => (filter === "all" || downloadGroup(item.status) === filter)
       && (!needle || [item.title, item.sourceName, item.filename, item.edition?.author??"", item.edition?.publisher??"", item.edition?.editionLabel??""].some(value => value.toLocaleLowerCase("pt-BR").includes(needle))));
   }, [items, filter, query]);
-  useEffect(() => { setDestinations({}); setCustomPaths({}); setLinkChoices({}); setConfirmId(""); setDiscardId(""); }, [root]);
+  useEffect(() => { setDestinations({}); setCustomPaths({}); setLinkChoices({}); setConfirmId(""); setDiscardId(""); setRecoverId(""); }, [root]);
 
   const refresh = async () => {
     const generation = ++refreshGeneration.current;
@@ -69,6 +70,16 @@ export function DownloadsCenter({ root, folders, onSaved }: {
       await refresh();
     } catch (failure) { setError(String(failure)); }
     finally { setBusyId(""); }
+  };
+
+  const recover = async (item: DownloadInfo) => {
+    if (busyId || !root || root !== item.importIntent?.root) return;
+    setBusyId(item.id);setError("");setNotice("");
+    try {
+      await invoke("recover_download_import",{id:item.id,root});
+      setRecoverId("");await refresh();await onSaved();
+    } catch(failure){setError(String(failure));}
+    finally{setBusyId("");}
   };
 
   const applyRename = async () => {
@@ -137,6 +148,11 @@ export function DownloadsCenter({ root, folders, onSaved }: {
           {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}{item.catalogLinked ? " · Associado ao catálogo" : ""}</p>}
           {item.autoImport && ["queued","downloading","saving"].includes(item.status) && <small className="download-target-note">Importação automática: {item.plannedDestination || "Raiz"}</small>}
           {item.catalogTarget && <small className="download-target-note">Obra: {item.catalogTarget.title}{item.catalogTarget.author ? " — " + item.catalogTarget.author : ""}</small>}
+          {item.status === "recovery" && item.importIntent && <div className="download-destination">
+            <small className="download-target-note">Destino anterior: {item.importIntent.root}/{[item.importIntent.destination,item.filename].filter(Boolean).join("/")}</small>
+            {root !== item.importIntent.root && <p className="download-error">Selecione a biblioteca de origem para recuperar.</p>}
+            {recoverId === item.id && <p className="download-confirm">Verificar o conteúdo do arquivo no destino e no cache? {item.importIntent.linkCatalog ? "Se a cópia no destino for idêntica ao download, concluir a associação à ficha original. " : ""}Nenhum arquivo existente será sobrescrito.</p>}
+          </div>}
           {item.status === "ready" && item.catalogTarget && !canImport && <p className="download-error">Biblioteca de origem: {item.catalogTarget.root}. Selecione essa biblioteca para importar.</p>}
           {item.status === "ready" && <div className="download-destination">
             {rename?.id === item.id ? <div className="edition-filename-control"><input aria-label="Complemento do nome do arquivo" value={rename.suffix} maxLength={300} onChange={event=>setRename({id:item.id,suffix:event.target.value})}/><button className="button secondary" disabled={!!busyId || new TextEncoder().encode(rename.suffix).length > 300} onClick={()=>void applyRename()}>Aplicar</button><button className="button secondary" disabled={!!busyId} onClick={()=>setRename(null)}>Cancelar</button></div>
@@ -167,6 +183,9 @@ export function DownloadsCenter({ root, folders, onSaved }: {
             {confirmId === item.id && plan && <p className="download-confirm">Salvar <strong>{item.filename}</strong> em <strong>{root}{destination ? "/" + destination : ""}</strong>? {plan.createMissing ? "Pastas inexistentes serão criadas. " : ""}{willLink ? "O arquivo será associado à obra selecionada. " : ""}Nada será sobrescrito.</p>}
           </div>}
           <div className="download-actions">
+            {item.status === "recovery" && (recoverId===item.id
+              ? <><button className="button secondary" disabled={!!busyId} onClick={()=>setRecoverId("")}>Voltar</button><button className="button primary" disabled={!!busyId||root!==item.importIntent?.root} onClick={()=>void recover(item)}><Check size={15}/> Confirmar recuperação</button></>
+              : <button className="button primary" disabled={!!busyId||!root||root!==item.importIntent?.root} onClick={()=>setRecoverId(item.id)}><RotateCw size={15}/> Recuperar importação</button>)}
             {(item.status === "queued" || item.status === "downloading") &&
               <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("pause_download", item.id)}><Pause size={15}/> Pausar</button>}
             {["queued", "downloading", "pausing", "paused"].includes(item.status) &&

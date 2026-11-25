@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Registro prévio de importação com SHA-256 e recuperação explícita após interrupção, preservando arquivos divergentes.
 - Metadados de edição persistidos na fila e histórico, complemento opcional de nome e renomeação de downloads prontos sem nova transferência.
 - Agrupamento seguro de obras na descoberta e seleção de formatos/edições, com mapeamento JSON aninhado e metadados opcionais de editora e edição.
 - Repositórios HTTPS de extensões, instalação revisada, SHA-256, procedência e atualização manual por versão.

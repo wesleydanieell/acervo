@@ -1,7 +1,7 @@
 export type DownloadFilter = "all" | "active" | "ready" | "history";
 
 export function downloadGroup(status: string): Exclude<DownloadFilter, "all"> {
-  if (status === "ready") return "ready";
+  if (status === "ready" || status === "recovery") return "ready";
   if (["saved", "failed", "cancelled"].includes(status)) return "history";
   return "active";
 }

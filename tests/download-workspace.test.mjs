@@ -5,6 +5,7 @@ import { downloadGroup, downloadDestination } from "../src/download-workspace.ts
 test("download states map to exclusive groups", () => {
   for (const state of ["queued", "downloading", "pausing", "paused", "saving"]) assert.equal(downloadGroup(state), "active");
   assert.equal(downloadGroup("ready"), "ready");
+  assert.equal(downloadGroup("recovery"), "ready");
   for (const state of ["saved", "failed", "cancelled"]) assert.equal(downloadGroup(state), "history");
 });
 
