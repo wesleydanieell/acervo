@@ -6,7 +6,7 @@
 }
 :root[data-style-transition=glass]{--appearance-duration:520ms;--appearance-ease:cubic-bezier(.19,.85,.19,1)}
 :root[data-style-transition=material]{--appearance-duration:440ms;--appearance-ease:cubic-bezier(.2,0,0,1)}
-:root[data-style-transition=workspace]{--appearance-duration:380ms}
+:root[data-style-transition=workspace]{--appearance-duration:460ms}
 :root[data-style-transition] .sidebar{view-transition-name:appearance-sidebar}
 :root[data-style-transition] .topbar{view-transition-name:appearance-topbar}
 :root[data-style-transition] .settings-page .page-intro{view-transition-name:appearance-title}
@@ -31,6 +31,20 @@
 :root[data-style-transition=material]::view-transition-new(appearance-style),
 :root[data-style-transition=material]::view-transition-new(appearance-library),
 :root[data-style-transition=material]::view-transition-new(appearance-acquisition){animation-name:appearance-tonal-in}
+/* Material and Acervo often have almost identical outer geometry.
+   Give the destination an explicit surface reveal, even when the browser
+   has no geometry delta to interpolate. */
+:root[data-style-transition=workspace]::view-transition-new(appearance-sidebar),
+:root[data-style-transition=workspace]::view-transition-new(appearance-topbar),
+:root[data-style-transition=workspace]::view-transition-new(appearance-title),
+:root[data-style-transition=workspace]::view-transition-new(appearance-style),
+:root[data-style-transition=workspace]::view-transition-new(appearance-library),
+:root[data-style-transition=workspace]::view-transition-new(appearance-acquisition),
+:root[data-style-transition=workspace]::view-transition-new(appearance-extra){
+ animation-name:appearance-workspace-in;mix-blend-mode:normal;
+}
+:root[data-style-transition=workspace]::view-transition-old(*){animation-name:appearance-old;mix-blend-mode:normal}
+@keyframes appearance-workspace-in{from{opacity:0;transform:translateY(7px) scale(.985)}to{opacity:1;transform:none}}
 @keyframes appearance-old{from{opacity:1}to{opacity:0}}
 @keyframes appearance-new{from{opacity:0}to{opacity:1}}
 @keyframes appearance-glass-in{from{opacity:0;filter:brightness(1.13);transform:scale(.985)}to{opacity:1;filter:brightness(1);transform:none}}

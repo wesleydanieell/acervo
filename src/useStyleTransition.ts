@@ -1,6 +1,6 @@
 import {useCallback,useLayoutEffect,useRef,type Dispatch,type SetStateAction} from "react";
 import {flushSync} from "react-dom";
-import {reducedMotion} from "./motion";
+import {animateElement,motion,reducedMotion} from "./motion";
 
 type Transition={ready:Promise<void>;finished:Promise<void>;updateCallbackDone:Promise<void>;skipTransition:()=>void};
 type TransitionDocument=Document&{startViewTransition?:(update:()=>void)=>Transition};
@@ -51,7 +51,17 @@ export function useStyleTransition<T extends string>(style:T,setStyle:Dispatch<S
         if(token===generation.current)flushSync(()=>setStyle(next));
       });
       running.current=transition;
-      void transition.ready.catch(()=>{});
+      void transition.ready.catch(()=>{
+        if(token!==generation.current||!enabled||reducedMotion()||document.hidden)return;
+        // A browser may skip capture (for example while another scene
+        // is being torn down). Still provide a visible transition.
+        void transition.updateCallbackDone.then(()=>{
+          if(token===generation.current&&selected.current===next){
+            animateElement(document.querySelector(".main-area"),[{opacity:.66},{opacity:1}],motion.emphasized);
+            animateElement(document.querySelector(".settings-grid"),[{opacity:.72,transform:"translateY(7px)"},{opacity:1,transform:"none"}],motion.emphasized);
+          }
+        },()=>{});
+      });
       void transition.updateCallbackDone.catch(()=>{
         if(token===generation.current)setStyle(next);
       });
