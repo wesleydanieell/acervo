@@ -45,3 +45,5 @@
 .download-picker-footer{border-top:1px solid var(--stroke);justify-content:flex-end}
 
 .source-pagination{display:flex;flex-wrap:wrap;gap:8px;padding:12px 0 4px}.source-capabilities span{overflow-wrap:anywhere;max-width:100%}
+
+.source-work{border:1px solid var(--stroke);border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--glass-strong) 35%,transparent)}.source-work .source-work-heading{border:0;background:transparent;border-radius:0}.source-edition{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--stroke);padding:9px 13px 9px 20px}.source-edition>div:first-child{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}.source-edition strong{font-size:12px}.source-edition small{font-size:11px;color:var(--text-muted)}@media(max-width:570px){.source-edition{flex-wrap:wrap}}

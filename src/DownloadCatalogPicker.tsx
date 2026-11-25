@@ -4,7 +4,7 @@ import type { CatalogItem } from "./CatalogCenter";
 import { catalogChoice, sameCatalogChoice, filterDownloadWorks, validDownloadPath, type CatalogTarget } from "./download-workspace";
 
 export function DownloadCatalogPicker({ book, root, works, initial, busy, error, onClose, onSubmit }: {
-  book: { title: string; author: string; format: string; sourceName: string };
+  book: { title: string; author: string; format: string; sourceName: string; language?:string; publisher?:string; editionLabel?:string };
   root: string; works: CatalogItem[]; initial?: CatalogTarget; busy: boolean; error: string;
   onClose: () => void; onSubmit: (target: CatalogTarget | null, autoImport: boolean) => void;
 }) {
@@ -23,7 +23,7 @@ export function DownloadCatalogPicker({ book, root, works, initial, busy, error,
   useEffect(() => { dialog.current?.showModal(); }, []);
   return <dialog ref={dialog} className="download-picker glass-panel" aria-labelledby="download-picker-title"
     onCancel={e => { e.preventDefault(); if (!busy) onClose(); }}>
-    <div className="download-picker-header"><div><h2 id="download-picker-title">Baixar livro</h2><p>{book.title} · {book.format.toUpperCase()} · {book.sourceName}</p></div>
+    <div className="download-picker-header"><div><h2 id="download-picker-title">Baixar livro</h2><p>{[book.title,book.editionLabel,book.format.toUpperCase(),book.language,book.publisher,book.sourceName].filter(Boolean).join(" · ")}</p></div>
       <button className="icon-button" aria-label="Fechar" disabled={busy} onClick={onClose}><X size={19}/></button></div>
     <div className="download-picker-body">
       <label className="download-picker-search"><Search size={16}/><input autoFocus value={query} aria-label="Pesquisar obra no catálogo" placeholder="Título, autor ou pasta…" onChange={e => { setQuery(e.target.value); setLimit(80); }}/></label>

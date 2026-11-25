@@ -81,6 +81,10 @@ pub struct SourceBook {
     pub download_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_id: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub publisher: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub edition_label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

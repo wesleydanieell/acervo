@@ -33,7 +33,8 @@ impl BookSource for JsonSource {
             api_version: API_VERSION,
             capabilities: SourceCapabilities {
                 search: true,
-                download: !self.manifest.download_url_field.is_empty(),
+                download: !self.manifest.download_url_field.is_empty()
+                    || self.manifest.editions.is_some(),
                 pagination: self.manifest.pagination.is_some(),
                 details: false,
                 editions: false,
@@ -167,7 +168,9 @@ async fn search_one(
     } = request;
     if !supports_filter(
         &source.formats,
-        if fixed_format(&source).is_some() {
+        if let Some(editions) = &source.editions {
+            &editions.format_field
+        } else if fixed_format(&source).is_some() {
             &source.download_url_field
         } else {
             &source.format_field
@@ -183,7 +186,12 @@ async fn search_one(
     }
     if !supports_filter(
         &source.languages,
-        &source.language_field,
+        source
+            .editions
+            .as_ref()
+            .filter(|editions| !editions.language_field.is_empty())
+            .map(|editions| editions.language_field.as_str())
+            .unwrap_or(&source.language_field),
         &source.search_path,
         "{language}",
         &language,
@@ -297,6 +305,86 @@ fn matches_local_query(title: &str, author: &str, query: &str) -> bool {
         .all(|term| haystack.contains(term))
 }
 
+fn extract_nested_editions(
+    source: &SourceManifest,
+    mapping: &sources::JsonEditions,
+    record: &Value,
+    title: &str,
+    language: &str,
+    format: &str,
+) -> Vec<SourceResult> {
+    let Some(remote_id) = cursor_value(record, &source.remote_id_field) else {
+        return vec![];
+    };
+    let author = read_string(record, &source.author_field);
+    let mut results = Vec::new();
+    if let Some(editions) = field(record, &mapping.items_field).and_then(Value::as_array) {
+        for edition in editions.iter().take(40) {
+            let fmt = read_string(edition, &mapping.format_field).to_ascii_lowercase();
+            if !matches!(fmt.as_str(), "epub" | "pdf" | "mobi" | "azw3" | "djvu")
+                || (!format.is_empty() && !fmt.eq_ignore_ascii_case(format))
+            {
+                continue;
+            }
+            if !source.formats.is_empty()
+                && !source.formats.iter().any(|f| f.eq_ignore_ascii_case(&fmt))
+            {
+                continue;
+            }
+            let (lang_record, lang_field) = if mapping.language_field.is_empty() {
+                (record, &source.language_field)
+            } else {
+                (edition, &mapping.language_field)
+            };
+            if !language.is_empty() && !field_matches(lang_record, lang_field, language) {
+                continue;
+            }
+            let lang = if language.is_empty() {
+                read_string(lang_record, lang_field)
+            } else {
+                language.to_owned()
+            };
+            let link = field(edition, &mapping.download_url_field)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if !sources::permits_download(source, link) {
+                continue;
+            }
+            results.push(SourceResult {
+                source_id: source.id.clone(),
+                source_name: source.name.clone(),
+                title: title.into(),
+                author: author.clone(),
+                format: fmt,
+                language: lang.to_ascii_lowercase(),
+                download_url: link.into(),
+                remote_id: Some(remote_id.clone()),
+                publisher: read_string(edition, &mapping.publisher_field),
+                edition_label: read_string(edition, &mapping.label_field),
+            });
+        }
+    }
+    if results.is_empty()
+        && format.is_empty()
+        && (language.is_empty() || field_matches(record, &source.language_field, language))
+    {
+        results.push(SourceResult {
+            source_id: source.id.clone(),
+            source_name: source.name.clone(),
+            title: title.into(),
+            author,
+            format: String::new(),
+            language: read_string(record, &source.language_field),
+            download_url: String::new(),
+            remote_id: Some(remote_id),
+            publisher: String::new(),
+            edition_label: String::new(),
+        });
+    }
+    results
+}
+
 pub(crate) fn extract_results(
     source: &SourceManifest,
     data: &Value,
@@ -311,6 +399,18 @@ pub(crate) fn extract_results(
     for record in records.iter().take(MAX_RESULTS_PER_SOURCE * 3) {
         let title = read_string(record, &source.title_field);
         if title.is_empty() {
+            continue;
+        }
+        if let Some(mapping) = &source.editions {
+            let remaining = MAX_RESULTS_PER_SOURCE - result.len();
+            result.extend(
+                extract_nested_editions(source, mapping, record, &title, language, format)
+                    .into_iter()
+                    .take(remaining),
+            );
+            if result.len() == MAX_RESULTS_PER_SOURCE {
+                break;
+            }
             continue;
         }
         let candidate_url = field(record, &source.download_url_field)
@@ -360,6 +460,8 @@ pub(crate) fn extract_results(
             language: item_language,
             download_url,
             remote_id: cursor_value(record, &source.remote_id_field),
+            publisher: String::new(),
+            edition_label: String::new(),
         });
         if result.len() == MAX_RESULTS_PER_SOURCE {
             break;
@@ -371,6 +473,45 @@ pub(crate) fn extract_results(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nested_editions_keep_work_identity_and_filter_each_acquisition() {
+        let source: SourceManifest=serde_json::from_value(serde_json::json!({
+            "schemaVersion":1,"id":"multi-editions","name":"Editions","baseUrl":"https://example.org",
+            "searchPath":"/books?q={query}","itemsPath":"results","titleField":"title","authorField":"author",
+            "remoteIdField":"id","downloadDomains":["example.org"],"formats":["epub","pdf"],
+            "editions":{"itemsField":"files","formatField":"format","downloadUrlField":"url","languageField":"lang","publisherField":"publisher","labelField":"label"}
+        })).unwrap();
+        sources::validate(&source).unwrap();
+        let data = serde_json::json!({"results":[{"id":"work-1","title":"Book","author":"Writer","files":[
+            {"format":"EPUB","url":"https://example.org/book.epub","lang":"pt","publisher":"Publisher A","label":"Revised"},
+            {"format":"pdf","url":"https://example.org/book.pdf","lang":"en","publisher":"Publisher B"},
+            {"format":"pdf","url":"https://evil.org/book.pdf","lang":"pt"},
+            {"format":"exe","url":"https://example.org/book.exe","lang":"pt"}
+        ]},{"title":"No ID","files":[{"format":"pdf","url":"https://example.org/other.pdf"}]}]});
+        let all = extract_results(&source, &data, "", "").unwrap();
+        assert_eq!(all.len(), 2);
+        assert!(
+            all.iter()
+                .all(|book| book.remote_id.as_deref() == Some("work-1"))
+        );
+        assert_eq!(all[0].publisher, "Publisher A");
+        assert_eq!(all[0].edition_label, "Revised");
+        assert_eq!(
+            extract_results(&source, &data, "en", "PDF").unwrap().len(),
+            1
+        );
+        assert!(
+            extract_results(&source, &data, "pt", "pdf")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            extract_results(&source, &data, "fr", "")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     #[test]
     fn rejects_unsupported_filters_without_metadata_or_endpoint_support() {
         assert!(!supports_filter(

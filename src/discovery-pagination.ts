@@ -7,6 +7,8 @@ export type SourceResult = {
   language: string;
   downloadUrl: string;
   remoteId?: string;
+  publisher?: string;
+  editionLabel?: string;
 };
 
 export type SearchOutcome = {
@@ -17,8 +19,8 @@ export type SearchOutcome = {
 
 export function resultIdentity(result: SourceResult): string {
   return JSON.stringify(result.remoteId
-    ? [result.sourceId, result.remoteId, result.format, result.downloadUrl]
-    : [result.sourceId, result.title, result.author, result.language, result.format, result.downloadUrl]);
+    ? [result.sourceId, result.remoteId, result.title, result.author, result.language, result.format, result.downloadUrl, result.publisher ?? "", result.editionLabel ?? ""]
+    : [result.sourceId, result.title, result.author, result.language, result.format, result.downloadUrl, result.publisher ?? "", result.editionLabel ?? ""]);
 }
 
 export function mergeSourcePage(
