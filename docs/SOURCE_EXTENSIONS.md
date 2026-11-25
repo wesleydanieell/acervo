@@ -119,3 +119,7 @@ Instale as fontes opcionais pela área Extensões ou importe os manifestos em in
 ## Extension API v1
 
 O manifesto aceita apiVersion, version e adapter. Manifestos antigos recebem os valores 1, 1.0.0 e json; somente a API 1 e o adaptador JSON estão disponíveis. Consulte [arquitetura](architecture/extension-api.md) e [SDK preview](../sdk/extensions/README.md). O JSON Schema auxilia a edição; a validação Rust permanece obrigatória.
+
+## Paginação e domínios
+
+O contrato v1 admite remoteIdField, pagination (initialCursor e nextCursorField) e downloadDomains. O cursor é um token ou inteiro não negativo; {cursor} é substituído de forma codificada e o host não navega para uma URL retornada pelo provedor. A UI carrega mais resultados por fonte e elimina duplicatas. A lista de domínios é exata, sem curingas: [] bloqueia downloads, ausência ou null mantém compatibilidade com HTTPS público. O Rust confere a extensão ativa e o domínio antes de enfileirar. Transferências existentes não são revogadas ao desativar fontes. Para detalhes, veja o SDK.

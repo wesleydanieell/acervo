@@ -12,7 +12,7 @@ A interface Rust é interna, não ABI estável para binários. O frontend ainda 
 
 ## Contratos
 
-BookSource: descriptor() e search(SearchRequest) -> SearchPage ou SourceError. SearchRequest inclui query (2–200 caracteres, sem controles), filtros de idioma/formato (códigos de até 25 bytes) e cursor opaco (opcional, até 2048 bytes). SearchPage devolve SourceBook e next_cursor; erros classificam solicitação inválida, operação não suportada, rede, resposta inválida e erro interno. Os campos de SourceBook preservam o contrato de UI. O adaptador JSON atual expõe busca e links diretos, não detalhes, edições ou paginação; cursor não nulo é rejeitado. Links são candidatos, não evidência de arquivo válido. O fluxo de aquisição, cache, validação, destinos, catálogo e persistência permanece exclusivamente no Acervo.
+BookSource: descriptor() e search(SearchRequest) -> SearchPage ou SourceError. SearchRequest inclui query (2–200 caracteres, sem controles), filtros de idioma/formato (códigos de até 25 bytes) e cursor opaco (opcional, até 2048 bytes). SearchPage devolve SourceBook e next_cursor; erros classificam solicitação inválida, operação não suportada, rede, resposta inválida e erro interno. Os campos de SourceBook preservam o contrato de UI. O adaptador JSON expõe busca e links diretos. Paginação é opcional por manifesto, com cursor opaco de até 2048 bytes e uma origem HTTPS fixa. Detalhes e edições ainda não estão implementados. Links são candidatos, não evidência de arquivo válido. O fluxo de aquisição, cache, validação, destinos, catálogo e persistência permanece exclusivamente no Acervo.
 
 ## Versões e SDK
 
@@ -20,9 +20,9 @@ schemaVersion versiona a estrutura do manifesto; apiVersion versiona o contrato 
 
 ## Fronteiras e evolução
 
-1. Manter API e host compatíveis; adicionar paginação explícita por fonte e identificadores remotos estáveis antes de expor múltiplas edições.
+1. Paginação por fonte e seletor opcional de ID remoto implementados; IDs estáveis dependem de cada provedor. Múltiplas edições são o próximo contrato.
 2. OPDS 1/2, depois HTML declarativo, com o mesmo contrato e serviço de rede.
-3. Permissões explícitas de domínio por extensão, consentimento e validação no despacho de download; hoje existe apenas a política global de HTTPS público, não allowlist por fonte.
+3. Allowlist exata opcional de domínios de download, validada na extração e no enfileiramento; o endpoint de busca permanece restrito à origem declarada. Manifestos legados sem allowlist ainda usam HTTPS público. Consentimento granular e revogação de autorizações de transferências já enfileiradas permanecem pendentes.
 4. Repositório remoto com índice versionado, hash de conteúdo, confiança e atualização atômica; nenhum formato de pacote executável existe nesta etapa.
 5. Avaliar WASM isolado, com limites de recursos e chamadas explícitas ao host; nenhuma biblioteca nativa arbitrária.
 

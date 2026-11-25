@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Paginação independente por fonte, IDs remotos opcionais, deduplicação e domínios explícitos de download com compatibilidade legada.
 - API v1 de extensões, host comum, adaptador JSON, serviço de rede compartilhado, versionamento compatível e SDK preview.
 - Fontes opcionais de teste e clássicos brasileiros do Gutenberg; busca local para catálogos estáticos e correções de cancelamento, retomada e atualização do catálogo.
 - Seletor de obras ao baixar, com metadados e destino do catálogo, importação automática opcional e associação a fichas JSON ou SQLite legado.

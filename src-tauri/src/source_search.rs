@@ -34,7 +34,7 @@ impl BookSource for JsonSource {
             capabilities: SourceCapabilities {
                 search: true,
                 download: !self.manifest.download_url_field.is_empty(),
-                pagination: false,
+                pagination: self.manifest.pagination.is_some(),
                 details: false,
                 editions: false,
             },
@@ -47,23 +47,13 @@ impl BookSource for JsonSource {
     ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
         Box::pin(async move {
             request.validate()?;
-            if request.cursor.is_some() {
+            if request.cursor.is_some() && self.manifest.pagination.is_none() {
                 return Err(SourceError {
                     code: SourceErrorCode::Unsupported,
                     message: "Esta fonte não oferece paginação.".into(),
                 });
             }
-            let results = search_one(
-                self.manifest.clone(),
-                request.query,
-                request.language,
-                request.format,
-            )
-            .await?;
-            Ok(SearchPage {
-                results,
-                next_cursor: None,
-            })
+            search_one(self.manifest.clone(), request).await
         })
     }
 }
@@ -77,9 +67,19 @@ fn search_url(
     query: &str,
     language: &str,
     format: &str,
+    cursor: Option<&str>,
 ) -> Result<url::Url, String> {
+    let cursor = cursor
+        .or_else(|| {
+            source
+                .pagination
+                .as_ref()
+                .map(|p| p.initial_cursor.as_str())
+        })
+        .unwrap_or("");
     let path = source
         .search_path
+        .replace("{cursor}", &encode(cursor))
         .replace("{query}", &encode(query))
         .replace("{language}", &encode(language))
         .replace("{format}", &encode(format));
@@ -157,10 +157,14 @@ fn supports_filter(
 
 async fn search_one(
     source: SourceManifest,
-    query: String,
-    language: String,
-    format: String,
-) -> Result<Vec<SourceResult>, SourceError> {
+    request: SearchRequest,
+) -> Result<SearchPage, SourceError> {
+    let SearchRequest {
+        query,
+        language,
+        format,
+        cursor,
+    } = request;
     if !supports_filter(
         &source.formats,
         if fixed_format(&source).is_some() {
@@ -189,10 +193,13 @@ async fn search_one(
             message: "Esta fonte não oferece o idioma solicitado.".into(),
         });
     }
-    let url = search_url(&source, &query, &language, &format).map_err(|message| SourceError {
-        code: SourceErrorCode::InvalidRequest,
-        message,
-    })?;
+    let url =
+        search_url(&source, &query, &language, &format, cursor.as_deref()).map_err(|message| {
+            SourceError {
+                code: SourceErrorCode::InvalidRequest,
+                message,
+            }
+        })?;
     let client = secure_https_client(&url, Duration::from_secs(15))
         .await
         .map_err(|message| SourceError {
@@ -248,7 +255,24 @@ async fn search_one(
     if source.local_search {
         results.retain(|item| matches_local_query(&item.title, &item.author, &query));
     }
-    Ok(results)
+    let next_cursor = source.pagination.as_ref().and_then(|pagination| {
+        let token = cursor_value(&data, &pagination.next_cursor_field)?;
+        let previous = cursor.as_deref().unwrap_or(&pagination.initial_cursor);
+        (token != previous).then_some(token)
+    });
+    Ok(SearchPage {
+        results,
+        next_cursor,
+    })
+}
+
+fn cursor_value(data: &Value, selector: &str) -> Option<String> {
+    let token = match field(data, selector)? {
+        Value::String(value) => value.clone(),
+        Value::Number(value) if value.is_u64() => value.to_string(),
+        _ => return None,
+    };
+    sources::valid_cursor(&token).then_some(token)
 }
 
 fn matches_local_query(title: &str, author: &str, query: &str) -> bool {
@@ -293,7 +317,7 @@ pub(crate) fn extract_results(
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim();
-        let download_url = if safe_url(candidate_url) {
+        let download_url = if sources::permits_download(source, candidate_url) {
             candidate_url.to_owned()
         } else {
             String::new()
@@ -335,6 +359,7 @@ pub(crate) fn extract_results(
             format: item_format,
             language: item_language,
             download_url,
+            remote_id: cursor_value(record, &source.remote_id_field),
         });
         if result.len() == MAX_RESULTS_PER_SOURCE {
             break;
@@ -384,6 +409,41 @@ mod tests {
             ""
         ));
     }
+    #[test]
+    fn pagination_encodes_tokens_and_preserves_remote_ids() {
+        let mut source: SourceManifest =
+            serde_json::from_str(include_str!("../../sdk/extensions/manifest.example.json"))
+                .unwrap();
+        source.search_path = "/books?q={query}&page={cursor}".into();
+        source.remote_id_field = "id".into();
+        source.pagination = Some(sources::JsonPagination {
+            initial_cursor: "1".into(),
+            next_cursor_field: "/next".into(),
+        });
+        source.download_domains = Some(vec!["files.example.org".into()]);
+        sources::validate(&source).unwrap();
+        let url = search_url(&source, "Machado", "", "", Some("2&extra=evil")).unwrap();
+        assert_eq!(
+            url.query_pairs().find(|(key, _)| key == "page").unwrap().1,
+            "2&extra=evil"
+        );
+        assert_eq!(url.query_pairs().count(), 2);
+        assert!(
+            search_url(&source, "Books", "", "", None)
+                .unwrap()
+                .as_str()
+                .ends_with("page=1")
+        );
+        let data = serde_json::json!({"next":2,"results":[{"id":123,"title":"Book","formats":{"application/epub+zip":"https://files.example.org/b.epub"}},{"id":"other","title":"Other","formats":{"application/epub+zip":"https://evil.example.org/b.epub"}}]});
+        assert_eq!(cursor_value(&data, "/next").as_deref(), Some("2"));
+        let results = extract_results(&source, &data, "", "").unwrap();
+        assert_eq!(results[0].remote_id.as_deref(), Some("123"));
+        assert!(results[1].download_url.is_empty());
+        assert!(cursor_value(&serde_json::json!({"next":null}), "/next").is_none());
+        source.pagination = None;
+        assert!(sources::validate(&source).is_err());
+    }
+
     #[test]
     fn curated_gutenberg_source_uses_mirror_and_matches_portuguese_queries() {
         let manifest: SourceManifest =
@@ -457,7 +517,7 @@ mod tests {
             "schemaVersion":1,"id":"example-source","name":"Example","baseUrl":"https://example.org",
             "searchPath":"/api/search?q={query}&lang={language}","itemsPath":"docs","titleField":"title"
         })).unwrap();
-        let url = search_url(&source, "Ética e Política", "pt", "").unwrap();
+        let url = search_url(&source, "Ética e Política", "pt", "", None).unwrap();
         assert_eq!(
             url.query_pairs().find(|(key, _)| key == "q").unwrap().1,
             "Ética e Política"

@@ -11,7 +11,14 @@
   "formatField": "format",
   "languageField": "language",
   "downloadUrlField": "download_url",
-  "formats": ["epub"],
-  "languages": ["pt"],
-  "localSearch": true
+  "formats": [
+    "epub"
+  ],
+  "languages": [
+    "pt"
+  ],
+  "localSearch": true,
+  "downloadDomains": [
+    "gutenberg.pglaf.org"
+  ]
 }

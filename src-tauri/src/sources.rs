@@ -57,6 +57,19 @@ pub struct SourceManifest {
     pub languages: Vec<String>,
     #[serde(default)]
     pub local_search: bool,
+    #[serde(default)]
+    pub remote_id_field: String,
+    #[serde(default)]
+    pub pagination: Option<JsonPagination>,
+    #[serde(default)]
+    pub download_domains: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct JsonPagination {
+    pub initial_cursor: String,
+    pub next_cursor_field: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,10 +187,47 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
         || !validate_field(&manifest.format_field, false)
         || !validate_field(&manifest.language_field, false)
         || !validate_field(&manifest.download_url_field, false)
+        || !validate_field(&manifest.remote_id_field, false)
     {
         return Err(
             "Seletores JSON inválidos; use campos separados por pontos ou JSON Pointer.".into(),
         );
+    }
+    if let Some(pagination) = &manifest.pagination {
+        if !manifest.search_path.contains("{cursor}")
+            || manifest.local_search
+            || !validate_field(&pagination.next_cursor_field, true)
+            || !valid_cursor(&pagination.initial_cursor)
+        {
+            return Err("Paginação JSON inválida: use cursor inicial, seletor e {cursor}; busca local não é paginada.".into());
+        }
+    } else if manifest.search_path.contains("{cursor}") {
+        return Err("O placeholder {cursor} exige configuração de paginação.".into());
+    }
+    if let Some(domains) = &manifest.download_domains {
+        if domains.len() > 20
+            || domains.iter().any(|domain| {
+                let candidate = format!("https://{domain}");
+                if domain.split('.').any(|label| {
+                    label.is_empty()
+                        || label.starts_with('-')
+                        || label.ends_with('-')
+                        || !label
+                            .bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                }) {
+                    return true;
+                }
+                !super::extension_network::safe_url(&candidate)
+                    || url::Url::parse(&candidate)
+                        .ok()
+                        .and_then(|u| u.host_str().map(str::to_owned))
+                        .as_deref()
+                        != Some(domain.as_str())
+            })
+        {
+            return Err("Domínios de download devem ser hosts HTTPS públicos exatos, sem curingas ou caminhos.".into());
+        }
     }
     for items in [&manifest.formats, &manifest.languages] {
         if items.len() > 25
@@ -193,6 +243,23 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub(crate) fn valid_cursor(cursor: &str) -> bool {
+    !cursor.trim().is_empty() && cursor.len() <= 2048 && !cursor.chars().any(char::is_control)
+}
+
+pub(crate) fn permits_download(manifest: &SourceManifest, link: &str) -> bool {
+    if manifest.download_url_field.is_empty() || !super::extension_network::safe_url(link) {
+        return false;
+    }
+    match &manifest.download_domains {
+        None => true, // compatibility for pre-permission manifests
+        Some(domains) => url::Url::parse(link)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .is_some_and(|host| domains.contains(&host)),
+    }
 }
 
 fn registry_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -347,6 +414,9 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             formats: vec![],
             languages: vec![],
             local_search: false,
+            remote_id_field: String::new(),
+            pagination: None,
+            download_domains: None,
         },
     )
 }
@@ -419,6 +489,9 @@ mod tests {
             formats: vec!["epub".into(), "pdf".into()],
             languages: vec!["pt".into(), "en".into()],
             local_search: false,
+            remote_id_field: String::new(),
+            pagination: None,
+            download_domains: None,
         }
     }
 
@@ -438,6 +511,45 @@ mod tests {
         let mut data: serde_json::Value = serde_json::from_str(old).unwrap();
         data["adapter"] = serde_json::json!("wasm");
         assert!(serde_json::from_value::<SourceManifest>(data).is_err());
+    }
+
+    #[test]
+    fn explicit_download_domains_are_exact_and_empty_denies_all() {
+        let mut manifest = example();
+        manifest.download_domains = Some(vec!["files.example.org".into()]);
+        validate(&manifest).unwrap();
+        assert!(permits_download(
+            &manifest,
+            "https://files.example.org/book.epub"
+        ));
+        for link in [
+            "https://evil.example.org/book.epub",
+            "https://files.example.org.evil.com/book.epub",
+            "http://files.example.org/book.epub",
+            "https://files.example.org@evil.com/book.epub",
+        ] {
+            assert!(!permits_download(&manifest, link));
+        }
+        manifest.download_domains = Some(vec![]);
+        assert!(!permits_download(
+            &manifest,
+            "https://files.example.org/book.epub"
+        ));
+        manifest.download_domains = None;
+        assert!(permits_download(
+            &manifest,
+            "https://files.example.org/book.epub"
+        ));
+        for domain in [
+            "*.example.org",
+            "example.org/path",
+            "127.0.0.1",
+            "example.org:8443",
+            "example.org@other.org",
+        ] {
+            manifest.download_domains = Some(vec![domain.into()]);
+            assert!(validate(&manifest).is_err(), "{domain}");
+        }
     }
 
     #[test]
