@@ -52,3 +52,11 @@ Use manifest.html.example.json with an authorized static search endpoint. The ht
 The host parses UTF-8 HTML without executing JavaScript, opening browser sessions, loading assets, logging in, submitting forms, or traversing book detail pages. Site-specific automation must respect the site's rules. A provider's search endpoint is responsible for applying the query. Each selector uses a restricted CSS subset: tags, IDs, classes, simple attributes, descendant and child combinators. Pseudo-classes, escapes, selector lists, wildcards and sibling combinators are excluded. The first eligible download per result container is returned. Selector syntax and complexity are validated by Rust; the schema is only editor assistance. The response is capped at 2 MB and 40 results.
 
 The static fixture in integrations/html-test can be installed manually; the query is intentionally ignored by that test endpoint.
+
+## Repository index v1 (preview)
+
+Publish a JSON index on a public HTTPS origin with schemaVersion: 1, name and extensions. Each entry contains id, name, version, manifestUrl (absolute HTTPS on the index origin), sha256 (64 lowercase hexadecimal digits). The manifest must declare downloadDomains, even when empty, and match identity/version/name exactly. Use SHA-256 over the exact raw bytes, including whitespace. Installation re-fetches the index and manifest and verifies the reviewed hash. Updates must come from the same configured index URL, have a higher numeric version, and be confirmed by the user; enabled state is preserved. Removing an index does not uninstall its sources.
+
+See ../../integrations/extension-repository for a reproducible public example. The index hash is not a signature; publisher trust remains an explicit user decision.
+
+The repository.schema.json file provides editor validation; the Rust validator additionally checks unique IDs, exact origin and byte limits.

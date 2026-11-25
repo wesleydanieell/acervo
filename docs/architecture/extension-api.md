@@ -37,3 +37,7 @@ opds_source.rs usa a mesma fronteira HTTPS e limita respostas a 2 MB. opds_parse
 ## Adaptador HTML
 
 html_source.rs realiza a requisição pela fronteira HTTPS comum e html_parser.rs converte resultados por seletores CSS declarativos. O parser scraper/html5ever tolera HTML imperfeito sem executar código ou carregar recursos externos. Não há navegador, automação de login, navegação por detalhes ou resolução dinâmica. Links diretos com extensão conhecida são normalizados para SourceBook; o serviço de download permanece responsável por validar os bytes. Exige lista explícita de hosts; paginação é restrita à mesma origem e não depende de seletores JSON. O SDK inclui template e fixture original.
+
+## Extension repository preview
+
+repository_index.rs validates versioned indexes and manifest identity/checksum; extension_repositories.rs manages explicit HTTPS repository URLs, bounded fetches and verified installation. sources.rs stores optional repository provenance and digest, serializes registry writes, rejects ID collisions across origins and downgrades, and preserves enabled state on updates. Manifests are declarative only. The review step shows actual manifest origin and download domains; installation re-fetches against the reviewed digest. No signature infrastructure, package execution, automated update or official update channel is implemented. Removing a repository preserves installed manifests. Local installation remains supported.
