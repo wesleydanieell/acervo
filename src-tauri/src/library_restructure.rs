@@ -1,5 +1,7 @@
 //! Read-only structural planning. Execution deliberately lives outside this module.
+mod snapshot;
 use serde::{Deserialize, Serialize};
+use snapshot::Observations;
 use std::{
     collections::HashSet,
     fs,
@@ -9,7 +11,7 @@ use std::{
 const MAX_ENTRIES: usize = 50_000;
 const MAX_OPERATIONS: usize = 100;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum StructuralOperation {
     CreateFolder { path: String },
@@ -30,6 +32,7 @@ pub struct FolderImpact {
 #[serde(rename_all = "camelCase")]
 pub struct StructuralPreview {
     version: u8,
+    filesystem_revision: String,
     created_folders: Vec<String>,
     moved_folders: Vec<FolderImpact>,
     execution_supported: bool,
@@ -40,6 +43,7 @@ pub struct StructuralPreview {
 
 fn relative(value: &str) -> Result<PathBuf, String> {
     if value.is_empty()
+        || crate::downloads::destination_parts(value).is_err()
         || value.split('/').any(|part| {
             part.is_empty()
                 || part == "."
@@ -58,7 +62,11 @@ fn relative(value: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(value))
 }
 
-fn inspect(root: &Path, path: &Path) -> Result<Option<fs::Metadata>, String> {
+fn inspect(
+    root: &Path,
+    path: &Path,
+    observations: &mut Observations,
+) -> Result<Option<fs::Metadata>, String> {
     let mut current = root.to_path_buf();
     let mut last = None;
     for component in path.components() {
@@ -67,8 +75,14 @@ fn inspect(root: &Path, path: &Path) -> Result<Option<fs::Metadata>, String> {
             Ok(meta) if meta.file_type().is_symlink() => {
                 return Err(format!("Link simbólico: {}", current.display()));
             }
-            Ok(meta) => last = Some(meta),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Ok(meta) => {
+                observations.observe(root, &current, Some(&meta))?;
+                last = Some(meta);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                observations.observe(root, &current, None)?;
+                return Ok(None);
+            }
             Err(e) => return Err(e.to_string()),
         }
     }
@@ -84,6 +98,7 @@ fn inventory(
     source: &Path,
     target: &Path,
     remaining: &mut usize,
+    observations: &mut Observations,
 ) -> Result<FolderImpact, String> {
     let mut impact = FolderImpact {
         source: source.to_string_lossy().into_owned(),
@@ -94,12 +109,20 @@ fn inventory(
     };
     let mut pending = vec![root.join(source)];
     while let Some(folder) = pending.pop() {
-        for entry in fs::read_dir(folder).map_err(|e| e.to_string())? {
+        let before = fs::symlink_metadata(&folder).map_err(|e| e.to_string())?;
+        if !before.file_type().is_dir() {
+            return Err("Pasta mudou durante o inventário.".into());
+        }
+        observations.observe(root, &folder, Some(&before))?;
+        for entry in fs::read_dir(&folder).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             *remaining = remaining
                 .checked_sub(1)
                 .ok_or("Inventário excede o limite de 50.000 entradas.")?;
-            let kind = entry.file_type().map_err(|e| e.to_string())?;
+            let path = entry.path();
+            let meta = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+            observations.observe(root, &path, Some(&meta))?;
+            let kind = meta.file_type();
             if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) {
                 return Err(format!(
                     "Entrada especial não suportada: {}",
@@ -116,6 +139,8 @@ fn inventory(
                 }
             }
         }
+        let after = fs::symlink_metadata(&folder).map_err(|e| e.to_string())?;
+        observations.observe(root, &folder, Some(&after))?;
     }
     Ok(impact)
 }
@@ -128,10 +153,18 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
     if !root.is_dir() {
         return Err("Biblioteca inválida.".into());
     }
+    let mut observations = Observations::default();
+    observations.observe(
+        &root,
+        &root,
+        Some(&fs::symlink_metadata(&root).map_err(|e| e.to_string())?),
+    )?;
+    let ordered_operations = operations.clone();
     let mut created = HashSet::<PathBuf>::new();
     let mut reserved = Vec::<PathBuf>::new();
     let mut preview = StructuralPreview {
         version: 1,
+        filesystem_revision: String::new(),
         created_folders: vec![],
         moved_folders: vec![],
         execution_supported: false,
@@ -150,13 +183,13 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
         if reserved.iter().any(|p| overlapping(p, &target)) || created.contains(&target) {
             return Err("Destino conflitante com outra operação.".into());
         }
-        if inspect(&root, &target)?.is_some() {
+        if inspect(&root, &target, &mut observations)?.is_some() {
             return Err(format!("Destino existente: {}", target.display()));
         }
         let parent = target.parent().ok_or("Destino inválido.")?;
         if !parent.as_os_str().is_empty()
             && !created.contains(parent)
-            && !inspect(&root, parent)?.is_some_and(|m| m.is_dir())
+            && !inspect(&root, parent, &mut observations)?.is_some_and(|m| m.is_dir())
         {
             return Err(format!("Pasta pai inexistente: {}", parent.display()));
         }
@@ -167,12 +200,16 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
             {
                 return Err("Sobreposição de subárvores não suportada.".into());
             }
-            if !inspect(&root, &source)?.is_some_and(|m| m.is_dir()) {
+            if !inspect(&root, &source, &mut observations)?.is_some_and(|m| m.is_dir()) {
                 return Err(format!("Origem não é uma pasta: {}", source.display()));
             }
-            preview
-                .moved_folders
-                .push(inventory(&root, &source, &target, &mut remaining)?);
+            preview.moved_folders.push(inventory(
+                &root,
+                &source,
+                &target,
+                &mut remaining,
+                &mut observations,
+            )?);
             reserved.push(source);
             reserved.push(target);
         } else {
@@ -190,6 +227,12 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
             .collect(),
     );
     preview.reference_impact = crate::library_reference_impact::preview(&root, &remap)?;
+    observations.observe(
+        &root,
+        &root,
+        Some(&fs::symlink_metadata(&root).map_err(|e| e.to_string())?),
+    )?;
+    preview.filesystem_revision = observations.revision(&root, &ordered_operations)?;
     Ok(preview)
 }
 
@@ -200,11 +243,16 @@ pub async fn preview_library_restructure(
     operations: Vec<StructuralOperation>,
     manager: tauri::State<'_, crate::downloads::DownloadManager>,
     rules: Option<crate::smart_organization::Rules>,
+    expected_filesystem_revision: Option<String>,
 ) -> Result<StructuralPreview, String> {
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
         let mut preview = plan(&root, operations)?;
+        snapshot::verify_revision(
+            &preview.filesystem_revision,
+            expected_filesystem_revision.as_deref(),
+        )?;
         let remap = crate::library_reference_impact::PathRemap::new(
             preview
                 .moved_folders
@@ -258,6 +306,51 @@ mod tests {
             target: target.into(),
         }
     }
+    #[test]
+    fn filesystem_revision_detects_external_edits_and_plan_changes() {
+        let f = Fixture::new();
+        let revision = |destination| {
+            plan(&f.0, vec![mv("A", destination)])
+                .unwrap()
+                .filesystem_revision
+        };
+        let first = revision("New");
+        assert_eq!(first.len(), 64);
+        assert_eq!(first, revision("New"));
+        assert_ne!(first, revision("Other"));
+        assert!(snapshot::verify_revision(&first, Some(&first)).is_ok());
+        fs::write(f.0.join("A/livro.epub"), b"changed contents").unwrap();
+        let edited = revision("New");
+        assert_ne!(edited, first);
+        assert!(snapshot::verify_revision(&edited, Some(&first)).is_err());
+        fs::create_dir(f.0.join("A/Vazia/Nova")).unwrap();
+        let added = revision("New");
+        assert_ne!(added, edited);
+        fs::remove_dir(f.0.join("A/Vazia/Nova")).unwrap();
+        assert_ne!(revision("New"), added);
+        fs::create_dir(f.0.join("New")).unwrap();
+        assert!(plan(&f.0, vec![mv("A", "New")]).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn filesystem_revision_detects_equal_size_replacement_and_destination_parent() {
+        let f = Fixture::new();
+        let revision = || {
+            plan(&f.0, vec![mv("A", "AB/New")])
+                .unwrap()
+                .filesystem_revision
+        };
+        let first = revision();
+        fs::write(f.0.join("A/replacement.epub"), b"book").unwrap();
+        fs::rename(f.0.join("A/replacement.epub"), f.0.join("A/livro.epub")).unwrap();
+        let replaced = revision();
+        assert_ne!(first, replaced);
+        fs::rename(f.0.join("AB"), f.0.join("AB-old")).unwrap();
+        fs::create_dir(f.0.join("AB")).unwrap();
+        assert_ne!(replaced, revision());
+    }
+
     #[test]
     fn previews_nested_destination_and_auxiliary_files_without_writing() {
         let f = Fixture::new();

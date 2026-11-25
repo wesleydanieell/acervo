@@ -28,9 +28,16 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Testes: cargo test --manifest-path src-tauri/Cargo.toml --lib: 162 aprovados (inclui fixtures de fila, histórico, outra raiz, importação pendente e regras desativadas). git diff --check aprovado. Nenhuma validação visual ou execução estrutural. Nenhum dado da biblioteca real alterado.
 - Limitações: mudanças concorrentes podem invalidar a prévia; colisões entre destinos futuros ainda não analisadas; raiz de downloads avulsos não é persistida. Bloqueios são diagnósticos e não um mecanismo de exclusão mútua. Regras precisam de persistência coordenada para integrar ao journal.
 
+## 2026-11-25 — revisão física do plano
+
+- `library_restructure/snapshot.rs`: mapa ordenado de observações físicas, inclui raiz canônica, operação em ordem, origens, descendentes, ancestrais e destinos ausentes. SHA-256 determinístico de metadados (Unix: dispositivo, inode, ctime, tamanho e timestamps; fallback de outras plataformas mais fraco). Não é hash de conteúdo.
+- `preview_library_restructure`: retorna filesystemRevision e aceita expectedFilesystemRevision opcional para rejeitar prévias antigas. Reusa validação de destinos existente; rejeita nomes não UTF-8 no inventário em vez de convertê-los com perda. Observações repetidas divergentes invalidam a prévia.
+- Validação: 165 testes Rust aprovados (3 novos: determinismo e ordem, edição/criação/remoção externa, substituição de arquivo de mesmo tamanho e troca de pasta pai). git diff --check aprovado.
+- Limitações: continua somente leitura; não protege toda a janela entre validação e futura escrita, nem garante snapshot simultâneo do catálogo, regras e fila. A validação foi feita em Linux, não em Windows/macOS. Sem alteração de arquivos reais ou validação visual.
+
 ## Próximo incremento recomendado
 
-1. Definir snapshot de identidade de origem e inventário determinístico, revalidável antes da execução. Validar paths com política consistente entre módulos e testar alterações externas.
+1. Estender o snapshot a referências persistidas e definir verificação de identidades dos arquivos associados (incluindo registros órfãos). Preparar guardas de coordenação por raiz; revisar todos os pontos de mutação.
 2. Definir coordenação de mutações e reservas por raiz, política de colisões de destinos futuros e snapshots exatos da fila e regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.
