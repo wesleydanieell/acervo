@@ -1,45 +1,5 @@
 /* Appearance modes share the palette; only surfaces and motion differ. */
-:root[data-visual-style="glass"] .app-shell{
-  background:
-    radial-gradient(ellipse 42% 55% at 89% 9%,color-mix(in srgb,var(--accent) 22%,transparent),transparent),
-    radial-gradient(ellipse 56% 42% at 12% 100%,#8868ed26,transparent),
-    radial-gradient(ellipse 28% 32% at 46% 30%,#55acc41b,transparent),
-    var(--glass-base);
-}
-:root[data-visual-style="glass"] .glass-panel{
-  position:relative;
-  background:linear-gradient(142deg,
-    color-mix(in srgb,var(--glass-strong) 64%,transparent),
-    color-mix(in srgb,var(--glass-strong) 45%,transparent) 56%,
-    color-mix(in srgb,var(--glass-strong) 73%,transparent));
-  border-color:color-mix(in srgb,var(--text) 15%,transparent);
-  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 13%,transparent),
-             inset 1px 0 0 color-mix(in srgb,var(--text) 5%,transparent),
-             0 18px 44px #03050d26;
-  backdrop-filter:blur(35px) saturate(170%);
-  -webkit-backdrop-filter:blur(35px) saturate(170%);
-}
-:root[data-visual-style="glass"] .stat-card,
-:root[data-visual-style="glass"] .book-card{
-  background:linear-gradient(135deg,
-    color-mix(in srgb,var(--glass-strong) 63%,transparent),
-    color-mix(in srgb,var(--glass-strong) 38%,transparent));
-}
-:root[data-visual-style="glass"] .book-card:hover{
-  background:linear-gradient(135deg,
-    color-mix(in srgb,var(--glass-strong) 83%,transparent),
-    color-mix(in srgb,var(--glass-strong) 65%,transparent));
-  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 17%,transparent),
-             0 13px 24px #0002;
-}
-:root[data-visual-style="glass"] .topbar{
-  background:color-mix(in srgb,var(--glass-base) 45%,transparent);
-}
-:root[data-visual-style="glass"] .sidebar{
-  background:linear-gradient(140deg,
-    color-mix(in srgb,var(--glass-strong) 74%,transparent),
-    color-mix(in srgb,var(--glass-strong) 52%,transparent));
-}
+/* Glass surfaces are defined once in appearance-surfaces.css. */
 :root[data-visual-style="material"] .app-shell{
   background:color-mix(in srgb,var(--glass-base) 96%,var(--accent) 4%);
 }
@@ -86,8 +46,6 @@
   --shadow:0 16px 46px #0b243013;
 }
 :root[data-color-mode="light"] .app-shell{color:var(--text)}
-:root[data-color-mode="light"] .book-cover{color:#e3f6ef}
-:root[data-color-mode="light"] .book-cover.missing{color:#f8e5f2}
 :root[data-color-mode="light"] .status-badge.available{color:#24654d;background:#0d7b4b20}
 :root[data-color-mode="light"] .status-badge.wanted{color:#8c3e54;background:#a8466020}
 
