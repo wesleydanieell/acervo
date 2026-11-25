@@ -22,6 +22,9 @@ struct DuplicateFile {
     path: String,
     format: String,
     associations: usize,
+    manual_metadata: bool,
+    edition_metadata: bool,
+    protection_unknown: bool,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -197,6 +200,12 @@ fn discover(root: &str, folder: Option<&str>) -> Result<Report, String> {
             *associations.entry(path).or_default() += 1;
         }
     }
+    // Use durable records, not just hydrated metadata: stale records still
+    // deserve protection. Any scan warning makes a removal recommendation unsafe.
+    let manual = crate::manual_metadata::load(root_path);
+    let editions = crate::library_editions::load(root_path);
+    let protection_unknown =
+        !collection.warnings.is_empty() || manual.is_err() || editions.is_err();
     let mut report = Report {
         groups: vec![],
         files: 0,
@@ -245,6 +254,13 @@ fn discover(root: &str, folder: Option<&str>) -> Result<Report, String> {
                                 .get(file.path.as_str())
                                 .copied()
                                 .unwrap_or(0),
+                            manual_metadata: manual
+                                .as_ref()
+                                .is_ok_and(|index| index.entries.contains_key(&file.path)),
+                            edition_metadata: editions
+                                .as_ref()
+                                .is_ok_and(|index| index.contains_key(&file.path)),
+                            protection_unknown,
                         },
                         before,
                     ));
@@ -342,6 +358,23 @@ mod tests {
         let group = &result.groups[0];
         assert_eq!(group.files.len(), 2);
         assert_eq!(group.files[0].associations, 1);
+        assert!(!group.files[0].protection_unknown);
+        assert!(!group.files[0].manual_metadata);
+        assert!(!group.files[0].edition_metadata);
+        fs::write(
+            dir.join("99 - Catálogo/Acervo_Metadados_Manuais.json"),
+            b"invalid",
+        )
+        .unwrap();
+        let incomplete = discover(root, None).unwrap();
+        assert!(
+            incomplete.groups[0]
+                .files
+                .iter()
+                .all(|file| file.protection_unknown)
+        );
+        fs::remove_file(dir.join("99 - Catálogo/Acervo_Metadados_Manuais.json")).unwrap();
+
         assert!(discover(root, Some("A")).unwrap().groups.is_empty());
         assert!(discover(root, Some("../outside")).is_err());
         assert!(hash_book(&dir, "A/First.pdf", 3).is_err());
