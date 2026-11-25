@@ -1,5 +1,7 @@
 //! One scoped filesystem watcher, with bounded coalescing and no file writes.
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Serialize;
+use std::collections::BTreeSet;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -54,23 +56,97 @@ fn relevant(root: &Path, event: &Event) -> bool {
                             | "Acervo_Metadados.json"
                     ));
         }
-        !parts
-            .iter()
-            .any(|part| part.starts_with('.') || part == "node_modules")
+        // Discovery excludes hidden directories, not hidden book filenames.
+        // Keep their source subtree dirty even after the file no longer exists.
+        !parts.iter().enumerate().any(|(i, part)| {
+            let last = i + 1 == parts.len();
+            part == "node_modules"
+                || (part.starts_with('.') && !(last && crate::is_book(Path::new(part.as_ref()))))
+        })
     })
 }
 
+const MAX_DIRTY: usize = 128;
+#[derive(Default)]
+struct Dirty {
+    full: bool,
+    catalog: bool,
+    paths: BTreeSet<String>,
+}
+impl Dirty {
+    fn full(&mut self) {
+        self.full = true;
+        self.paths.clear();
+    }
+    fn record(&mut self, root: &Path, event: notify::Result<Event>) {
+        let Ok(event) = event else {
+            self.full();
+            return;
+        };
+        if !relevant(root, &event) || self.full {
+            return;
+        }
+        if event.need_rescan() || event.paths.is_empty() {
+            self.full();
+            return;
+        }
+        for path in event.paths {
+            let Ok(relative) = path.strip_prefix(root) else {
+                self.full();
+                return;
+            };
+            let Some(first) = relative.iter().next() else {
+                self.full();
+                return;
+            };
+            let Some(first) = first.to_str() else {
+                self.full();
+                return;
+            };
+            if first == "99 - Catálogo" {
+                self.catalog = true;
+                continue;
+            }
+            if !relevant(root, &Event::new(event.kind).add_path(path.clone())) {
+                continue;
+            }
+            self.paths.insert(first.to_owned());
+            if self.paths.len() > MAX_DIRTY {
+                self.full();
+                return;
+            }
+        }
+    }
+    fn take(&mut self) -> Option<Option<Vec<String>>> {
+        if self.full {
+            *self = Self::default();
+            return Some(None);
+        }
+        if !self.catalog && self.paths.is_empty() {
+            return None;
+        }
+        self.catalog = false;
+        Some(Some(std::mem::take(&mut self.paths).into_iter().collect()))
+    }
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChangeEvent {
+    root: String,
+    changes: Option<Vec<String>>,
+}
+
 fn create_session(root: PathBuf, app: tauri::AppHandle) -> Result<Session, String> {
-    let dirty = Arc::new(AtomicBool::new(true)); // close the scan-before-watch gap
+    let dirty = Arc::new(Mutex::new(Dirty {
+        full: true,
+        ..Default::default()
+    })); // close scan-before-watch gap
     let stop = Arc::new(AtomicBool::new(false));
     let callback_dirty = dirty.clone();
     let callback_root = root.clone();
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
-        if result
-            .as_ref()
-            .map_or(true, |event| relevant(&callback_root, event))
-        {
-            callback_dirty.store(true, Ordering::Release);
+        if let Ok(mut dirty) = callback_dirty.lock() {
+            dirty.record(&callback_root, result);
         }
     })
     .map_err(|e| e.to_string())?;
@@ -86,11 +162,15 @@ fn create_session(root: PathBuf, app: tauri::AppHandle) -> Result<Session, Strin
                 if stopped.load(Ordering::Acquire) {
                     break;
                 }
-                if dirty.swap(false, Ordering::AcqRel) {
+                let batch = dirty.lock().ok().and_then(|mut value| value.take());
+                if let Some(changes) = batch {
                     let _ = app.emit_to(
                         "main",
                         "acervo-library-fs-changed",
-                        root.to_string_lossy().as_ref(),
+                        ChangeEvent {
+                            root: root.to_string_lossy().into_owned(),
+                            changes,
+                        },
                     );
                 }
             }
@@ -163,6 +243,44 @@ mod tests {
         ));
         assert!(relevant(&root, &event("New/Book.epub", EventKind::Any)));
     }
+    #[test]
+    fn coalesces_dirty_subtrees_catalog_and_overflow() {
+        let root = PathBuf::from("/library");
+        let mut dirty = Dirty::default();
+        let event = |a: &str, b: &str| {
+            Ok(Event::new(EventKind::Any)
+                .add_path(root.join(a))
+                .add_path(root.join(b)))
+        };
+        dirty.record(&root, event("A/old.pdf", "B/new.pdf"));
+        dirty.record(
+            &root,
+            event("A/another.pdf", "99 - Catálogo/Acervo_Listas.json"),
+        );
+        assert_eq!(dirty.take(), Some(Some(vec!["A".into(), "B".into()])));
+        assert_eq!(dirty.take(), None);
+        dirty.record(&root, event("A/.book.pdf", "B/book.pdf"));
+        assert_eq!(dirty.take(), Some(Some(vec!["A".into(), "B".into()])));
+        dirty.record(
+            &root,
+            Ok(Event::new(EventKind::Any).add_path(root.join(".book.pdf"))),
+        );
+        assert_eq!(dirty.take(), Some(Some(vec![".book.pdf".into()])));
+
+        dirty.record(
+            &root,
+            event("99 - Catálogo/Acervo_Metadados.json", "99 - Catálogo/.tmp"),
+        );
+        assert_eq!(dirty.take(), Some(Some(vec![])));
+        for i in 0..=MAX_DIRTY {
+            dirty.record(
+                &root,
+                Ok(Event::new(EventKind::Any).add_path(root.join(format!("folder{i}")))),
+            );
+        }
+        assert_eq!(dirty.take(), Some(None));
+    }
+
     #[test]
     fn native_monitor_observes_external_create_and_rename() {
         let dir = std::env::temp_dir().join(format!(

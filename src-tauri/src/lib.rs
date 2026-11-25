@@ -13,6 +13,7 @@ mod html_parser;
 mod html_source;
 mod import_fingerprint;
 mod library_editions;
+mod library_index;
 mod library_monitor;
 mod metadata_cache;
 mod opds_parser;
@@ -31,7 +32,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BookFile {
     id: String,
@@ -115,6 +116,20 @@ fn scan_dir(
     warnings: &mut Vec<String>,
     depth: usize,
 ) {
+    scan_selected(root, current, files, folders, warnings, depth, None);
+}
+
+fn scan_selected(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<BookFile>,
+    folders: &mut BTreeSet<String>,
+    warnings: &mut Vec<String>,
+    depth: usize,
+    selected: Option<&HashSet<String>>,
+) {
+    #[cfg(test)]
+    library_index::record_read(current);
     if depth > 80 || files.len() > 150_000 {
         warnings.push(
             "Limite de profundidade ou arquivos atingido; algumas pastas não foram indexadas."
@@ -129,11 +144,27 @@ fn scan_dir(
             return;
         }
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                warnings.push(format!("Falha ao ler pasta: {error}"));
+                continue;
+            }
+        };
+        if selected
+            .is_some_and(|names| !names.contains(&entry.file_name().to_string_lossy().to_string()))
+        {
+            continue;
+        }
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        let Ok(kind) = entry.file_type() else {
-            continue;
+        let kind = match entry.file_type() {
+            Ok(kind) => kind,
+            Err(error) => {
+                warnings.push(format!("Tipo inacessível {}: {error}", path.display()));
+                continue;
+            }
         };
         if kind.is_symlink() {
             continue;
@@ -167,7 +198,13 @@ fn scan_dir(
                 path: relative,
                 folder,
                 format,
-                bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
+                bytes: match entry.metadata() {
+                    Ok(meta) => meta.len(),
+                    Err(error) => {
+                        warnings.push(format!("Arquivo inacessível {}: {error}", path.display()));
+                        continue;
+                    }
+                },
                 edition: None,
                 embedded: None,
             });
@@ -246,7 +283,17 @@ fn read_catalog(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> 
 
 #[tauri::command]
 async fn load_collection(root: String) -> Result<Collection, String> {
-    tauri::async_runtime::spawn_blocking(move || scan_collection(root))
+    tauri::async_runtime::spawn_blocking(move || library_index::refresh(root, None))
+        .await
+        .map_err(|error| format!("Falha ao carregar a biblioteca: {error}"))?
+}
+
+#[tauri::command]
+async fn refresh_indexed_collection(
+    root: String,
+    changes: Option<Vec<String>>,
+) -> Result<Collection, String> {
+    tauri::async_runtime::spawn_blocking(move || library_index::refresh(root, changes))
         .await
         .map_err(|error| format!("Falha ao carregar a biblioteca: {error}"))?
 }
@@ -260,6 +307,15 @@ fn scan_collection(root: String) -> Result<Collection, String> {
     let mut folders = BTreeSet::new();
     let mut warnings = Vec::new();
     scan_dir(&path, &path, &mut files, &mut folders, &mut warnings, 0);
+    hydrate_collection(&path, files, folders, warnings)
+}
+
+fn hydrate_collection(
+    path: &Path,
+    mut files: Vec<BookFile>,
+    folders: BTreeSet<String>,
+    mut warnings: Vec<String>,
+) -> Result<Collection, String> {
     match library_editions::load(&path) {
         Ok(mut editions) => {
             for file in &mut files {
@@ -294,7 +350,7 @@ fn scan_collection(root: String) -> Result<Collection, String> {
         }
         Err(error) => warnings.push(format!("Cache de metadados: {error}")),
     }
-    files.sort_by_cached_key(|file| file.title.to_lowercase());
+    files.sort_by_cached_key(|file| (file.title.to_lowercase(), file.path.clone()));
     let mut works = read_catalog(&path, &files, &mut warnings);
     works.extend(catalog_lists::load(&path, &files, &mut warnings));
     Ok(Collection {
@@ -719,6 +775,7 @@ fn read_noctalia_colors() -> Option<serde_json::Value> {
 pub fn run() {
     let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
         load_collection,
+        refresh_indexed_collection,
         library_monitor::set_library_monitor,
         metadata_cache::extract_book_metadata,
         metadata_cache::reset_invalid_metadata_cache,
