@@ -108,14 +108,22 @@ fn save_values(root: &Path, works: Vec<Value>) -> Result<(), String> {
     let catalog_dir = root.join("99 - Catálogo");
     fs::create_dir_all(&catalog_dir)
         .map_err(|error| format!("Falha ao criar pasta do catálogo: {error}"))?;
-    if !fs::canonicalize(&catalog_dir)
-        .map_err(|error| error.to_string())?
-        .starts_with(root)
-    {
+    if fs::canonicalize(&catalog_dir).map_err(|error| error.to_string())? != catalog_dir {
         return Err("Catálogo fora da biblioteca.".into());
     }
 
     let destination = list_path(root);
+    for path in [&destination, &catalog_dir.join("Acervo_Listas.json.bak")] {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if !meta.is_file() || meta.file_type().is_symlink() => {
+                return Err("Arquivo de catálogo ou backup inválido.".into());
+            }
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                return Err(error.to_string());
+            }
+            _ => {}
+        }
+    }
     let payload = serde_json::to_vec_pretty(&json!({ "versao": 1, "obras": works }))
         .map_err(|error| error.to_string())?;
     let stamp = SystemTime::now()
@@ -148,12 +156,22 @@ fn save_values(root: &Path, works: Vec<Value>) -> Result<(), String> {
 }
 
 /// Keep app-owned work associations in sync with file operations.
-pub(super) fn sync_move_refs(root: &Path, old: &str, new: &str) -> Result<(), String> {
+pub(super) struct MoveUndo {
+    before: Vec<Value>,
+    after: Vec<Value>,
+}
+
+pub(super) fn sync_move_refs(
+    root: &Path,
+    old: &str,
+    new: &str,
+) -> Result<Option<MoveUndo>, String> {
     let _guard = LIST_WRITE_LOCK
         .lock()
         .map_err(|_| "Catálogo indisponível.")?;
     let destination = list_path(root);
     let mut values = load_values(&destination)?;
+    let before = values.clone();
     let mut changed = false;
     for work in &mut values {
         let mut found = false;
@@ -180,9 +198,26 @@ pub(super) fn sync_move_refs(root: &Path, old: &str, new: &str) -> Result<(), St
         }
     }
     if changed {
-        save_values(root, values)?;
+        save_values(root, values.clone())?;
+        return Ok(Some(MoveUndo {
+            before,
+            after: values,
+        }));
     }
-    Ok(())
+    Ok(None)
+}
+
+pub(super) fn rollback_move(root: &Path, undo: Option<MoveUndo>) -> Result<(), String> {
+    let Some(undo) = undo else {
+        return Ok(());
+    };
+    let _guard = LIST_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Catálogo indisponível.")?;
+    if load_values(&list_path(root))? != undo.after {
+        return Err("As listas mudaram durante a movimentação; não foi possível reverter sem sobrescrever outras alterações.".into());
+    }
+    save_values(root, undo.before)
 }
 
 pub fn load(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> Vec<CatalogWork> {
