@@ -2,6 +2,7 @@ import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome 
 import { groupDiscoveryWorks } from "./discovery-works";
 import { AcquisitionPicker } from "./AcquisitionPicker";
 import { SourceCover } from "./SourceCover";
+import { reconcileSourceFilters } from "./source-preferences-state";
 import { SourcePreferencesDialog, defaultSourcePreferences, type SourcePreferences } from "./SourcePreferences";
 import { SourceFeed } from "./SourceFeed";
 import { ExtensionRepositories } from "./ExtensionRepositories";
@@ -108,8 +109,18 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   useEffect(()=>{
     if(sourceDetail && !sources.some(item=>item.manifest.id===sourceDetail)){setSourceDetail("");setSourceId("");invalidateSearch();}
   },[sources,sourceDetail]);
+  const acceptUpdatedSources=(items:InstalledSource[])=>{
+    const selected=sourceDetail||sourceId;
+    if(selected){
+      const previous=sourcePreferences(selected);
+      const next=items.find(item=>item.manifest.id===selected)?.preferences??defaultSourcePreferences;
+      const filters=reconcileSourceFilters({language,format},previous,next,!!initialSearch);
+      setLanguage(filters.language);setFormat(filters.format);
+    }
+    setSources(items);invalidateSearch();
+  };
   const reload = async () => {
-    try { setSources(await invoke<InstalledSource[]>("list_sources")); setError(""); }
+    try { acceptUpdatedSources(await invoke<InstalledSource[]>("list_sources")); setError(""); }
     catch (failure) { setError(String(failure)); }
   };
   useEffect(() => { void reload(); }, []);
@@ -119,7 +130,6 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     setBusy(true);setPreferencesError("");
     try{
       setSources(await invoke<InstalledSource[]>("set_source_preferences",{id:preferencesId,preferences:value}));
-      if(sourceDetail===preferencesId||sourceId===preferencesId){setLanguage(value.preferredLanguage);setFormat(value.preferredFormat);}
       invalidateSearch();setPreferencesId("");setNotice("Configurações salvas.");
     }catch(failure){setPreferencesError(String(failure));}finally{setBusy(false);}
   };
@@ -280,7 +290,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         </>}
     </div>}
     </> : <>
-    <ExtensionRepositories sources={sources} disabled={busy} onInstalled={items => { setSources(items); invalidateSearch(); }}/>
+    <ExtensionRepositories sources={sources} disabled={busy} onInstalled={acceptUpdatedSources}/>
     {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled, repository }) => <article className="source-card glass-panel" key={manifest.id}>
       <div className="source-card-main"><div className="source-icon"><Globe2 size={24}/></div><div className="source-info">
         <button className="source-info-button" onClick={()=>openDetail(manifest.id)}><strong>{manifest.name}</strong></button><small>{manifest.description || manifest.baseUrl}</small><small>v{manifest.version ?? "1.0.0"} · API {manifest.apiVersion ?? 1}</small>
