@@ -1,0 +1,62 @@
+/* Acervo workspace: solid surfaces, cover-led browsing, inexpensive rendering. */
+:root[data-visual-style="workspace"] .app-shell{background:var(--glass-base)}
+:root[data-visual-style="workspace"] .background-orb{display:none}
+:root[data-visual-style="workspace"] .glass-panel{background:var(--glass-strong);border-color:var(--stroke);box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+:root[data-visual-style="workspace"] .sidebar{background:var(--glass-base);padding:16px 12px 12px;border-right:1px solid var(--stroke)}
+:root[data-visual-style="workspace"] .brand{padding:2px 9px 20px}
+:root[data-visual-style="workspace"] .brand-symbol,:root[data-visual-style="workspace"] .brand-symbol img{width:34px;height:34px;border-radius:8px;box-shadow:none}
+:root[data-visual-style="workspace"] .brand small{display:none}
+.nav-group.acquisition-nav{margin-top:16px}
+:root[data-visual-style="workspace"] .nav-caption{font-size:11px;font-weight:650;letter-spacing:0;text-transform:none}
+:root[data-visual-style="workspace"] .nav-item,:root[data-visual-style="workspace"] .folder-row{min-height:35px;border-radius:7px;font-size:13px;gap:9px;padding:7px 10px}
+:root[data-visual-style="workspace"] .folder-row[role="treeitem"]{gap:2px;padding-top:0;padding-bottom:0}
+:root[data-visual-style="workspace"] .nav-item.active,:root[data-visual-style="workspace"] .folder-row.active{border-color:transparent;background:color-mix(in srgb,var(--accent) 14%,var(--glass-base));color:var(--accent)}
+:root[data-visual-style="workspace"] .folders-header{margin-top:18px}
+:root[data-visual-style="workspace"] .topbar{height:56px;padding:0 24px;background:var(--glass-base)}
+:root[data-visual-style="workspace"] .topbar-search{padding:0 12px;border:1px solid var(--stroke);border-radius:8px;background:var(--glass-strong);height:36px}
+:root[data-visual-style="workspace"] .topbar-search input{padding:7px 0}
+:root[data-visual-style="workspace"] .main-area{padding:24px 28px 48px}
+:root[data-visual-style="workspace"] .page-intro{margin-bottom:20px}
+:root[data-visual-style="workspace"] .page-intro h1{font-size:clamp(24px,2.5vw,32px);margin:0 0 6px;letter-spacing:-.035em}
+:root[data-visual-style="workspace"] .page-intro p{font-size:13px}
+:root[data-visual-style="workspace"] .content-top{align-items:center;flex-wrap:wrap;margin-bottom:16px}
+:root[data-visual-style="workspace"] .content-top h2{margin:0;font-size:17px}
+:root[data-visual-style="workspace"] .collection-controls{gap:6px;flex-wrap:wrap}
+:root[data-visual-style="workspace"] .button,:root[data-visual-style="workspace"] .pill-control,:root[data-visual-style="workspace"] .selection-toggle,:root[data-visual-style="workspace"] .view-switch{border-radius:8px;min-height:34px}
+:root[data-visual-style="workspace"] .button.primary{box-shadow:none}
+:root[data-visual-style="workspace"] .folder-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));gap:8px;margin-bottom:22px}
+:root[data-visual-style="workspace"] .folder-tile{padding:11px;border-radius:8px}
+:root[data-visual-style="workspace"] .books-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,144px),1fr));gap:18px 14px;align-items:start}
+:root[data-visual-style="workspace"] .books-grid .book-card{display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:8px;border-radius:8px;background:transparent;border-color:transparent;min-height:0}
+:root[data-visual-style="workspace"] .books-grid .book-card:hover{background:var(--glass-strong);border-color:var(--stroke)}
+:root[data-visual-style="workspace"] .books-grid .book-cover{width:100%;height:auto;aspect-ratio:2/3;border-radius:5px;box-shadow:none}
+:root[data-visual-style="workspace"] .books-grid .book-cover-image{object-fit:contain;object-position:center}
+:root[data-visual-style="workspace"] .books-grid .book-info{width:100%;display:flex;flex-direction:column;min-height:78px}
+:root[data-visual-style="workspace"] .books-grid .book-info>strong{font-size:13px;line-height:1.35;min-height:35px}
+:root[data-visual-style="workspace"] .books-grid .book-info>span{margin-top:3px}
+:root[data-visual-style="workspace"] .books-grid .book-meta{margin-top:7px}
+:root[data-visual-style="workspace"] .books-grid .book-chevron{display:none}
+:root[data-visual-style="workspace"] .books-grid .book-check{z-index:1;top:14px;right:14px}
+:root[data-visual-style="workspace"] .books-list{gap:4px}
+:root[data-visual-style="workspace"] .books-list .book-card{border-radius:8px;min-height:68px}
+:root[data-visual-style="workspace"] .book-card.selected,:root[data-visual-style="workspace"] .book-card.bulk-selected{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--glass-strong))}
+:root[data-visual-style="workspace"] .book-card:hover,:root[data-visual-style="workspace"] .folder-tile:hover,:root[data-visual-style="workspace"] .catalog-work:hover,:root[data-visual-style="workspace"] .button:hover{transform:none}
+:root[data-visual-style="workspace"] .book-card,:root[data-visual-style="workspace"] .folder-tile,:root[data-visual-style="workspace"] .catalog-work{transition:background .12s,border-color .12s}
+:root[data-visual-style="workspace"] .catalog-summary-card,:root[data-visual-style="workspace"] .catalog-work,:root[data-visual-style="workspace"] .source-card,:root[data-visual-style="workspace"] .download-card,:root[data-visual-style="workspace"] .settings-card,:root[data-visual-style="workspace"] .empty-state{border-radius:10px}
+.details-cover{display:flex;justify-content:center;margin:22px 0}
+.details-cover .book-cover{width:132px;height:198px;border-radius:6px}
+.details-cover .book-cover-image{object-fit:contain}
+:root[data-visual-style="workspace"] .details-drawer{padding:20px;border-radius:0}
+:root[data-visual-style="workspace"] .drawer-backdrop,:root[data-visual-style="workspace"] .modal-backdrop{backdrop-filter:none}
+@media(min-width:1200px){
+ :root[data-visual-style="workspace"] .drawer-backdrop{position:relative;inset:auto;flex:0 0 310px;min-width:0;z-index:2;background:transparent}
+ :root[data-visual-style="workspace"] .details-drawer{width:100%;border-left:1px solid var(--stroke)}
+}
+@media(max-width:860px){
+ :root[data-visual-style="workspace"] .topbar{padding:0 12px}
+ :root[data-visual-style="workspace"] .main-area{padding:18px 16px 48px}
+}
+@media(max-width:600px){
+ :root[data-visual-style="workspace"] .books-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,120px),1fr));gap:10px}
+ :root[data-visual-style="workspace"] .collection-controls{justify-content:flex-start}
+}

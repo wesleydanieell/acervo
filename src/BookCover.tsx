@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Book } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import "./book-covers.css";
@@ -45,10 +45,12 @@ function fetchCover(root: string, file: LocalBook): Promise<string | null> {
   return request;
 }
 
-export function BookCover({ root, file, title, format, present }: Props) {
+export const BookCover = memo(function BookCover({ root, file, title, format, present }: Props) {
   const target = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  const [cover, setCover] = useState<string | null>(null);
+  const coverKey = root + "\u0000" + (file?.path ?? "");
+  const [loaded, setLoaded] = useState<{ key: string; value: string | null } | null>(null);
+  const cover = loaded?.key === coverKey ? loaded.value : null;
   useEffect(() => {
     const element = target.current;
     if (!element || !file || !["PDF", "EPUB"].includes(format.toUpperCase()) || !root) return;
@@ -61,11 +63,11 @@ export function BookCover({ root, file, title, format, present }: Props) {
   }, [file?.path, format, root]);
   useEffect(() => {
     let alive = true;
-    if (visible && file && root) void fetchCover(root, file).then((value) => { if (alive) setCover(value); });
+    if (visible && file && root) void fetchCover(root, file).then((value) => { if (alive) setLoaded({ key: coverKey, value }); });
     return () => { alive = false; };
-  }, [visible, file?.path, root]);
+  }, [visible, file?.path, root, coverKey]);
   return <div ref={target} className={"book-cover " + (present ? "present" : "missing") + (cover ? " has-image" : "")}>
     {cover ? <img className="book-cover-image" src={cover} alt={"Capa de " + title} draggable={false} loading="lazy" />
       : <><span className="book-cover-decoration" /><Book size={26} strokeWidth={1.35}/><span>{format}</span></>}
   </div>;
-}
+});

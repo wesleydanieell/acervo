@@ -198,7 +198,13 @@ fn read_catalog(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> 
 }
 
 #[tauri::command]
-fn load_collection(root: String) -> Result<Collection, String> {
+async fn load_collection(root: String) -> Result<Collection, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_collection(root))
+        .await
+        .map_err(|error| format!("Falha ao carregar a biblioteca: {error}"))?
+}
+
+fn scan_collection(root: String) -> Result<Collection, String> {
     let path = fs::canonicalize(&root).map_err(|e| format!("Pasta inválida: {e}"))?;
     if !path.is_dir() {
         return Err("Escolha uma pasta de biblioteca válida.".into());
@@ -207,7 +213,7 @@ fn load_collection(root: String) -> Result<Collection, String> {
     let mut folders = BTreeSet::new();
     let mut warnings = Vec::new();
     scan_dir(&path, &path, &mut files, &mut folders, &mut warnings, 0);
-    files.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    files.sort_by_cached_key(|file| file.title.to_lowercase());
     let mut works = read_catalog(&path, &files, &mut warnings);
     works.extend(catalog_lists::load(&path, &files, &mut warnings));
     Ok(Collection {
@@ -580,7 +586,7 @@ mod tests {
         assert_eq!(data["obras"][0]["arquivos_encontrados"][0], "B/Obra.epub");
         assert_eq!(data["obras"][0]["local_indicado"], "B");
         assert!(root.join("99 - Catálogo/Acervo_Listas.json.bak").exists());
-        let scanned = load_collection(root.to_string_lossy().to_string()).unwrap();
+        let scanned = scan_collection(root.to_string_lossy().to_string()).unwrap();
         assert!(
             scanned
                 .works
