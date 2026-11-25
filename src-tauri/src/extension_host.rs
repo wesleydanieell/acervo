@@ -2,6 +2,7 @@
 use super::extension_api::{
     BookSource, SearchRequest, SourceBook, SourceDescriptor, SourceError, SourceErrorCode,
 };
+use super::html_source::HtmlSource;
 use super::opds_source::OpdsSource;
 use super::source_search::JsonSource;
 use super::sources::{self, AdapterKind, SourceManifest};
@@ -24,6 +25,7 @@ pub(crate) fn create_source(manifest: SourceManifest) -> Result<Box<dyn BookSour
     match manifest.adapter {
         AdapterKind::Json => Ok(Box::new(JsonSource::new(manifest))),
         AdapterKind::Opds => Ok(Box::new(OpdsSource::new(manifest))),
+        AdapterKind::Html => Ok(Box::new(HtmlSource::new(manifest))),
     }
 }
 
