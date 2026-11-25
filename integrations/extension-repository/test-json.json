@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "acervo-test-source",
+  "name": "Acervo · Fonte de teste",
+  "description": "Catálogo estático de arquivos sintéticos para validar aquisição. A consulta não filtra títulos.",
+  "baseUrl": "https://raw.githubusercontent.com",
+  "searchPath": "/wesleydanieell/acervo/5edba12b36da91a718556f66285b627a15c1f3c8/integrations/test-source/catalog.json?q={query}",
+  "itemsPath": "results",
+  "titleField": "title",
+  "authorField": "author",
+  "formatField": "format",
+  "languageField": "language",
+  "downloadUrlField": "download_url",
+  "formats": [
+    "epub"
+  ],
+  "languages": [
+    "pt"
+  ],
+  "downloadDomains": [
+    "raw.githubusercontent.com"
+  ],
+  "apiVersion": 1,
+  "version": "1.0.0",
+  "adapter": "json"
+}

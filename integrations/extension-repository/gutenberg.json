@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "gutenberg-curated",
+  "name": "Gutenberg · clássicos brasileiros",
+  "description": "Seleção inicial de clássicos em português do Project Gutenberg; arquivos fornecidos pelo espelho PGLAF. Não é o catálogo completo.",
+  "baseUrl": "https://raw.githubusercontent.com",
+  "searchPath": "/wesleydanieell/acervo/85dea586547c435e890535d9a7896934971e4447/integrations/gutenberg/catalog.json?q={query}",
+  "itemsPath": "results",
+  "titleField": "title",
+  "authorField": "author",
+  "formatField": "format",
+  "languageField": "language",
+  "downloadUrlField": "download_url",
+  "formats": [
+    "epub"
+  ],
+  "languages": [
+    "pt"
+  ],
+  "localSearch": true,
+  "downloadDomains": [
+    "gutenberg.pglaf.org"
+  ],
+  "apiVersion": 1,
+  "version": "1.0.0",
+  "adapter": "json"
+}
