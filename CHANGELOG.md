@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Adaptador OPDS para feeds de aquisição Atom/XML e JSON, com paginação de mesma origem e permissões explícitas.
 - Paginação independente por fonte, IDs remotos opcionais, deduplicação e domínios explícitos de download com compatibilidade legada.
 - API v1 de extensões, host comum, adaptador JSON, serviço de rede compartilhado, versionamento compatível e SDK preview.
 - Fontes opcionais de teste e clássicos brasileiros do Gutenberg; busca local para catálogos estáticos e correções de cancelamento, retomada e atualização do catálogo.

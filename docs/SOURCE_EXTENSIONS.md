@@ -118,8 +118,13 @@ Instale as fontes opcionais pela área Extensões ou importe os manifestos em in
 
 ## Extension API v1
 
-O manifesto aceita apiVersion, version e adapter. Manifestos antigos recebem os valores 1, 1.0.0 e json; somente a API 1 e o adaptador JSON estão disponíveis. Consulte [arquitetura](architecture/extension-api.md) e [SDK preview](../sdk/extensions/README.md). O JSON Schema auxilia a edição; a validação Rust permanece obrigatória.
+O manifesto aceita apiVersion, version e adapter. Manifestos antigos recebem os valores 1, 1.0.0 e json; a API 1 e os adaptadores JSON e OPDS estão disponíveis. Consulte [arquitetura](architecture/extension-api.md) e [SDK preview](../sdk/extensions/README.md). O JSON Schema auxilia a edição; a validação Rust permanece obrigatória.
 
 ## Paginação e domínios
 
 O contrato v1 admite remoteIdField, pagination (initialCursor e nextCursorField) e downloadDomains. O cursor é um token ou inteiro não negativo; {cursor} é substituído de forma codificada e o host não navega para uma URL retornada pelo provedor. A UI carrega mais resultados por fonte e elimina duplicatas. A lista de domínios é exata, sem curingas: [] bloqueia downloads, ausência ou null mantém compatibilidade com HTTPS público. O Rust confere a extensão ativa e o domínio antes de enfileirar. Transferências existentes não são revogadas ao desativar fontes. Para detalhes, veja o SDK.
+
+
+## Adaptador OPDS (preview)
+
+Use adapter: "opds", searchPath com {query}, e downloadDomains explícito. Não use seletores JSON ou pagination customizado. A fonte deve expor um endpoint de busca conhecido com resultados OPDS 1.2 ou 2.0. Links de aquisição diretos seguem a política de rede existente; próximas páginas ficam restritas à mesma origem HTTPS. O preview só lista publicações com aquisição direta elegível; uma lista vazia de domínios não retorna livros. Feeds de navegação, descoberta OpenSearch e fontes privadas/autenticadas ainda não são suportados. Veja sdk/extensions/manifest.opds.example.json e integrations/opds-test.
