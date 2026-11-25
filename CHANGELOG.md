@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Adaptador HTML declarativo com seletores CSS, links diretos, paginação na mesma origem e permissões de domínio.
 - Adaptador OPDS para feeds de aquisição Atom/XML e JSON, com paginação de mesma origem e permissões explícitas.
 - Paginação independente por fonte, IDs remotos opcionais, deduplicação e domínios explícitos de download com compatibilidade legada.
 - API v1 de extensões, host comum, adaptador JSON, serviço de rede compartilhado, versionamento compatível e SDK preview.

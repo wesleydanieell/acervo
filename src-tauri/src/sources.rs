@@ -24,6 +24,7 @@ pub enum AdapterKind {
     #[default]
     Json,
     Opds,
+    Html,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +67,25 @@ pub struct SourceManifest {
     pub pagination: Option<JsonPagination>,
     #[serde(default)]
     pub download_domains: Option<Vec<String>>,
+    #[serde(default)]
+    pub html: Option<HtmlMapping>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HtmlMapping {
+    pub item_selector: String,
+    pub title_selector: String,
+    #[serde(default)]
+    pub author_selector: String,
+    #[serde(default)]
+    pub language_selector: String,
+    #[serde(default)]
+    pub id_selector: String,
+    #[serde(default)]
+    pub download_selector: String,
+    #[serde(default)]
+    pub next_selector: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +204,9 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
                 .into(),
         );
     }
+    if manifest.adapter != AdapterKind::Html && manifest.html.is_some() {
+        return Err("Mapeamento HTML só pode ser usado pelo adaptador html.".into());
+    }
     if manifest.adapter == AdapterKind::Json {
         if !validate_field(&manifest.items_path, true)
             || !validate_field(&manifest.title_field, true)
@@ -224,14 +247,18 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
             .iter()
             .any(|value| !value.is_empty())
         {
-            return Err("OPDS utiliza campos e paginação padronizados, sem seletores JSON.".into());
+            return Err("Adaptadores HTML e OPDS não aceitam seletores ou paginação JSON.".into());
         }
         if manifest.download_domains.is_none() {
-            return Err(
-                "Fontes OPDS exigem downloadDomains explícito (lista vazia bloqueia aquisições)."
-                    .into(),
-            );
+            return Err("Fontes HTML e OPDS exigem downloadDomains explícito.".into());
         }
+    }
+    if manifest.adapter == AdapterKind::Html {
+        let mapping = manifest
+            .html
+            .as_ref()
+            .ok_or("Fonte HTML exige mapeamento html.")?;
+        super::html_parser::validate_mapping(mapping)?;
     }
     if let Some(domains) = &manifest.download_domains {
         if domains.len() > 20
@@ -280,6 +307,11 @@ pub(crate) fn valid_cursor(cursor: &str) -> bool {
 
 pub(crate) fn permits_download(manifest: &SourceManifest, link: &str) -> bool {
     if (manifest.adapter == AdapterKind::Json && manifest.download_url_field.is_empty())
+        || (manifest.adapter == AdapterKind::Html
+            && manifest
+                .html
+                .as_ref()
+                .is_none_or(|html| html.download_selector.is_empty()))
         || !super::extension_network::safe_url(link)
     {
         return false;
@@ -448,6 +480,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             remote_id_field: String::new(),
             pagination: None,
             download_domains: None,
+            html: None,
         },
     )
 }
@@ -523,6 +556,7 @@ mod tests {
             remote_id_field: String::new(),
             pagination: None,
             download_domains: None,
+            html: None,
         }
     }
 
@@ -599,6 +633,23 @@ mod tests {
             "https://example.org/book.epub"
         ));
         manifest.title_field = "title".into();
+        assert!(validate(&manifest).is_err());
+    }
+
+    #[test]
+    fn html_mapping_is_required_and_exclusive() {
+        let mut manifest: SourceManifest = serde_json::from_str(include_str!(
+            "../../sdk/extensions/manifest.html.example.json"
+        ))
+        .unwrap();
+        validate(&manifest).unwrap();
+        let mapping = manifest.html.take().unwrap();
+        assert!(validate(&manifest).is_err());
+        manifest.html = Some(mapping);
+        manifest.adapter = AdapterKind::Opds;
+        assert!(validate(&manifest).is_err());
+        manifest.adapter = AdapterKind::Html;
+        manifest.download_domains = None;
         assert!(validate(&manifest).is_err());
     }
 

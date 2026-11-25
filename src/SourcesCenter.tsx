@@ -11,10 +11,11 @@ import "./sources.css";
 import "./source-search.css";
 
 export type SourceManifest = {
-  schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds"; id: string; name: string; description: string;
+  schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html"; id: string; name: string; description: string;
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
+  html?: { itemSelector: string; titleSelector: string; downloadSelector?: string; nextSelector?: string } | null;
   remoteIdField?: string; pagination?: { initialCursor: string; nextCursorField: string } | null; downloadDomains?: string[] | null;
 };
 export type InstalledSource = { manifest: SourceManifest; enabled: boolean };
@@ -212,10 +213,10 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       <div className="source-capabilities">
         {manifest.formats.map((format) => <span key={"f:"+format}>{format.toUpperCase()}</span>)}
         {manifest.languages.map((language) => <span key={"l:"+language}>{language}</span>)}
-        <span><Search size={13}/> Busca {manifest.adapter === "opds" ? "OPDS" : "JSON"}</span>
-        {(manifest.adapter === "opds" || manifest.downloadUrlField) && (manifest.downloadDomains == null || manifest.downloadDomains.length > 0) && <span><Download size={13}/> Link de download</span>}
-        {(manifest.adapter === "opds" || manifest.pagination) && <span>Paginação</span>}
-        {(manifest.adapter === "opds" || manifest.downloadUrlField) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
+        <span><Search size={13}/> Busca {manifest.adapter === "opds" ? "OPDS" : manifest.adapter === "html" ? "HTML" : "JSON"}</span>
+        {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.html?.downloadSelector) && (manifest.downloadDomains == null || manifest.downloadDomains.length > 0) && <span><Download size={13}/> Link de download</span>}
+        {(manifest.adapter === "opds" || manifest.pagination || manifest.html?.nextSelector) && <span>Paginação</span>}
+        {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.html?.downloadSelector) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
       <div className="source-actions">
         <button className="button secondary" disabled={busy} onClick={() => void toggle(manifest.id, !enabled)}>
@@ -234,7 +235,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     <details className="source-help glass-panel">
       <summary>Manifesto de extensão e documentação</summary>
       <div><h2>Formato de extensão v1</h2>
-        <p>Uma fonte descreve um endpoint HTTPS e os campos JSON para títulos e autores. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. A importação é validada e pode ser automática quando autorizada.</p></div>
+        <p>Uma fonte descreve um endpoint HTTPS com um adaptador JSON, OPDS ou HTML declarativo. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. A importação é validada e pode ser automática quando autorizada.</p></div>
       <div className="source-help-actions">
         <button className="button secondary" onClick={() => setShowExample((current) => !current)}><FileJson2 size={16}/> {showExample ? "Ocultar exemplo" : "Ver exemplo"}</button>
         <button className="button secondary" onClick={() => void copyExample()}><ClipboardCopy size={16}/> Copiar JSON</button>

@@ -118,7 +118,7 @@ Instale as fontes opcionais pela área Extensões ou importe os manifestos em in
 
 ## Extension API v1
 
-O manifesto aceita apiVersion, version e adapter. Manifestos antigos recebem os valores 1, 1.0.0 e json; a API 1 e os adaptadores JSON e OPDS estão disponíveis. Consulte [arquitetura](architecture/extension-api.md) e [SDK preview](../sdk/extensions/README.md). O JSON Schema auxilia a edição; a validação Rust permanece obrigatória.
+O manifesto aceita apiVersion, version e adapter. Manifestos antigos recebem os valores 1, 1.0.0 e json; a API 1 e os adaptadores JSON, OPDS e HTML estão disponíveis. Consulte [arquitetura](architecture/extension-api.md) e [SDK preview](../sdk/extensions/README.md). O JSON Schema auxilia a edição; a validação Rust permanece obrigatória.
 
 ## Paginação e domínios
 
@@ -128,3 +128,8 @@ O contrato v1 admite remoteIdField, pagination (initialCursor e nextCursorField)
 ## Adaptador OPDS (preview)
 
 Use adapter: "opds", searchPath com {query}, e downloadDomains explícito. Não use seletores JSON ou pagination customizado. A fonte deve expor um endpoint de busca conhecido com resultados OPDS 1.2 ou 2.0. Links de aquisição diretos seguem a política de rede existente; próximas páginas ficam restritas à mesma origem HTTPS. O preview só lista publicações com aquisição direta elegível; uma lista vazia de domínios não retorna livros. Feeds de navegação, descoberta OpenSearch e fontes privadas/autenticadas ainda não são suportados. Veja sdk/extensions/manifest.opds.example.json e integrations/opds-test.
+
+
+## Adaptador HTML (preview)
+
+Use adapter: "html", searchPath com {query}, html com itemSelector e titleSelector, e downloadDomains explícito. Os seletores opcionais são authorSelector, languageSelector, idSelector, downloadSelector e nextSelector. Seletores de links apontam para âncoras a[href]; o formato é identificado pela extensão do caminho da URL. O host usa a URL real da página como base, nunca executa JavaScript, não carrega subrecursos nem contorna restrições de acesso. A paginação segue somente links na origem declarada. Consulte sdk/extensions/manifest.html.example.json e integrations/html-test. O preview retorna o primeiro link elegível de cada container; para múltiplas edições, o endpoint deve fornecer containers separados. Seletores CSS são limitados a tags, classes, IDs, atributos simples e combinadores de descendência/filho; pseudoclasses e listas não são aceitas. A integração inicial não inclui navegação em páginas de detalhes nem arquivos com endpoints sem extensão.

@@ -5,7 +5,7 @@ Use manifest.example.json as a starting point. The JSON Schema is for editor ass
 - schemaVersion: manifest structure.
 - apiVersion: host interface compatibility.
 - version: extension release version, numeric MAJOR.MINOR.PATCH.
-- adapter: json or opds.
+- adapter: json, opds or html.
 - Existing manifests without these fields continue to work.
 - Source capabilities are computed by the host; declaring a download field does not guarantee that every result has a file.
 - All endpoints must use public HTTPS. The host blocks credentials, redirects, proxies and private network answers. Use downloadDomains to limit downloads to exact HTTPS hosts. Omission or null preserves legacy public HTTPS policy; [] denies all downloads. This is not a granular consent dialog. Previously queued transfers keep their authorized URL.
@@ -44,3 +44,11 @@ Use manifest.opds.example.json as a starting point. The endpoint must return an 
 Reference test manifests live in integrations/opds-test. They use static synthetic feeds and do not implement server-side keyword search.
 
 Specifications: https://specs.opds.io/opds-1.2.html and https://specs.opds.io/opds-2.0.html.
+
+## HTML declarative sources (preview)
+
+Use manifest.html.example.json with an authorized static search endpoint. The html mapping defines CSS selectors for result containers, titles, authors, languages, remote IDs, download anchors and optional next-page anchors. itemSelector and titleSelector are required. All other selectors are optional. Links must use direct a[href] elements; file format comes from the URL path suffix and the downloaded content is independently validated. Search results without direct acquisitions are metadata only; format filters exclude them. Download hosts must be explicitly declared. Next pages must stay on the original HTTPS origin.
+
+The host parses UTF-8 HTML without executing JavaScript, opening browser sessions, loading assets, logging in, submitting forms, or traversing book detail pages. Site-specific automation must respect the site's rules. A provider's search endpoint is responsible for applying the query. Each selector uses a restricted CSS subset: tags, IDs, classes, simple attributes, descendant and child combinators. Pseudo-classes, escapes, selector lists, wildcards and sibling combinators are excluded. The first eligible download per result container is returned. Selector syntax and complexity are validated by Rust; the schema is only editor assistance. The response is capped at 2 MB and 40 results.
+
+The static fixture in integrations/html-test can be installed manually; the query is intentionally ignored by that test endpoint.

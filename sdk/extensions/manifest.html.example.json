@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "version": "1.0.0",
+  "adapter": "html",
+  "id": "example-html",
+  "name": "Example HTML",
+  "description": "Replace the endpoint and selectors with those of an authorized static catalog.",
+  "baseUrl": "https://example.org",
+  "searchPath": "/search?q={query}",
+  "formats": [
+    "epub"
+  ],
+  "languages": [
+    "pt"
+  ],
+  "downloadDomains": [
+    "example.org"
+  ],
+  "html": {
+    "itemSelector": "article.book",
+    "titleSelector": "h2",
+    "authorSelector": ".author",
+    "languageSelector": ".language",
+    "idSelector": ".book-id",
+    "downloadSelector": "a.download",
+    "nextSelector": "a.next"
+  }
+}

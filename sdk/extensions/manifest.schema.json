@@ -26,7 +26,8 @@
     "adapter": {
       "enum": [
         "json",
-        "opds"
+        "opds",
+        "html"
       ],
       "default": "json"
     },
@@ -115,6 +116,54 @@
         "type": "string",
         "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$"
       }
+    },
+    "html": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "itemSelector",
+        "titleSelector"
+      ],
+      "properties": {
+        "itemSelector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "titleSelector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "authorSelector": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "languageSelector": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "idSelector": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "downloadSelector": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "nextSelector": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200
+        }
+      }
     }
   },
   "$defs": {
@@ -182,14 +231,75 @@
           },
           "remoteIdField": {
             "const": ""
+          },
+          "html": {
+            "type": "null"
           }
         }
       },
       "else": {
-        "required": [
-          "itemsPath",
-          "titleField"
-        ]
+        "if": {
+          "properties": {
+            "adapter": {
+              "const": "html"
+            }
+          },
+          "required": [
+            "adapter"
+          ]
+        },
+        "then": {
+          "required": [
+            "downloadDomains",
+            "html"
+          ],
+          "properties": {
+            "downloadDomains": {
+              "type": "array"
+            },
+            "pagination": {
+              "type": "null"
+            },
+            "localSearch": {
+              "const": false
+            },
+            "itemsPath": {
+              "const": ""
+            },
+            "titleField": {
+              "const": ""
+            },
+            "authorField": {
+              "const": ""
+            },
+            "formatField": {
+              "const": ""
+            },
+            "languageField": {
+              "const": ""
+            },
+            "downloadUrlField": {
+              "const": ""
+            },
+            "remoteIdField": {
+              "const": ""
+            },
+            "html": {
+              "type": "object"
+            }
+          }
+        },
+        "else": {
+          "required": [
+            "itemsPath",
+            "titleField"
+          ],
+          "properties": {
+            "html": {
+              "type": "null"
+            }
+          }
+        }
       }
     }
   ]
