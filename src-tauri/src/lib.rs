@@ -626,6 +626,7 @@ pub fn run() {
         extension_host::list_source_descriptors,
         downloads::list_downloads,
         downloads::queue_download,
+        download_naming::preview_download_filename,
         downloads::start_waiting_downloads,
         downloads::pause_download,
         downloads::cancel_download,

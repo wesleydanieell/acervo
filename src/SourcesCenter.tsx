@@ -2,6 +2,7 @@ import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome 
 import { groupDiscoveryWorks } from "./discovery-works";
 import { AcquisitionPicker } from "./AcquisitionPicker";
 import { SourceCover } from "./SourceCover";
+import type { NamingPreset } from "./download-naming";
 import { reconcileSourceFilters } from "./source-preferences-state";
 import { SourcePreferencesDialog, defaultSourcePreferences, type SourcePreferences } from "./SourcePreferences";
 import { SourceFeed } from "./SourceFeed";
@@ -39,8 +40,9 @@ const sampleManifest = JSON.stringify({
   formats: ["epub", "pdf"], languages: ["pt", "en"],
 }, null, 2);
 
-export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExtensions, onShowDiscover, onShowDownloads, root, works }: {
+export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExtensions, onShowDiscover, onShowDownloads, root, works, namingPreset }: {
   mode: "discover" | "extensions";
+  namingPreset: NamingPreset;
   root: string; works: CatalogItem[];
   initialSearch?: DiscoveryRequest | null;
   onClearRequest: () => void;
@@ -184,7 +186,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     catch (failure) { setError("Falha ao copiar: " + String(failure)); }
   };
 
-  const queue = async (item: SourceResult, target: CatalogTarget | null, autoImport: boolean, filenameSuffix: string) => {
+  const queue = async (item: SourceResult, target: CatalogTarget | null, autoImport: boolean, filenameSuffix: string, preset:NamingPreset, expectedFilename:string) => {
     const key = resultKey(item);
     if (queuePending.current.has(key)) return;
     queuePending.current.add(key);
@@ -194,7 +196,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       await invoke("queue_download", {
         url: item.downloadUrl, title: item.title, sourceId: item.sourceId,
         edition: {title:item.title,author:item.author,language:item.language,publisher:item.publisher??"",editionLabel:item.editionLabel??"",remoteId:item.remoteId??null},
-        filenameSuffix,
+        filenameSuffix, namingPreset:preset, expectedFilename,
         format: item.format, plannedDestination: target?.destination === "." ? "" : target?.destination ?? "", catalogTarget: target, autoImport,
       });
       setQueued(previous => new Set(previous).add(key));
@@ -339,8 +341,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     </>}
     {preferencesSource && <SourcePreferencesDialog key={preferencesSource.manifest.id} source={preferencesSource} busy={busy} error={preferencesError} onClose={()=>setPreferencesId("")} onSave={value=>void savePreferences(value)}/>}
     {acquisitionChoice && <AcquisitionPicker key={resultIdentity(acquisitionChoice)} book={acquisitionChoice} onClose={()=>setAcquisitionChoice(null)} onChoose={item=>{setAcquisitionChoice(null);chooseEdition(item);}}/>}
-    {downloadChoice && <DownloadCatalogPicker book={downloadChoice} root={root} works={works} initial={initialSearch?.catalogTarget}
+    {downloadChoice && <DownloadCatalogPicker namingPreset={namingPreset} book={downloadChoice} root={root} works={works} initial={initialSearch?.catalogTarget}
       busy={pending.has(resultKey(downloadChoice))} error={queueError} onClose={() => setDownloadChoice(null)}
-      onSubmit={(target, autoImport, filenameSuffix) => void queue(downloadChoice, target, autoImport, filenameSuffix)}/>}
+      onSubmit={(target, autoImport, filenameSuffix,preset,expectedFilename) => void queue(downloadChoice, target, autoImport, filenameSuffix,preset,expectedFilename)}/>}
   </section>;
 }

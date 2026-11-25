@@ -17,6 +17,7 @@ import "./organization.css";
 import "./workspace.css";
 import { CatalogCenter } from "./CatalogCenter";
 import { SourcesCenter } from "./SourcesCenter";
+import { namingOptions, readNamingPreset, type NamingPreset } from "./download-naming";
 import { DownloadsCenter } from "./DownloadsCenter";
 import type { DiscoveryRequest } from "./download-workspace";
 import { BookCover } from "./BookCover";
@@ -77,6 +78,8 @@ function App() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [folderQuery, setFolderQuery] = useState("");
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [namingPreset,setNamingPreset]=useState<NamingPreset>(()=>readNamingPreset(localStorage.getItem("acervo-naming-preset")));
+  useEffect(()=>{localStorage.setItem("acervo-naming-preset",namingPreset);},[namingPreset]);
   const [layout, setLayout] = useState<Layout>(() => localStorage.getItem("acervo-layout") === "list" ? "list" : "grid");
   useEffect(() => { localStorage.setItem("acervo-layout", layout); }, [layout]);
   const [sortBy, setSortBy] = useState<SortBy>("title");
@@ -675,9 +678,17 @@ ${JSON.stringify(sample, null, 2)}`;
                 <div className="settings-actions"><button className="button primary" onClick={() => void chooseRoot()}><FolderOpen size={17}/> Procurar pasta</button><button className="button secondary" onClick={() => setModal("root")}>Informar caminho</button></div>
                 <p className="settings-footnote">Abrir uma biblioteca não altera arquivos. Movimentações exigem confirmação e não substituem arquivos existentes.</p>
               </article>
+              <article className="settings-card glass-panel">
+                <div className="settings-card-heading"><ArrowDownToLine size={22}/><div><h2>Aquisição</h2></div></div>
+                <label className="settings-field">Nome de novos arquivos
+                  <select value={namingPreset} onChange={event=>setNamingPreset(readNamingPreset(event.target.value))}>{namingOptions.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>
+                </label>
+                <div className="current-root"><Book size={19}/><span>{namingOptions.find(option=>option.id===namingPreset)?.example}</span></div>
+                <p className="settings-footnote">Aplica-se a novos downloads. Arquivos existentes e itens da fila não são renomeados.</p>
+              </article>
             </div>
             <div className="settings-version">Acervo 0.1.0-alpha.2 · dados locais · <span>atualizações experimentais</span></div>
-          </section> : (view === "sources" || view === "extensions") ? <SourcesCenter root={collection?.root || ""} works={collection?.works || []} mode={view === "sources" ? "discover" : "extensions"} initialSearch={sourceRequest} onClearRequest={() => setSourceRequest(null)} onShowExtensions={() => setView("extensions")} onShowDiscover={() => setView("sources")} onShowDownloads={() => { setView("downloads"); setSelectedFolder(""); }}/> : view === "downloads" ? <DownloadsCenter root={collection?.root || ""} folders={collection?.folders || []} onSaved={async () => { await refresh(); }}/> : view === "lists" ? <>
+          </section> : (view === "sources" || view === "extensions") ? <SourcesCenter namingPreset={namingPreset} root={collection?.root || ""} works={collection?.works || []} mode={view === "sources" ? "discover" : "extensions"} initialSearch={sourceRequest} onClearRequest={() => setSourceRequest(null)} onShowExtensions={() => setView("extensions")} onShowDiscover={() => setView("sources")} onShowDownloads={() => { setView("downloads"); setSelectedFolder(""); }}/> : view === "downloads" ? <DownloadsCenter root={collection?.root || ""} folders={collection?.folders || []} onSaved={async () => { await refresh(); }}/> : view === "lists" ? <>
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}
