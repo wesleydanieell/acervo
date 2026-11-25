@@ -106,3 +106,8 @@ O aplicativo não depende de um site fixo e não executa código vindo de extens
 ## Importação vinculada à ficha
 
 Pesquisas iniciadas em uma ficha JSON guardam uma referência persistente com raiz canônica, título, autor e destino planejado. Na importação, o usuário pode manter ou desmarcar a associação, e precisa selecionar a biblioteca de origem. A referência é resolvida por identidade exata e única, não pelo índice da lista nem por similaridade de título. Se a ficha mudou, foi removida, está duplicada ou a gravação falhou, o livro permanece salvo e a fila apresenta o erro de associação; o vínculo pode ser feito manualmente no catálogo. Registros antigos continuam legíveis. Não há UUID estável, associação ao SQLite legado, nem importação sem confirmação neste incremento. Um desligamento durante a gravação ainda pode exigir reconciliação manual do histórico.
+
+
+## Escolha da obra antes da transferência
+
+O botão Baixar abre um seletor pesquisável de fichas JSON e SQLite legado. A seleção define título de arquivo, referência à obra e pasta indicada; autor e editoras são mostrados a partir da ficha, sem sobrescrever metadados. O usuário pode escolher baixar sem vínculo ou desmarcar a importação automática. Com a opção automática confirmada, após validar a transferência o worker revalida a obra, cria pastas necessárias, salva sem sobrescrever e atualiza a associação. O catálogo aberto é recarregado por evento. Se a ficha mudou antes da importação, o arquivo continua na fila para revisão. Se o vínculo falhar depois de gravar, o arquivo permanece salvo. O SQLite é atualizado em transação apenas no campo de referências. A fila antiga permanece compatível; downloads restaurados não são automaticamente iniciados.

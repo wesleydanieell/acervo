@@ -36,3 +36,15 @@ test("catalog-linked downloads require the original library", async () => {
   assert.equal(canImportDownload("", null), false);
   assert.equal(canImportDownload("/other", null), true);
 });
+
+
+test("download picker searches catalog metadata and preserves explicit identity across reordering", async () => {
+  const { catalogChoice, filterDownloadWorks, sameCatalogChoice } = await import("../src/download-workspace.ts");
+  const first = {id:-1,title:"Ética",author:"Spinoza",destination:"Filosofia",present:false};
+  const second = {id:5,title:"Ética",author:"Aristóteles",destination:"Clássicos",present:true};
+  assert.deepEqual(filterDownloadWorks([second,first], "etica filosofia"), [first]);
+  assert.deepEqual(filterDownloadWorks([second,first], ""), [first,second]);
+  assert.equal(sameCatalogChoice(catalogChoice("/books", first),catalogChoice("/books",{...first,id:-3})),true);
+  assert.equal(sameCatalogChoice(catalogChoice("/books", second),catalogChoice("/books",{...second,id:6})),false);
+  assert.equal(sameCatalogChoice(catalogChoice("/books", first),catalogChoice("/books",{...first,destination:"Other"})),false);
+});

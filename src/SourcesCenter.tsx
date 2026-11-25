@@ -1,4 +1,6 @@
-import type { DiscoveryRequest } from "./download-workspace";
+import { DownloadCatalogPicker } from "./DownloadCatalogPicker";
+import type { CatalogItem } from "./CatalogCenter";
+import type { CatalogTarget, DiscoveryRequest } from "./download-workspace";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -25,14 +27,17 @@ const sampleManifest = JSON.stringify({
   formats: ["epub", "pdf"], languages: ["pt", "en"],
 }, null, 2);
 
-export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExtensions, onShowDiscover, onShowDownloads }: {
+export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExtensions, onShowDiscover, onShowDownloads, root, works }: {
   mode: "discover" | "extensions";
+  root: string; works: CatalogItem[];
   initialSearch?: DiscoveryRequest | null;
   onClearRequest: () => void;
   onShowExtensions: () => void;
   onShowDiscover: () => void;
   onShowDownloads: () => void;
 }) {
+  const [downloadChoice, setDownloadChoice] = useState<SourceResult | null>(null);
+  const [queueError, setQueueError] = useState("");
   const [sources, setSources] = useState<InstalledSource[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -110,20 +115,21 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     catch (failure) { setError("Falha ao copiar: " + String(failure)); }
   };
 
-  const queue = async (item: SourceResult) => {
+  const queue = async (item: SourceResult, target: CatalogTarget | null, autoImport: boolean) => {
     const key = resultKey(item);
-    if (queuePending.current.has(key) || queued.has(key)) return;
+    if (queuePending.current.has(key)) return;
     queuePending.current.add(key);
     setPending(new Set(queuePending.current));
-    setError(""); setNotice("");
+    setQueueError(""); setError(""); setNotice("");
     try {
       await invoke("queue_download", {
         url: item.downloadUrl, title: item.title, sourceName: item.sourceName,
-        format: item.format, plannedDestination: initialSearch?.destination ?? "", catalogTarget: initialSearch?.catalogTarget ?? null,
+        format: item.format, plannedDestination: target?.destination === "." ? "" : target?.destination ?? "", catalogTarget: target, autoImport,
       });
       setQueued(previous => new Set(previous).add(key));
-      setNotice("Livro adicionado à fila.");
-    } catch (failure) { setError(String(failure)); }
+      setNotice(autoImport ? "Download adicionado. A importação ocorrerá ao concluir." : "Livro adicionado à fila.");
+      setDownloadChoice(null);
+    } catch (failure) { setQueueError(String(failure)); }
     finally { queuePending.current.delete(key); setPending(new Set(queuePending.current)); }
   };
 
@@ -167,7 +173,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       {searchOutcome && <div className="source-results"><div className="source-results-heading"><strong>{searchOutcome.results.length} resultado(s)</strong><small>Resultados por fonte · links externos abrem no navegador</small></div>
         {searchOutcome.errors.length > 0 && <div className="source-errors" role="status">{searchOutcome.errors.map((text, index) => <p key={index}>{text}</p>)}</div>}
         {searchOutcome.results.length ? <div className="source-results-list">{searchOutcome.results.map((item, index) => <article key={item.sourceId + index} className="source-result"><div><strong>{item.title}</strong><small>{item.author || "Autor não informado"} · {item.sourceName}</small></div><div className="source-result-actions">{item.format && <span>{item.format.toUpperCase()}</span>}{item.language && <span>{item.language}</span>}{item.downloadUrl && ["pdf", "epub", "mobi", "azw3", "djvu"].includes(item.format.toLowerCase()) &&
-            <button className="button primary" type="button" title="Baixar primeiro para área temporária" disabled={queued.has(resultKey(item)) || pending.has(resultKey(item))} onClick={() => void queue(item)}>{queued.has(resultKey(item)) ? <Check size={15}/> : <Download size={15}/>} {queued.has(resultKey(item)) ? "Na fila" : pending.has(resultKey(item)) ? "Adicionando…" : "Baixar"}</button>}
+            <button className="button primary" type="button" title="Baixar primeiro para área temporária" disabled={pending.has(resultKey(item))} onClick={() => { setQueueError(""); setDownloadChoice(item); }}>{queued.has(resultKey(item)) ? <Check size={15}/> : <Download size={15}/>} {pending.has(resultKey(item)) ? "Adicionando…" : queued.has(resultKey(item)) ? "Baixar novamente" : "Baixar"}</button>}
           {item.downloadUrl && <button className="button secondary" type="button" title="Abrir link externo informado pela fonte" onClick={() => void openUrl(item.downloadUrl).catch((failure) => setError(String(failure)))}><ExternalLink size={15}/> Link</button>}</div></article>)}</div> : <p className="source-no-results">Nenhuma obra encontrada. Experimente outro termo, idioma ou fonte.</p>}
       </div>}
     </section>
@@ -209,5 +215,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       <p className="source-disclaimer"><ExternalLink size={14}/> Instale apenas fontes de confiança e respeite as condições de distribuição dos arquivos.</p>
     </details>
     </>}
+    {downloadChoice && <DownloadCatalogPicker book={downloadChoice} root={root} works={works} initial={initialSearch?.catalogTarget}
+      busy={pending.has(resultKey(downloadChoice))} error={queueError} onClose={() => setDownloadChoice(null)}
+      onSubmit={(target, autoImport) => void queue(downloadChoice, target, autoImport)}/>}
   </section>;
 }

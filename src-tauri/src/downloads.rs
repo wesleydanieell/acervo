@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_ACTIVE: usize = 3;
@@ -46,6 +46,8 @@ pub struct DownloadInfo {
     pub catalog_target: Option<CatalogTarget>,
     #[serde(default)]
     pub catalog_linked: bool,
+    #[serde(default)]
+    pub auto_import: bool,
 }
 
 #[derive(Clone)]
@@ -645,7 +647,58 @@ fn spawn_download(
                 }
             }
         });
-        let _ = manager.persist();
+        if manager.persist().is_err() {
+            return;
+        }
+        let auto_target = manager.0.lock().ok().and_then(|items| {
+            items
+                .iter()
+                .find(|item| {
+                    item.info.id == id
+                        && item.info.status == "ready"
+                        && item.info.auto_import
+                        && item.control.load(Ordering::Relaxed) == RUNNING
+                })
+                .and_then(|item| item.info.catalog_target.clone())
+        });
+        if let Some(target) = auto_target {
+            let root = target.root.clone();
+            let destination = if target.destination == "." {
+                String::new()
+            } else {
+                target.destination.clone()
+            };
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                if let Err(error) = target.validate() {
+                    manager.change(&id, |item| {
+                        if item.info.status == "ready" {
+                            item.info.auto_import = false;
+                            item.info.error = format!("Importação automática suspensa: {error}");
+                        }
+                    });
+                    let _ = manager.persist();
+                    return;
+                }
+                let result = save_download_to_library(
+                    app.clone(),
+                    manager.clone(),
+                    id.clone(),
+                    root.clone(),
+                    destination,
+                    true,
+                    true,
+                );
+                if result.is_err() {
+                    manager.change(&id, |item| {
+                        if item.info.status == "ready" {
+                            item.info.auto_import = false;
+                        }
+                    });
+                    let _ = manager.persist();
+                }
+            })
+            .await;
+        }
     });
 }
 
@@ -676,14 +729,30 @@ pub fn queue_download(
     format: String,
     planned_destination: String,
     catalog_target: Option<CatalogTarget>,
+    auto_import: Option<bool>,
 ) -> Result<Vec<DownloadInfo>, String> {
-    if let Some(target) = &catalog_target {
+    let auto_import = auto_import.unwrap_or(false);
+    let (title, planned_destination) = if let Some(target) = &catalog_target {
         target.validate()?;
-    }
+        let destination = if target.destination == "." {
+            String::new()
+        } else {
+            target.destination.clone()
+        };
+        if auto_import {
+            destination_parts(&destination)?;
+        }
+        (target.title.clone(), destination)
+    } else {
+        if auto_import {
+            return Err("Importação automática exige uma obra do catálogo.".into());
+        }
+        (title, planned_destination)
+    };
     if !safe_url(&url) {
         return Err("O link precisa ser HTTPS público e seguro.".into());
     }
-    if title.len() > 200 || source_name.len() > 120 || planned_destination.len() > 500 {
+    if title.len() > 500 || source_name.len() > 120 || planned_destination.len() > 600 {
         return Err("Metadados de download fora do limite.".into());
     }
     let filename = safe_filename(&title, &format)?;
@@ -711,6 +780,7 @@ pub fn queue_download(
             saved_path: String::new(),
             catalog_target,
             catalog_linked: false,
+            auto_import,
         },
         url: url.clone(),
         etag: String::new(),
@@ -1122,6 +1192,9 @@ fn save_download_to_library(
             item.info.error = error.clone();
         }
     });
+    if operation.is_ok() {
+        let _ = app.emit("acervo-library-changed", root.clone());
+    }
     if let Err(error) = manager.persist() {
         if let Ok(path) = &operation {
             return Err(format!(
@@ -1215,6 +1288,7 @@ mod tests {
             title: "Book".into(),
             author: "Author".into(),
             destination: "Planned".into(),
+            legacy_id: None,
         };
         let stage = dir.join("download.part");
         fs::write(&stage, b"%PDF-1.7\n%%EOF").unwrap();
@@ -1456,6 +1530,7 @@ mod tests {
                 saved_path: String::new(),
                 catalog_target: None,
                 catalog_linked: false,
+                auto_import: false,
             },
             url: "https://example.org/public-domain.epub".into(),
             etag: "\"edition-42\"".into(),
@@ -1485,15 +1560,19 @@ mod tests {
         let info = json[0]["info"].as_object_mut().unwrap();
         info.remove("catalogTarget");
         info.remove("catalogLinked");
+        info.remove("autoImport");
         fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
         let mut loaded = read_download_registry(&path).unwrap();
         assert!(loaded[0].info.catalog_target.is_none());
         assert!(!loaded[0].info.catalog_linked);
+        assert!(!loaded[0].info.auto_import);
+        loaded[0].info.auto_import = true;
         loaded[0].info.catalog_target = Some(CatalogTarget {
             root: "/books".into(),
             title: "Teste".into(),
             author: "Author".into(),
             destination: "Literatura".into(),
+            legacy_id: None,
         });
         write_download_registry(&path, &loaded).unwrap();
         assert_eq!(
@@ -1502,6 +1581,7 @@ mod tests {
                 .catalog_target,
             loaded[0].info.catalog_target
         );
+        assert!(read_download_registry(&path).unwrap()[0].info.auto_import);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].url, "https://example.org/public-domain.epub");
         assert_eq!(loaded[0].etag, "\"edition-42\"");
