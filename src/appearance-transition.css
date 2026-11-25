@@ -47,10 +47,14 @@
 @keyframes appearance-workspace-in{from{opacity:0;transform:translateY(7px) scale(.985)}to{opacity:1;transform:none}}
 @keyframes appearance-old{from{opacity:1}to{opacity:0}}
 @keyframes appearance-new{from{opacity:0}to{opacity:1}}
-@keyframes appearance-glass-in{from{opacity:0;filter:brightness(1.13);transform:scale(.985)}to{opacity:1;filter:brightness(1);transform:none}}
+@keyframes appearance-glass-in{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
 @keyframes appearance-tonal-in{from{opacity:0;transform:translateY(5px) scale(.99)}to{opacity:1;transform:none}}
 /* A hidden/off-canvas sidebar must not appear in the captured scene. */
 @media(max-width:860px){:root[data-style-transition] .sidebar{view-transition-name:none}}
 @media(prefers-reduced-motion:reduce){
  :root[data-style-transition]::view-transition-group(*),:root[data-style-transition]::view-transition-old(*),:root[data-style-transition]::view-transition-new(*){animation-duration:.01ms!important}
 }
+
+:root[data-style-transition]::view-transition-image-pair(*){isolation:isolate}
+:root[data-style-transition]::view-transition-old(*){animation-name:appearance-old;mix-blend-mode:normal}
+:root[data-style-transition]::view-transition-new(*){mix-blend-mode:normal}
