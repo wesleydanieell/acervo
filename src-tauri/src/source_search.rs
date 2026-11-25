@@ -38,6 +38,7 @@ impl BookSource for JsonSource {
                 pagination: self.manifest.pagination.is_some(),
                 details: false,
                 editions: false,
+                feed: self.manifest.supports_feed(),
             },
         }
     }
@@ -55,6 +56,28 @@ impl BookSource for JsonSource {
                 });
             }
             search_one(self.manifest.clone(), request).await
+        })
+    }
+    fn browse(
+        &self,
+        cursor: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
+        Box::pin(async move {
+            let manifest = self.manifest.for_feed()?;
+            let request = SearchRequest {
+                query: String::new(),
+                language: String::new(),
+                format: String::new(),
+                cursor,
+            };
+            request.validate_feed()?;
+            if request.cursor.is_some() && manifest.pagination.is_none() {
+                return Err(SourceError {
+                    code: SourceErrorCode::Unsupported,
+                    message: "Este feed não oferece paginação.".into(),
+                });
+            }
+            search_one(manifest, request).await
         })
     }
 }

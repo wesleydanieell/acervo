@@ -205,6 +205,14 @@
       "format": "uri",
       "pattern": "^https://",
       "maxLength": 2047
+    },
+    "feedPath": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1000,
+      "pattern": "^/(?!/)"
     }
   },
   "$defs": {

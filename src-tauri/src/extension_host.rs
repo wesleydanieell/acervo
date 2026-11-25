@@ -130,6 +130,47 @@ pub async fn search_sources(
     Ok(search_adapters(adapters, request).await)
 }
 
+/// A feed is explicitly declared by the source; no fabricated search query.
+#[tauri::command]
+pub async fn browse_source(
+    app: tauri::AppHandle,
+    id: String,
+    cursor: Option<String>,
+) -> Result<SearchOutcome, String> {
+    let installed = sources::list_sources(app)?
+        .into_iter()
+        .find(|s| s.enabled && s.manifest.id == id)
+        .ok_or("Fonte indisponível.")?;
+    let adapter = create_source(installed.manifest).map_err(|e| e.message)?;
+    if !adapter.descriptor().capabilities.feed {
+        return Err("Esta fonte não oferece feed.".into());
+    }
+    let page = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        adapter.browse(cursor.clone()),
+    )
+    .await
+    .map_err(|_| "Tempo limite ao carregar feed.")?
+    .map_err(|e| e.message)?;
+    let mut next_pages = BTreeMap::new();
+    if let Some(next) = page
+        .next_cursor
+        .filter(|next| Some(next) != cursor.as_ref())
+    {
+        next_pages.insert(id.clone(), next);
+    }
+    Ok(SearchOutcome {
+        results: page
+            .results
+            .into_iter()
+            .filter(|book| book.source_id == id)
+            .take(40)
+            .collect(),
+        errors: vec![],
+        next_pages,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +194,7 @@ mod tests {
                     pagination: false,
                     details: false,
                     editions: false,
+                    feed: false,
                 },
             }
         }
