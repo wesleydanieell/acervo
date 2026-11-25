@@ -1,3 +1,4 @@
+import { ActionMenu } from "./ActionMenu";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Book, Check, ChevronDown, ClipboardCopy, Download, FilePlus2, Filter, Search, Sparkles, Upload } from "lucide-react";
 import "./catalog-center.css";
@@ -106,7 +107,7 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
 
   return <section className="catalog-center">
     <div className="page-intro">
-      <div><div className="eyebrow">CENTRAL DE CATÁLOGO</div><h1>Catálogo de obras</h1>
+      <div><h1>Catálogo de obras</h1>
         <p>Listas de livros, aquisições planejadas e obras faltantes. Separado dos arquivos reais da biblioteca.</p></div>
     </div>
     <div className="catalog-summary">
@@ -115,15 +116,19 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
       <div className="catalog-summary-card glass-panel"><Check size={19}/><span>Já disponíveis</span><strong>{allRows.length - missing}</strong></div>
     </div>
     <div className="catalog-actions">
-      <button className="button primary" onClick={() => onImport()}><Upload size={17}/> Importar JSON</button>
       <input ref={csvInputRef} hidden type="file" accept=".csv,text/csv" aria-label="Selecionar CSV do Catálogo"
         onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; void importCsvFile(file); }}/>
-      <button className="button secondary" onClick={() => csvInputRef.current?.click()}><Upload size={17}/> Importar CSV</button>
-      <button className="button secondary" onClick={onPrompt}><Sparkles size={17}/> Gerar lista com IA</button>
-      <button className="button secondary" disabled={!works.length} onClick={() => onExport(exportJson())}><ClipboardCopy size={17}/> Copiar JSON</button>
-      <button className="button secondary" disabled={!works.length} onClick={exportCsvFile}><Download size={17}/> Exportar CSV</button>
-      {unindexed.length > 0 && <button className="button secondary" onClick={() => onCatalogWithAI(unindexed.slice(0, 50))}><Sparkles size={17}/> Preparar {Math.min(unindexed.length, 50)} arquivo(s) para IA</button>}
-      {unindexed.length > 0 && <button className="button secondary" onClick={() => onCatalogUnindexed(catalogDiscoveredJson())}><Book size={17}/> Catalogar sem IA ({unindexed.length})</button>}
+      <ActionMenu label="Exportar" icon={<Download size={17}/>} actions={[
+        {label:"Copiar JSON",icon:<ClipboardCopy size={17}/>,disabled:!works.length,run:()=>onExport(exportJson())},
+        {label:"Exportar CSV",icon:<Download size={17}/>,disabled:!works.length,run:exportCsvFile},
+      ]}/>
+      <ActionMenu label="Catalogar" icon={<Book size={17}/>} actions={[
+        {label:"Gerar lista com IA",icon:<Sparkles size={17}/>,run:onPrompt},
+        {label:"Preparar "+Math.min(unindexed.length,50)+" arquivo(s) para IA",icon:<Sparkles size={17}/>,disabled:!unindexed.length,run:()=>onCatalogWithAI(unindexed.slice(0,50))},
+        {label:"Catalogar sem IA ("+unindexed.length+")",icon:<Book size={17}/>,disabled:!unindexed.length,run:()=>onCatalogUnindexed(catalogDiscoveredJson())},
+      ]}/>
+      <button className="button secondary" onClick={()=>csvInputRef.current?.click()}><Upload size={17}/> Importar CSV</button>
+      <button className="button primary" onClick={()=>onImport()}><Upload size={17}/> Importar JSON</button>
     </div>
     {csvError && <div className="alert" role="alert">{csvError}</div>}
     <div className="catalog-toolbar">

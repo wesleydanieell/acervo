@@ -110,7 +110,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   };
 
   return <section className="downloads-center">
-    <div className="page-intro"><div><div className="eyebrow">GERENCIADOR DE DOWNLOADS</div>
+    <div className="page-intro"><div>
       <h1>Downloads</h1><p>Acompanhe transferências e decida onde cada livro será salvo na biblioteca.</p></div>
       <div className="download-actions">
         {items.some(item=>item.status==="waiting") && items.filter(item=>["queued","downloading","pausing"].includes(item.status)).length<3 &&

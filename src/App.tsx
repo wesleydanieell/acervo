@@ -33,6 +33,7 @@ import { selectVisibleRange } from "./library-selection";
 import { chosenPromptFolders, isServiceCatalogPath } from "./prompt-folder-selection";
 import { PromptFolderPicker } from "./PromptFolderPicker";
 import acervoIcon from "../branding/acervo-icon.svg";
+import { ActionMenu } from "./ActionMenu";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
 
 type LibraryEdition = {path:string;sourceName:string;metadata:{title:string;author:string;language:string;publisher:string;editionLabel:string;remoteId?:string|null;sourceId:string};fingerprint:{bytes:number;sha256:string}};
@@ -106,6 +107,16 @@ function App() {
   const [visualStyle, setVisualStyle] = useState<VisualStyle>(() => { const saved = localStorage.getItem("acervo-workspace-style"); return saved === "material" || saved === "glass" ? saved : "workspace"; });
   const [theme, setTheme] = useState<ThemeTokens | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const mainRef=useRef<HTMLElement>(null);
+  useEffect(()=>{
+    const main=mainRef.current;
+    if(!main)return;
+    main.scrollTop=0;
+    if(window.matchMedia("(prefers-reduced-motion: reduce)").matches||typeof main.animate!=="function")return;
+    const animation=main.animate([{opacity:.65},{opacity:1}],{duration:180,easing:"cubic-bezier(.2,0,0,1)"});
+    return()=>animation.cancel();
+  },[view]);
+
   const [importText, setImportText] = useState("");
   const [importNotice, setImportNotice] = useState("");
   const [promptCount, setPromptCount] = useState(10);
@@ -702,17 +713,17 @@ ${JSON.stringify(sample, null, 2)}`;
             <button className="icon-button" title="Atualizar catálogo" aria-label="Atualizar catálogo" disabled={loading} onClick={() => void refresh()}><RefreshCw className={loading ? "spinning" : ""} size={19} /></button>
           </div>
         </header>
-        <main className="main-area" onContextMenu={(event) => { if (view === "catalog") openContextMenu(event, "background", selectedFolder); }}>
+        <main ref={mainRef} className="main-area" data-view={view} onContextMenu={(event) => { if (view === "catalog") openContextMenu(event, "background", selectedFolder); }}>
           {view === "settings" ? <section className="settings-page">
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
-            <div className="page-intro"><div><div className="eyebrow"><span className="eyebrow-dot"/> PREFERÊNCIAS</div><h1>Configurações</h1><p>Personalize a aparência e o armazenamento da biblioteca.</p></div></div>
+            <div className="page-intro"><div><h1>Configurações</h1><p>Personalize a aparência e o armazenamento da biblioteca.</p></div></div>
             <div className="settings-grid">
               <article className="settings-card glass-panel">
                 <div className="settings-card-heading"><Palette size={22}/><div><h2>Aparência</h2><p>Escolha o estilo visual.</p></div></div>
                 <div className="style-choices" role="group" aria-label="Estilo da interface">
-                  <button className={"style-choice " + (visualStyle === "workspace" ? "chosen" : "")} onClick={() => setVisualStyle("workspace")} aria-pressed={visualStyle === "workspace"}><Book size={22}/><strong>Acervo</strong><small>Superfícies sólidas, capas em destaque</small></button>
-                  <button className={"style-choice " + (visualStyle === "glass" ? "chosen" : "")} onClick={() => setVisualStyle("glass")} aria-pressed={visualStyle === "glass"}><Layers3 size={22}/><strong>Liquid Glass</strong><small>Transparência, brilho e profundidade</small></button>
-                  <button className={"style-choice " + (visualStyle === "material" ? "chosen" : "")} onClick={() => setVisualStyle("material")} aria-pressed={visualStyle === "material"}><Grid2X2 size={22}/><strong>Material 3</strong><small>Superfícies sólidas e tonais</small></button>
+                  <button className={"style-choice " + (visualStyle === "workspace" ? "chosen" : "")} onClick={() => setVisualStyle("workspace")} aria-pressed={visualStyle === "workspace"}><span className="style-preview" data-preview="workspace" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Acervo</strong><small>Superfícies sólidas, capas em destaque</small></button>
+                  <button className={"style-choice " + (visualStyle === "glass" ? "chosen" : "")} onClick={() => setVisualStyle("glass")} aria-pressed={visualStyle === "glass"}><span className="style-preview" data-preview="glass" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Liquid Glass</strong><small>Transparência, brilho e profundidade</small></button>
+                  <button className={"style-choice " + (visualStyle === "material" ? "chosen" : "")} onClick={() => setVisualStyle("material")} aria-pressed={visualStyle === "material"}><span className="style-preview" data-preview="material" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Material 3</strong><small>Superfícies sólidas e tonais</small></button>
                 </div>
                 <label className="settings-field">Paleta de cores
                   <select aria-label="Paleta de cores" value={palette} onChange={(event) => setPalette(event.target.value as PaletteName)}><option value="noctalia">Automática · Noctalia</option><option value="jade">Jade</option><option value="indigo">Índigo</option><option value="rose">Rosé</option><option value="amber">Âmbar</option></select>
@@ -720,10 +731,10 @@ ${JSON.stringify(sample, null, 2)}`;
                 <div className="theme-sync"><span className={"status-dot " + (theme ? "" : "muted")}/><div><strong>{theme ? "Noctalia conectado" : "Aguardando paleta do Noctalia"}</strong><small>{theme ? "As cores acompanham as alterações do wallpaper automaticamente." : "Para sincronizar, habilite o template do Acervo no Noctalia."}</small></div></div>
               </article>
               <article className="settings-card glass-panel">
-                <div className="settings-card-heading"><HardDrive size={22}/><div><h2>Biblioteca</h2><p>Escolha a pasta raiz pelo explorador do sistema.</p></div></div><label className="organization-approval"><input type="checkbox" checked={monitorEnabled} onChange={event=>setMonitorEnabled(event.target.checked)}/> Atualizar ao detectar alterações nas pastas</label>{monitorError&&<small className="download-error" role="alert">{monitorError}</small>}
+                <div className="settings-card-heading"><HardDrive size={22}/><div><h2>Biblioteca</h2></div></div>
                 <div className="current-root"><FolderOpen size={20}/><span>{collection?.root || "Nenhuma biblioteca selecionada"}</span></div>
                 <div className="settings-actions"><button className="button primary" onClick={() => void chooseRoot()}><FolderOpen size={17}/> Procurar pasta</button><button className="button secondary" onClick={() => setModal("root")}>Informar caminho</button></div>
-                <p className="settings-footnote">Abrir uma biblioteca não altera arquivos. Movimentações exigem confirmação e não substituem arquivos existentes.</p>
+                <label className="settings-toggle"><span><strong>Monitorar alterações</strong><small>Atualiza a biblioteca quando arquivos ou pastas mudam.</small></span><input type="checkbox" role="switch" checked={monitorEnabled} onChange={event=>setMonitorEnabled(event.target.checked)}/></label>{monitorError&&<small className="download-error" role="alert">{monitorError}</small>}<p className="settings-footnote">Abrir uma biblioteca não altera arquivos. Movimentações exigem confirmação e não substituem arquivos existentes.</p>
               </article>
               <article className="settings-card glass-panel">
                 <div className="settings-card-heading"><ArrowDownToLine size={22}/><div><h2>Aquisição</h2></div></div>
@@ -748,7 +759,11 @@ ${JSON.stringify(sample, null, 2)}`;
               onSelect={(work) => { const entry = entries.find((candidate) => candidate.work?.id === work.id); if (entry) setSelection(entry); }}
               onSelectFile={(file) => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }} />
           </> : <>
-          <div className="page-intro"><div><h1>{currentLabel}</h1><p>{collection ? collection.files.length + " arquivos na biblioteca" : "Nenhuma biblioteca selecionada"}</p></div><div className="page-actions"><button className="button secondary" disabled={!collection||loading} onClick={()=>setDuplicateRoot(collection?.root??"")}><Archive size={17}/> Duplicatas</button><button className="button secondary" disabled={!collection||loading} onClick={()=>setMetadataRoot(collection?.root??"")}><Book size={17}/> Metadados</button><button className="button secondary" disabled={!collection||loading} onClick={()=>setSmartRoot(collection?.root??"")}><FolderTree size={17}/> Organizar</button><button className="button secondary" onClick={openOrganizationDialog}><Layers3 size={17}/> Organizar por JSON</button><button className="button primary add-button" onClick={() => openFolderDialog(selectedFolder)}><FolderPlus size={18}/> Nova pasta</button></div></div>
+          <div className="page-intro"><div><h1>{currentLabel}</h1><p>{collection ? collection.files.length + " arquivos na biblioteca" : "Nenhuma biblioteca selecionada"}</p></div><div className="page-actions"><ActionMenu label="Gerenciar" icon={<Layers3 size={17}/>} actions={[
+            {label:"Duplicatas",icon:<Archive size={17}/>,disabled:!collection||loading,run:()=>setDuplicateRoot(collection?.root??"")},
+            {label:"Metadados",icon:<Book size={17}/>,disabled:!collection||loading,run:()=>setMetadataRoot(collection?.root??"")},
+            {label:"Organizar por JSON",icon:<Layers3 size={17}/>,disabled:!collection||loading,run:openOrganizationDialog},
+          ]}/><button className="button secondary" disabled={!collection||loading} onClick={()=>setSmartRoot(collection?.root??"")}><FolderTree size={17}/> Organizar</button><button className="button primary add-button" disabled={!collection||loading} onClick={() => openFolderDialog(selectedFolder)}><FolderPlus size={18}/> Nova pasta</button></div></div>
           {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
           {collection?.warnings.length ? <div className="warning">{collection.warnings.slice(0, 2).join(" · ")}</div> : null}
           {selectedFolder && <nav className="breadcrumbs" aria-label="Caminho da pasta"><button onClick={() => { setSelectedFolder(""); setView("catalog"); }}><Home size={15}/> Raiz</button>{breadcrumbs.map((crumb) => <span key={crumb.path}><ChevronRight size={14}/><button onClick={() => setSelectedFolder(crumb.path)}>{crumb.label}</button></span>)}</nav>}
