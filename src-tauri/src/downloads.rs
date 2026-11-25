@@ -121,6 +121,8 @@ pub struct DownloadInfo {
     // None denotes the historical filename algorithm; Some("") opts into the new one.
     #[serde(default)]
     pub filename_suffix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub naming_preset: Option<super::download_naming::NamingPreset>,
     #[serde(default)]
     import_intent: Option<ImportIntent>,
 }
@@ -183,13 +185,9 @@ fn read_download_registry(path: &Path) -> Result<Vec<DownloadRecord>, String> {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
                 || !ids.insert(saved.info.id.clone())
-                || planned_filename(
-                    &saved.info.title,
-                    &saved.info.format,
-                    saved.info.filename_suffix.as_deref(),
-                )
-                .ok()
-                .as_deref()
+                || record_filename(&saved.info, saved.info.filename_suffix.as_deref())
+                    .ok()
+                    .as_deref()
                     != Some(saved.info.filename.as_str())
             {
                 return Err("Registro de downloads contém entrada inválida.".into());
@@ -494,6 +492,21 @@ fn planned_filename(title: &str, format: &str, suffix: Option<&str>) -> Result<S
         Some(suffix) if suffix.len() > 300 => Err("Complemento do nome excede 300 bytes.".into()),
         Some(suffix) => super::download_naming::edition_filename(title, format, suffix),
         None => safe_filename(title, format),
+    }
+}
+
+fn record_filename(info: &DownloadInfo, suffix: Option<&str>) -> Result<String, String> {
+    if let Some(preset) = info.naming_preset {
+        let suffix = suffix.ok_or("Registro de nome sem complemento.")?;
+        let author = super::download_naming::author_for_name(
+            info.catalog_target
+                .as_ref()
+                .map(|target| target.author.as_str()),
+            info.edition.as_ref().map(|edition| edition.author.as_str()),
+        );
+        super::download_naming::named_filename(&info.title, &author, &info.format, suffix, preset)
+    } else {
+        planned_filename(&info.title, &info.format, suffix)
     }
 }
 
@@ -939,6 +952,8 @@ pub fn queue_download(
     auto_import: Option<bool>,
     edition: Option<DownloadEdition>,
     filename_suffix: Option<String>,
+    naming_preset: Option<super::download_naming::NamingPreset>,
+    expected_filename: Option<String>,
 ) -> Result<Vec<DownloadInfo>, String> {
     let source = super::sources::list_sources(app.clone())?
         .into_iter()
@@ -994,7 +1009,24 @@ pub fn queue_download(
     if title.len() > 500 || source_name.len() > 120 || planned_destination.len() > 600 {
         return Err("Metadados de download fora do limite.".into());
     }
-    let filename = planned_filename(&title, &format, filename_suffix.as_deref())?;
+    let naming_preset = Some(naming_preset.unwrap_or_default());
+    let author = super::download_naming::author_for_name(
+        catalog_target.as_ref().map(|target| target.author.as_str()),
+        edition.as_ref().map(|edition| edition.author.as_str()),
+    );
+    let filename = super::download_naming::named_filename(
+        &title,
+        &author,
+        &format,
+        filename_suffix.as_deref().unwrap_or_default(),
+        naming_preset.unwrap_or_default(),
+    )?;
+    if expected_filename
+        .as_ref()
+        .is_some_and(|expected| expected != &filename)
+    {
+        return Err("O nome confirmado mudou. Confira a prévia novamente.".into());
+    }
     let id = format!(
         "{}-{}",
         SystemTime::now()
@@ -1022,6 +1054,7 @@ pub fn queue_download(
             auto_import,
             edition,
             filename_suffix,
+            naming_preset,
             import_intent: None,
         },
         url: url.clone(),
@@ -1387,11 +1420,7 @@ fn rename_ready(manager: &DownloadManager, id: &str, suffix: &str) -> Result<(),
     if items[index].info.status != "ready" {
         return Err("Somente downloads prontos podem ser renomeados.".into());
     }
-    let next = planned_filename(
-        &items[index].info.title,
-        &items[index].info.format,
-        Some(suffix),
-    )?;
+    let next = record_filename(&items[index].info, Some(suffix))?;
     let old = items[index].info.clone();
     items[index].info.filename = next;
     items[index].info.filename_suffix = Some(suffix.into());
@@ -1900,6 +1929,7 @@ mod tests {
             auto_import: true,
             edition: None,
             filename_suffix: None,
+            naming_preset: None,
             import_intent: Some(intent.clone()),
         };
         let record = DownloadRecord {
@@ -2372,6 +2402,7 @@ mod tests {
                 auto_import: false,
                 edition: None,
                 filename_suffix: None,
+                naming_preset: None,
                 import_intent: None,
             },
             url: "https://example.org/public-domain.epub".into(),
@@ -2459,6 +2490,14 @@ mod tests {
             destination: "Literatura".into(),
             legacy_id: None,
         });
+        loaded[0].info.naming_preset =
+            Some(super::super::download_naming::NamingPreset::AuthorTitle);
+        loaded[0].info.filename =
+            record_filename(&loaded[0].info, loaded[0].info.filename_suffix.as_deref()).unwrap();
+        assert_eq!(
+            loaded[0].info.filename,
+            "Author - Teste - pt - Editora.epub"
+        );
         write_download_registry(&path, &loaded).unwrap();
         assert_eq!(
             read_download_registry(&path).unwrap()[0]
@@ -2476,12 +2515,12 @@ mod tests {
         rename_ready(&manager, "job-1", "Outra").unwrap();
         assert_eq!(
             read_download_registry(&path).unwrap()[0].info.filename,
-            "Teste - Outra.epub"
+            "Author - Teste - Outra.epub"
         );
         assert!(rename_ready(&manager, "job-1", &"x".repeat(301)).is_err());
         assert_eq!(
             manager.snapshot().unwrap()[0].filename,
-            "Teste - Outra.epub"
+            "Author - Teste - Outra.epub"
         );
         let invalid_registry = dir.join("missing-parent");
         fs::write(&invalid_registry, b"not a directory").unwrap();
@@ -2493,7 +2532,7 @@ mod tests {
         assert!(rename_ready(&broken, "job-1", "Not persisted").is_err());
         assert_eq!(
             manager.snapshot().unwrap()[0].filename,
-            "Teste - Outra.epub"
+            "Author - Teste - Outra.epub"
         );
 
         assert_eq!(loaded.len(), 1);

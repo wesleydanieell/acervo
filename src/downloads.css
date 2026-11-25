@@ -39,3 +39,5 @@
 .download-path-actions{display:flex;justify-content:flex-start}
 
 .download-destination label.download-link-option{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500}.download-link-option input{accent-color:var(--accent)}
+
+.download-name-select{width:100%;min-width:0;padding:8px;border:1px solid var(--stroke);border-radius:8px;background:var(--glass-strong);color:var(--text);font:inherit}

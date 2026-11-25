@@ -1,12 +1,15 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { namingOptions,readNamingPreset,type NamingPreset } from "./download-naming";
 import { Book, Check, Download, Folder, Search, X } from "lucide-react";
 import type { CatalogItem } from "./CatalogCenter";
 import { catalogChoice, sameCatalogChoice, filterDownloadWorks, validDownloadPath, suggestedEditionSuffix, type CatalogTarget } from "./download-workspace";
 
-export function DownloadCatalogPicker({ book, root, works, initial, busy, error, onClose, onSubmit }: {
+export function DownloadCatalogPicker({ book, root, works, initial, busy, error, onClose, onSubmit, namingPreset }: {
+  namingPreset:NamingPreset;
   book: { title: string; author: string; format: string; sourceName: string; language?:string; publisher?:string; editionLabel?:string };
   root: string; works: CatalogItem[]; initial?: CatalogTarget; busy: boolean; error: string;
-  onClose: () => void; onSubmit: (target: CatalogTarget | null, autoImport: boolean, filenameSuffix: string) => void;
+  onClose: () => void; onSubmit: (target: CatalogTarget | null, autoImport: boolean, filenameSuffix: string,preset:NamingPreset,expectedFilename:string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState("");
@@ -14,6 +17,8 @@ export function DownloadCatalogPicker({ book, root, works, initial, busy, error,
   const [selected, setSelected] = useState<CatalogTarget | null>(() => initial ?? null);
   const [automatic, setAutomatic] = useState(true);
   const [suffix, setSuffix] = useState("");
+  const [preset,setPreset]=useState(namingPreset);
+  const [preview,setPreview]=useState<{key:string;filename:string;error:string}|null>(null);
   const suggestion = suggestedEditionSuffix(book);
   const validSuffix = new TextEncoder().encode(suffix).length <= 300;
   const [limit, setLimit] = useState(80);
@@ -23,6 +28,21 @@ export function DownloadCatalogPicker({ book, root, works, initial, busy, error,
   const target = work && root ? catalogChoice(root, work) : null;
   const destination = target?.destination === "." ? "" : target?.destination;
   const autoAllowed = !!target && (destination === "" || validDownloadPath(destination || ""));
+  const title=target?.title??book.title;
+  const catalogAuthor=target?.author??null;
+  const sourceAuthor=book.author;
+  const previewKey=JSON.stringify([title,catalogAuthor,sourceAuthor,book.format,suffix,preset]);
+  const currentPreview=preview?.key===previewKey?preview:null;
+  useEffect(()=>{
+    if(!validSuffix)return;
+    let alive=true;
+    const timer=window.setTimeout(()=>{
+      void invoke<string>("preview_download_filename",{title,catalogAuthor,sourceAuthor,format:book.format,suffix,preset}).then(filename=>{
+        if(alive)setPreview({key:previewKey,filename,error:""});
+      }).catch(failure=>{if(alive)setPreview({key:previewKey,filename:"",error:String(failure)});});
+    },100);
+    return()=>{alive=false;window.clearTimeout(timer);};
+  },[title,catalogAuthor,sourceAuthor,book.format,suffix,preset,previewKey,validSuffix]);
   useEffect(() => { dialog.current?.showModal(); }, []);
   return <dialog ref={dialog} className="download-picker glass-panel" aria-labelledby="download-picker-title"
     onCancel={e => { e.preventDefault(); if (!busy) onClose(); }}>
@@ -43,14 +63,16 @@ export function DownloadCatalogPicker({ book, root, works, initial, busy, error,
         {!autoAllowed && <small>Destino inválido; escolha a pasta na fila após baixar.</small>}
       </div>}
       <div className="download-picker-details">
+        <label htmlFor="download-name-preset">Padrão de nomenclatura</label>
+        <select id="download-name-preset" className="download-name-select" disabled={busy} value={preset} onChange={event=>setPreset(readNamingPreset(event.target.value))}>{namingOptions.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>
         <label htmlFor="edition-filename-suffix">Complemento do nome do arquivo (opcional)</label>
         <div className="edition-filename-control"><input id="edition-filename-suffix" value={suffix} maxLength={300} disabled={busy} placeholder="Ex.: 2ª edição" onChange={e=>setSuffix(e.target.value)} aria-invalid={!validSuffix}/>
           {suggestion && <button className="button secondary" disabled={busy} type="button" onClick={()=>setSuffix(suggestion)}>Usar edição</button>}</div>
-        <small>Nome sugerido: {target?.title || book.title}{suffix.trim() ? " - "+suffix.trim() : ""}.{book.format.toLowerCase()}</small>
+        {!validSuffix?<small className="download-error">Complemento excede 300 bytes.</small>:currentPreview?.error?<small className="download-error" role="alert">{currentPreview.error}</small>:<small title={currentPreview?.filename}>Nome do arquivo: {currentPreview?.filename??"Calculando…"}</small>}
       </div>
       {selected && !target && <p className="download-error" role="status">A ficha está indisponível ou duplicada. Escolha outra obra.</p>}
       {error && <p className="download-error" role="alert">{error}</p>}
     </div>
-    <div className="download-picker-footer"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !validSuffix || (selected !== null && !target)} onClick={() => onSubmit(target, automatic && autoAllowed, suffix)}><Download size={16}/>{busy ? "Adicionando…" : target && automatic && autoAllowed ? "Baixar e importar" : "Baixar"}</button></div>
+    <div className="download-picker-footer"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !validSuffix || !currentPreview?.filename || (selected !== null && !target)} onClick={() => {if(currentPreview?.filename)onSubmit(target, automatic && autoAllowed, suffix,preset,currentPreview.filename);}}><Download size={16}/>{busy ? "Adicionando…" : target && automatic && autoAllowed ? "Baixar e importar" : "Baixar"}</button></div>
   </dialog>;
 }
