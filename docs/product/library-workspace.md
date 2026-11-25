@@ -26,7 +26,9 @@ Aceite: 500+ itens, seleção atravessa paginação, filtros e virtualização; 
 
 ## Etapa 2 — Núcleo de planejamento e coordenação
 
-**Planejada; depende da etapa 1 estabilizada.**
+**Iniciada, somente leitura; liberação depende da etapa 1 estabilizada.**
+
+Primeiro incremento: comando interno `preview_library_restructure` com operações tipadas `createFolder` e `moveFolder` (renomear é mover para um novo caminho). A prévia contabiliza livros, arquivos auxiliares e pastas, incluindo vazias; aceita destinos em pastas propostas anteriormente. Rejeita links simbólicos, caminhos protegidos, destinos existentes, ciclos e subárvores sobrepostas. Limites iniciais: 100 operações e 50.000 entradas no inventário. Não há executor, integração visual, token de aprovação ou remapeamento de referências neste incremento. Movimentos encadeados e consolidação permanecem fora do contrato inicial.
 
 - Criar representação tipada, versionada, imutável de plano, raiz canônica, identidade de origem, caminho final, operações, dependências, impacto, avisos e conflitos. A IA e a UI produzem propostas, nunca instruções de shell.
 - Suportar criar pastas, mover/renomear livros preservando formato, mover/renomear subárvores inteiras, e preparar consolidação de pastas. Operações de união não devem sobrescrever arquivos. Pastas vazias e arquivos auxiliares são parte do inventário.

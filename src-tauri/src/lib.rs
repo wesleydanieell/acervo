@@ -23,6 +23,7 @@ mod noctalia;
 mod opds_parser;
 mod opds_source;
 mod organization;
+mod library_restructure;
 mod repository_index;
 mod smart_organization;
 mod source_browser;
@@ -831,6 +832,7 @@ pub fn run() {
         smart_organization::preview_smart_organization,
         smart_organization::apply_smart_organization,
         organization::preview_organization,
+        library_restructure::preview_library_restructure,
         organization::apply_organization,
         sources::list_sources,
         source_browser::open_source_webview,
