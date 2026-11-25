@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "name": "Acervo · fontes de referência",
+  "extensions": [
+    {
+      "id": "gutenberg-curated",
+      "name": "Gutenberg · clássicos brasileiros",
+      "version": "1.0.0",
+      "manifestUrl": "https://raw.githubusercontent.com/wesleydanieell/acervo/8e8f27d3ea337b2abe35c84ff0397a9ae3dc7117/integrations/extension-repository/gutenberg.json",
+      "sha256": "9317c1c1922029bc8f5ddcd8cf37b0b343dd728439fba68631e6c41cfc092aa9"
+    },
+    {
+      "id": "acervo-html-test",
+      "name": "Acervo · HTML (teste)",
+      "version": "1.0.0",
+      "manifestUrl": "https://raw.githubusercontent.com/wesleydanieell/acervo/8e8f27d3ea337b2abe35c84ff0397a9ae3dc7117/integrations/extension-repository/test-html.json",
+      "sha256": "82b875922d1f137bcf679d49124f228dec6476d13bf563e4a0edc75369407a45"
+    },
+    {
+      "id": "acervo-test-source",
+      "name": "Acervo · Fonte de teste",
+      "version": "1.0.0",
+      "manifestUrl": "https://raw.githubusercontent.com/wesleydanieell/acervo/8e8f27d3ea337b2abe35c84ff0397a9ae3dc7117/integrations/extension-repository/test-json.json",
+      "sha256": "7985554797a26f5368511b811dedea9429bd0f5b2479394ab69eb626620a8235"
+    },
+    {
+      "id": "acervo-opds-atom",
+      "name": "Acervo · OPDS ATOM (teste)",
+      "version": "1.0.0",
+      "manifestUrl": "https://raw.githubusercontent.com/wesleydanieell/acervo/8e8f27d3ea337b2abe35c84ff0397a9ae3dc7117/integrations/extension-repository/test-opds.json",
+      "sha256": "89bfe86efea190d37aa53e0fadf9a2bbbf00f69da9a0201f850bd25a9e95e55d"
+    }
+  ]
+}
