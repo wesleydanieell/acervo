@@ -17,8 +17,17 @@ impl SearchRequest {
     /// Validate shared request syntax without modifying the caller's values.
     /// Empty language/format mean no filter; their vocabulary is source-specific.
     pub fn validate(&self) -> Result<(), SourceError> {
-        if self.query.trim().chars().count() < 2
-            || self.query.chars().count() > 200
+        self.validate_query(false)
+    }
+    pub(crate) fn validate_feed(&self) -> Result<(), SourceError> {
+        self.validate_query(true)
+    }
+    fn validate_query(&self, feed: bool) -> Result<(), SourceError> {
+        if (if feed {
+            !self.query.is_empty() || !self.language.is_empty() || !self.format.is_empty()
+        } else {
+            self.query.trim().chars().count() < 2
+        }) || self.query.chars().count() > 200
             || self.query.chars().any(char::is_control)
         {
             return Err(SourceError {
@@ -57,6 +66,8 @@ pub struct SourceCapabilities {
     pub pagination: bool,
     pub details: bool,
     pub editions: bool,
+    #[serde(default)]
+    pub feed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +139,17 @@ pub trait BookSource: Send + Sync {
         &self,
         request: SearchRequest,
     ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>>;
+    fn browse(
+        &self,
+        _cursor: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
+        Box::pin(async {
+            Err(SourceError {
+                code: SourceErrorCode::Unsupported,
+                message: "Esta fonte não oferece feed.".into(),
+            })
+        })
+    }
 }
 
 #[cfg(test)]
@@ -141,6 +163,19 @@ mod tests {
             format: String::new(),
             cursor: None,
         }
+    }
+
+    #[test]
+    fn feed_validation_does_not_relax_search() {
+        let mut r = request();
+        r.query.clear();
+        assert!(r.validate().is_err());
+        assert!(r.validate_feed().is_ok());
+        r.cursor = Some("".into());
+        assert!(r.validate_feed().is_err());
+        r.cursor = None;
+        r.language = "pt".into();
+        assert!(r.validate_feed().is_err());
     }
 
     #[test]

@@ -617,6 +617,7 @@ pub fn run() {
         sources::set_source_enabled,
         sources::remove_source,
         extension_host::search_sources,
+        extension_host::browse_source,
         extension_host::list_source_descriptors,
         downloads::list_downloads,
         downloads::queue_download,

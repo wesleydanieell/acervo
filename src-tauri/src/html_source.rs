@@ -83,6 +83,7 @@ impl BookSource for HtmlSource {
                 pagination: mapping.is_some_and(|m| !m.next_selector.is_empty()),
                 details: false,
                 editions: false,
+                feed: self.manifest.supports_feed(),
             },
         }
     }
@@ -92,71 +93,92 @@ impl BookSource for HtmlSource {
     ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
         Box::pin(async move {
             request.validate()?;
-            for (value, supported) in [
-                (&request.language, &self.manifest.languages),
-                (&request.format, &self.manifest.formats),
-            ] {
-                if !value.is_empty()
-                    && !supported.is_empty()
-                    && !supported.iter().any(|s| s.eq_ignore_ascii_case(value))
-                {
-                    return Err(failure(
-                        SourceErrorCode::Unsupported,
-                        "Filtro não oferecido pela fonte HTML.",
-                    ));
-                }
-            }
-            let url = page_url(&self.manifest, &request)?;
-            let client = secure_https_client(&url, Duration::from_secs(15))
-                .await
-                .map_err(|e| failure(SourceErrorCode::Network, e))?;
-            let mut res = client
-                .get(url.clone())
-                .header("Accept", "text/html, application/xhtml+xml;q=0.9")
-                .send()
-                .await
-                .map_err(|_| {
-                    failure(SourceErrorCode::Network, "Falha ao conectar à fonte HTML.")
-                })?;
-            if !res.status().is_success() {
-                return Err(failure(
-                    SourceErrorCode::Network,
-                    format!("Resposta HTTP {}", res.status()),
-                ));
-            }
-            if res
-                .content_length()
-                .is_some_and(|size| size > MAX_BODY as u64)
-            {
-                return Err(failure(
-                    SourceErrorCode::InvalidResponse,
-                    "HTML excede 2 MB.",
-                ));
-            }
-            let mut body = Vec::new();
-            while let Some(chunk) = res
-                .chunk()
-                .await
-                .map_err(|_| failure(SourceErrorCode::Network, "Falha ao ler HTML."))?
-            {
-                if body.len() + chunk.len() > MAX_BODY {
-                    return Err(failure(
-                        SourceErrorCode::InvalidResponse,
-                        "HTML excede 2 MB.",
-                    ));
-                }
-                body.extend_from_slice(&chunk);
-            }
-            let manifest = self.manifest.clone();
-            tokio::task::spawn_blocking(move || {
-                let body = std::str::from_utf8(&body)
-                    .map_err(|_| failure(SourceErrorCode::InvalidResponse, "HTML não é UTF-8."))?;
-                parse_html(&manifest, body, &url, &request)
-            })
-            .await
-            .map_err(|_| failure(SourceErrorCode::Internal, "Falha no processamento HTML."))?
+            fetch_page(&self.manifest, request).await
         })
     }
+    fn browse(
+        &self,
+        cursor: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
+        Box::pin(async move {
+            let manifest = self.manifest.for_feed()?;
+            let request = SearchRequest {
+                query: String::new(),
+                language: String::new(),
+                format: String::new(),
+                cursor,
+            };
+            request.validate_feed()?;
+            fetch_page(&manifest, request).await
+        })
+    }
+}
+
+async fn fetch_page(
+    manifest: &SourceManifest,
+    request: SearchRequest,
+) -> Result<SearchPage, SourceError> {
+    for (value, supported) in [
+        (&request.language, &manifest.languages),
+        (&request.format, &manifest.formats),
+    ] {
+        if !value.is_empty()
+            && !supported.is_empty()
+            && !supported.iter().any(|s| s.eq_ignore_ascii_case(value))
+        {
+            return Err(failure(
+                SourceErrorCode::Unsupported,
+                "Filtro não oferecido pela fonte HTML.",
+            ));
+        }
+    }
+    let url = page_url(&manifest, &request)?;
+    let client = secure_https_client(&url, Duration::from_secs(15))
+        .await
+        .map_err(|e| failure(SourceErrorCode::Network, e))?;
+    let mut res = client
+        .get(url.clone())
+        .header("Accept", "text/html, application/xhtml+xml;q=0.9")
+        .send()
+        .await
+        .map_err(|_| failure(SourceErrorCode::Network, "Falha ao conectar à fonte HTML."))?;
+    if !res.status().is_success() {
+        return Err(failure(
+            SourceErrorCode::Network,
+            format!("Resposta HTTP {}", res.status()),
+        ));
+    }
+    if res
+        .content_length()
+        .is_some_and(|size| size > MAX_BODY as u64)
+    {
+        return Err(failure(
+            SourceErrorCode::InvalidResponse,
+            "HTML excede 2 MB.",
+        ));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = res
+        .chunk()
+        .await
+        .map_err(|_| failure(SourceErrorCode::Network, "Falha ao ler HTML."))?
+    {
+        if body.len() + chunk.len() > MAX_BODY {
+            return Err(failure(
+                SourceErrorCode::InvalidResponse,
+                "HTML excede 2 MB.",
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let manifest = manifest.clone();
+    tokio::task::spawn_blocking(move || {
+        let body = std::str::from_utf8(&body)
+            .map_err(|_| failure(SourceErrorCode::InvalidResponse, "HTML não é UTF-8."))?;
+        parse_html(&manifest, body, &url, &request)
+    })
+    .await
+    .map_err(|_| failure(SourceErrorCode::Internal, "Falha no processamento HTML."))?
 }
 
 #[cfg(test)]

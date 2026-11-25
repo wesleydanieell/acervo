@@ -76,6 +76,7 @@ impl BookSource for OpdsSource {
                 pagination: true,
                 details: false,
                 editions: false,
+                feed: self.manifest.supports_feed(),
             },
         }
     }
@@ -85,60 +86,82 @@ impl BookSource for OpdsSource {
     ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
         Box::pin(async move {
             request.validate()?;
-            for (filter, supported) in [
-                (&request.language, &self.manifest.languages),
-                (&request.format, &self.manifest.formats),
-            ] {
-                if !filter.is_empty()
-                    && !supported.is_empty()
-                    && !supported
-                        .iter()
-                        .any(|value| value.eq_ignore_ascii_case(filter))
-                {
-                    return Err(SourceError {
-                        code: SourceErrorCode::Unsupported,
-                        message: "Filtro não oferecido por esta fonte.".into(),
-                    });
-                }
-            }
-            let url = feed_url(&self.manifest, &request)?;
-            let client = secure_https_client(&url, Duration::from_secs(15))
-                .await
-                .map_err(network)?;
-            let mut res = client
-                .get(url.clone())
-                .header(
-                    "Accept",
-                    "application/opds+json, application/atom+xml;q=0.9, application/json;q=0.8",
-                )
-                .send()
-                .await
-                .map_err(|_| network("Falha ao conectar à fonte OPDS."))?;
-            if !res.status().is_success() {
-                return Err(network(format!("Resposta HTTP {}", res.status())));
-            }
-            if res
-                .content_length()
-                .is_some_and(|size| size > MAX_FEED_BYTES as u64)
-            {
-                return Err(response("Feed OPDS excede 2 MB."));
-            }
-            let mut body = Vec::new();
-            while let Some(chunk) = res
-                .chunk()
-                .await
-                .map_err(|_| network("Falha na leitura do feed OPDS."))?
-            {
-                if body.len() + chunk.len() > MAX_FEED_BYTES {
-                    return Err(response("Feed OPDS excede 2 MB."));
-                }
-                body.extend_from_slice(&chunk);
-            }
-            let body =
-                std::str::from_utf8(&body).map_err(|_| response("Feed OPDS não é UTF-8."))?;
-            parse_feed(&self.manifest, body, &url, &request)
+            fetch_page(&self.manifest, request).await
         })
     }
+    fn browse(
+        &self,
+        cursor: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
+        Box::pin(async move {
+            let manifest = self.manifest.for_feed()?;
+            let request = SearchRequest {
+                query: String::new(),
+                language: String::new(),
+                format: String::new(),
+                cursor,
+            };
+            request.validate_feed()?;
+            fetch_page(&manifest, request).await
+        })
+    }
+}
+
+async fn fetch_page(
+    manifest: &SourceManifest,
+    request: SearchRequest,
+) -> Result<SearchPage, SourceError> {
+    for (filter, supported) in [
+        (&request.language, &manifest.languages),
+        (&request.format, &manifest.formats),
+    ] {
+        if !filter.is_empty()
+            && !supported.is_empty()
+            && !supported
+                .iter()
+                .any(|value| value.eq_ignore_ascii_case(filter))
+        {
+            return Err(SourceError {
+                code: SourceErrorCode::Unsupported,
+                message: "Filtro não oferecido por esta fonte.".into(),
+            });
+        }
+    }
+    let url = feed_url(&manifest, &request)?;
+    let client = secure_https_client(&url, Duration::from_secs(15))
+        .await
+        .map_err(network)?;
+    let mut res = client
+        .get(url.clone())
+        .header(
+            "Accept",
+            "application/opds+json, application/atom+xml;q=0.9, application/json;q=0.8",
+        )
+        .send()
+        .await
+        .map_err(|_| network("Falha ao conectar à fonte OPDS."))?;
+    if !res.status().is_success() {
+        return Err(network(format!("Resposta HTTP {}", res.status())));
+    }
+    if res
+        .content_length()
+        .is_some_and(|size| size > MAX_FEED_BYTES as u64)
+    {
+        return Err(response("Feed OPDS excede 2 MB."));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = res
+        .chunk()
+        .await
+        .map_err(|_| network("Falha na leitura do feed OPDS."))?
+    {
+        if body.len() + chunk.len() > MAX_FEED_BYTES {
+            return Err(response("Feed OPDS excede 2 MB."));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let body = std::str::from_utf8(&body).map_err(|_| response("Feed OPDS não é UTF-8."))?;
+    parse_feed(&manifest, body, &url, &request)
 }
 
 #[cfg(test)]

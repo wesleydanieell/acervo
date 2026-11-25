@@ -46,6 +46,8 @@ pub struct SourceManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub website_url: Option<String>,
     pub search_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_path: Option<String>,
     #[serde(default)]
     pub items_path: String,
     #[serde(default)]
@@ -123,6 +125,33 @@ pub struct InstalledSource {
     pub repository: Option<String>,
     #[serde(default)]
     pub manifest_sha256: Option<String>,
+}
+
+impl SourceManifest {
+    pub(crate) fn supports_feed(&self) -> bool {
+        self.feed_path.is_some() || (self.adapter == AdapterKind::Json && self.local_search)
+    }
+
+    /// Derive an internal browse mapping from the validated manifest, never from UI URLs.
+    pub(crate) fn for_feed(&self) -> Result<Self, crate::extension_api::SourceError> {
+        let mut copy = self.clone();
+        if let Some(path) = &self.feed_path {
+            copy.search_path = path.clone();
+        } else if self.adapter == AdapterKind::Json && self.local_search {
+            copy.search_path = self
+                .search_path
+                .replace("{query}", "")
+                .replace("{language}", "")
+                .replace("{format}", "");
+        } else {
+            return Err(crate::extension_api::SourceError {
+                code: crate::extension_api::SourceErrorCode::Unsupported,
+                message: "Esta fonte não oferece feed.".into(),
+            });
+        }
+        copy.local_search = false;
+        Ok(copy)
+    }
 }
 
 fn validate_field(field: &str, required: bool) -> bool {
@@ -231,6 +260,23 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
             "searchPath deve ser um caminho relativo à origem, começando em / e contendo {query}."
                 .into(),
         );
+    }
+    if let Some(path) = &manifest.feed_path {
+        if path.len() > 1000
+            || !path.starts_with('/')
+            || path.starts_with("//")
+            || path.contains('\\')
+            || path.contains('#')
+            || path.contains("..")
+            || path.chars().any(char::is_control)
+            || (path.contains("{cursor}") != manifest.pagination.is_some())
+            || path.replace("{cursor}", "").contains(['{', '}'])
+            || !url.join(path).is_ok_and(|feed| {
+                feed.origin() == url.origin() && crate::extension_network::safe_url(feed.as_str())
+            })
+        {
+            return Err("feedPath deve apontar para uma página da mesma origem, sem pesquisa, e usar {cursor} apenas com paginação JSON.".into());
+        }
     }
     if let Some(editions) = &manifest.editions {
         if manifest.adapter != AdapterKind::Json
@@ -593,6 +639,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             html: None,
             editions: None,
             website_url: None,
+            feed_path: None,
         },
     )
 }
@@ -677,7 +724,43 @@ mod tests {
             html: None,
             editions: None,
             website_url: None,
+            feed_path: None,
         }
+    }
+
+    #[test]
+    fn feed_paths_are_explicit_and_origin_bound() {
+        let mut m = example();
+        assert!(!m.supports_feed());
+        assert!(m.for_feed().is_err());
+        m.local_search = true;
+        assert!(m.supports_feed());
+        assert!(!m.for_feed().unwrap().search_path.contains("{query}"));
+        assert!(!m.for_feed().unwrap().local_search);
+        m.local_search = false;
+        m.feed_path = Some("/catalog/popular".into());
+        validate(&m).unwrap();
+        assert_eq!(m.for_feed().unwrap().search_path, "/catalog/popular");
+        for path in [
+            "//other.org/feed",
+            "/\\other.org/feed",
+            "/catalog#{query}",
+            "/catalog?q={query}",
+            "/catalog?cursor={cursor}",
+            "/../catalog",
+        ] {
+            m.feed_path = Some(path.into());
+            assert!(validate(&m).is_err(), "{path}");
+        }
+        m.pagination = Some(JsonPagination {
+            initial_cursor: "1".into(),
+            next_cursor_field: "next".into(),
+        });
+        m.search_path = "/search?q={query}&page={cursor}".into();
+        m.feed_path = Some("/catalog?page={cursor}".into());
+        validate(&m).unwrap();
+        m.feed_path = Some("/catalog".into());
+        assert!(validate(&m).is_err());
     }
 
     #[test]
