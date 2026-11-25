@@ -5,11 +5,13 @@ mod downloads;
 mod extension_api;
 mod extension_host;
 mod extension_network;
+mod extension_repositories;
 mod html_parser;
 mod html_source;
 mod opds_parser;
 mod opds_source;
 mod organization;
+mod repository_index;
 mod source_search;
 mod sources;
 
@@ -540,6 +542,12 @@ pub fn run() {
             organization::preview_organization,
             organization::apply_organization,
             sources::list_sources,
+            extension_repositories::list_repositories,
+            extension_repositories::add_repository,
+            extension_repositories::remove_repository,
+            extension_repositories::browse_repository,
+            extension_repositories::preview_repository_extension,
+            extension_repositories::install_repository_extension,
             sources::install_source,
             sources::install_demo_source,
             sources::install_example_source,

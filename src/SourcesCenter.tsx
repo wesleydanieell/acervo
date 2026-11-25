@@ -1,4 +1,5 @@
 import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome } from "./discovery-pagination";
+import { ExtensionRepositories } from "./ExtensionRepositories";
 import { DownloadCatalogPicker } from "./DownloadCatalogPicker";
 import type { CatalogItem } from "./CatalogCenter";
 import type { CatalogTarget, DiscoveryRequest } from "./download-workspace";
@@ -18,7 +19,7 @@ export type SourceManifest = {
   html?: { itemSelector: string; titleSelector: string; downloadSelector?: string; nextSelector?: string } | null;
   remoteIdField?: string; pagination?: { initialCursor: string; nextCursorField: string } | null; downloadDomains?: string[] | null;
 };
-export type InstalledSource = { manifest: SourceManifest; enabled: boolean };
+export type InstalledSource = { manifest: SourceManifest; enabled: boolean; repository?: string | null; manifestSha256?: string | null };
 
 const sampleManifest = JSON.stringify({
   schemaVersion: 1, apiVersion: 1, version: "1.0.0", adapter: "json", id: "minha-fonte", name: "Minha fonte", description: "Catálogo JSON público",
@@ -205,10 +206,12 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       </div>}
     </section>
     </> : <>
-    {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled }) => <article className="source-card glass-panel" key={manifest.id}>
+    <ExtensionRepositories sources={sources} disabled={busy} onInstalled={items => { setSources(items); invalidateSearch(); }}/>
+    {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled, repository }) => <article className="source-card glass-panel" key={manifest.id}>
       <div className="source-card-main"><div className="source-icon"><Globe2 size={24}/></div><div className="source-info">
         <strong>{manifest.name}</strong><small>{manifest.description || manifest.baseUrl}</small><small>v{manifest.version ?? "1.0.0"} · API {manifest.apiVersion ?? 1}</small>
         <code title={manifest.baseUrl}>{manifest.baseUrl}</code>
+        {repository && <small title={repository}>Instalada via repositório</small>}
       </div><span className={"source-state " + (enabled ? "enabled" : "")}>{enabled ? "Ativa" : "Pausada"}</span></div>
       <div className="source-capabilities">
         {manifest.formats.map((format) => <span key={"f:"+format}>{format.toUpperCase()}</span>)}

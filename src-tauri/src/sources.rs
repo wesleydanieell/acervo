@@ -10,6 +10,7 @@ use tauri::Manager;
 
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 const MAX_SOURCES: usize = 40;
+static SOURCE_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn default_api_version() -> u32 {
     API_VERSION
@@ -100,6 +101,10 @@ pub struct JsonPagination {
 pub struct InstalledSource {
     pub manifest: SourceManifest,
     pub enabled: bool,
+    #[serde(default)]
+    pub repository: Option<String>,
+    #[serde(default)]
+    pub manifest_sha256: Option<String>,
 }
 
 fn validate_field(field: &str, required: bool) -> bool {
@@ -385,6 +390,14 @@ fn write_registry(path: &Path, sources: &[InstalledSource]) -> Result<(), String
         std::process::id()
     ));
     let payload = serde_json::to_vec_pretty(sources).map_err(|error| error.to_string())?;
+    if payload.len() > 256 * 1024 {
+        return Err("Registro de fontes excede 256 KB.".into());
+    }
+    if fs::symlink_metadata(path.with_extension("json.bak"))
+        .is_ok_and(|m| !m.is_file() || m.file_type().is_symlink())
+    {
+        return Err("Backup de fontes inválido.".into());
+    }
     {
         let mut file = OpenOptions::new()
             .create_new(true)
@@ -434,6 +447,9 @@ fn install_manifest(
     manifest: SourceManifest,
 ) -> Result<Vec<InstalledSource>, String> {
     validate(&manifest)?;
+    let _guard = SOURCE_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Registro indisponível.")?;
     let registry = registry_path(app)?;
     let mut sources = read_registry(&registry)?;
     if sources
@@ -448,9 +464,62 @@ fn install_manifest(
     sources.push(InstalledSource {
         manifest,
         enabled: true,
+        repository: None,
+        manifest_sha256: None,
     });
     write_registry(&registry, &sources)?;
     Ok(sources)
+}
+
+pub(crate) fn apply_repository_manifest(
+    app: &tauri::AppHandle,
+    manifest: SourceManifest,
+    repository: String,
+    sha256: String,
+) -> Result<Vec<InstalledSource>, String> {
+    let _guard = SOURCE_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Registro indisponível.")?;
+    let registry = registry_path(app)?;
+    let mut sources = read_registry(&registry)?;
+    apply_repository_entry(&mut sources, manifest, repository, sha256)?;
+    write_registry(&registry, &sources)?;
+    Ok(sources)
+}
+
+fn apply_repository_entry(
+    sources: &mut Vec<InstalledSource>,
+    manifest: SourceManifest,
+    repository: String,
+    sha256: String,
+) -> Result<(), String> {
+    validate(&manifest)?;
+    if let Some(installed) = sources
+        .iter_mut()
+        .find(|item| item.manifest.id == manifest.id)
+    {
+        if installed.repository.as_deref() != Some(repository.as_str()) {
+            return Err("ID já instalado de outra origem. Remova explicitamente antes de trocar de repositório.".into());
+        }
+        if crate::repository_index::version_key(&manifest.version)
+            <= crate::repository_index::version_key(&installed.manifest.version)
+        {
+            return Err("Atualização exige versão superior à instalada.".into());
+        }
+        installed.manifest = manifest;
+        installed.manifest_sha256 = Some(sha256);
+    } else {
+        if sources.len() >= MAX_SOURCES {
+            return Err("Limite de 40 fontes atingido.".into());
+        }
+        sources.push(InstalledSource {
+            manifest,
+            enabled: true,
+            repository: Some(repository),
+            manifest_sha256: Some(sha256),
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -505,6 +574,9 @@ pub fn set_source_enabled(
     id: String,
     enabled: bool,
 ) -> Result<Vec<InstalledSource>, String> {
+    let _guard = SOURCE_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Registro indisponível.")?;
     let registry = registry_path(&app)?;
     let mut sources = read_registry(&registry)?;
     let source = sources
@@ -518,6 +590,9 @@ pub fn set_source_enabled(
 
 #[tauri::command]
 pub fn remove_source(app: tauri::AppHandle, id: String) -> Result<Vec<InstalledSource>, String> {
+    let _guard = SOURCE_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Registro indisponível.")?;
     let registry = registry_path(&app)?;
     let mut sources = read_registry(&registry)?;
     let before = sources.len();
@@ -654,6 +729,41 @@ mod tests {
     }
 
     #[test]
+    fn repository_updates_require_same_origin_and_newer_version() {
+        let mut sources = vec![];
+        let mut manifest = example();
+        let repo = "https://example.org/index.json".to_owned();
+        apply_repository_entry(&mut sources, manifest.clone(), repo.clone(), "a".repeat(64))
+            .unwrap();
+        sources[0].enabled = false;
+        assert!(
+            apply_repository_entry(&mut sources, manifest.clone(), repo.clone(), "b".repeat(64))
+                .is_err()
+        );
+        manifest.version = "1.1.0".into();
+        assert!(
+            apply_repository_entry(
+                &mut sources,
+                manifest.clone(),
+                "https://other.org/index.json".into(),
+                "b".repeat(64)
+            )
+            .is_err()
+        );
+        apply_repository_entry(&mut sources, manifest.clone(), repo.clone(), "b".repeat(64))
+            .unwrap();
+        assert!(!sources[0].enabled);
+        assert_eq!(sources[0].manifest.version, "1.1.0");
+        assert_eq!(
+            sources[0].manifest_sha256.as_deref(),
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
+        sources[0].repository = None;
+        manifest.version = "2.0.0".into();
+        assert!(apply_repository_entry(&mut sources, manifest, repo, "c".repeat(64)).is_err());
+    }
+
+    #[test]
     fn accepts_basic_manifest() {
         validate(&example()).unwrap();
     }
@@ -706,6 +816,8 @@ mod tests {
         let sources = vec![InstalledSource {
             manifest: example(),
             enabled: true,
+            repository: None,
+            manifest_sha256: None,
         }];
         write_registry(&path, &sources).unwrap();
         assert_eq!(read_registry(&path).unwrap().len(), 1);
