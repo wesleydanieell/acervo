@@ -1,0 +1,29 @@
+# Acervo Extension API e Host v1
+
+## Implementação atual
+
+- extension_api.rs: modelos serializáveis, validação comum, erros tipados e contrato BookSource (objeto Send + Sync).
+- extension_host.rs: valida e instancia adaptadores, seleciona fontes ativas, agrega resultados e isola falhas; oferece descritores.
+- source_search.rs: adaptador JSON, mapeamento de campos, filtros e busca local.
+- extension_network.rs: fronteira de rede compartilhada com Downloads; HTTPS público, DNS fixado, sem redirecionamentos nem proxy.
+- sources.rs: registro e validação de manifestos com schemaVersion, apiVersion, version e adapter. Campos novos opcionais para manifestos antigos.
+
+A interface Rust é interna, não ABI estável para binários. O frontend ainda usa o comando search_sources com o formato plano compatível. O host disponibiliza list_source_descriptors, incluindo as capacidades calculadas. Nenhuma extensão executa código externo.
+
+## Contratos
+
+BookSource: descriptor() e search(SearchRequest) -> SearchPage ou SourceError. SearchRequest inclui query (2–200 caracteres, sem controles), filtros de idioma/formato (códigos de até 25 bytes) e cursor opaco (opcional, até 2048 bytes). SearchPage devolve SourceBook e next_cursor; erros classificam solicitação inválida, operação não suportada, rede, resposta inválida e erro interno. Os campos de SourceBook preservam o contrato de UI. O adaptador JSON atual expõe busca e links diretos, não detalhes, edições ou paginação; cursor não nulo é rejeitado. Links são candidatos, não evidência de arquivo válido. O fluxo de aquisição, cache, validação, destinos, catálogo e persistência permanece exclusivamente no Acervo.
+
+## Versões e SDK
+
+schemaVersion versiona a estrutura do manifesto; apiVersion versiona o contrato do host; version identifica a release da extensão. A versão inicial aceita apenas API 1 e adapter json. Manifestos antigos recebem defaults sem migração manual; a leitura de manifestos novos por binários antigos não é garantida. O SDK preview está em sdk/extensions com template e JSON Schema de apoio ao editor; Rust é autoridade para validação de segurança.
+
+## Fronteiras e evolução
+
+1. Manter API e host compatíveis; adicionar paginação explícita por fonte e identificadores remotos estáveis antes de expor múltiplas edições.
+2. OPDS 1/2, depois HTML declarativo, com o mesmo contrato e serviço de rede.
+3. Permissões explícitas de domínio por extensão, consentimento e validação no despacho de download; hoje existe apenas a política global de HTTPS público, não allowlist por fonte.
+4. Repositório remoto com índice versionado, hash de conteúdo, confiança e atualização atômica; nenhum formato de pacote executável existe nesta etapa.
+5. Avaliar WASM isolado, com limites de recursos e chamadas explícitas ao host; nenhuma biblioteca nativa arbitrária.
+
+Inspirado na separação de interfaces e extensões do Mihon/Komikku, sem copiar sua ABI Android. Inicialmente monorepo; separar SDK e repositórios quando o contrato se estabilizar. Os testes do host usam adaptadores simulados e manifestos reais sem rede.

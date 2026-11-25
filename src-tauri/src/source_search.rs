@@ -1,105 +1,71 @@
 //! Constrained JSON source search. No extension code is executed.
 use super::sources::{self, SourceManifest};
-use serde::Serialize;
 use serde_json::Value;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESULTS_PER_SOURCE: usize = 40;
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SourceResult {
-    pub source_id: String,
-    pub source_name: String,
-    pub title: String,
-    pub author: String,
-    pub format: String,
-    pub language: String,
-    pub download_url: String,
+use super::extension_api::{
+    API_VERSION, BookSource, SearchPage, SearchRequest, SourceBook, SourceCapabilities,
+    SourceDescriptor, SourceError, SourceErrorCode,
+};
+use super::extension_network::{safe_url, secure_https_client};
+use std::{future::Future, pin::Pin};
+
+pub(crate) type SourceResult = SourceBook;
+
+pub(crate) struct JsonSource {
+    manifest: SourceManifest,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchOutcome {
-    pub results: Vec<SourceResult>,
-    pub errors: Vec<String>,
+impl JsonSource {
+    pub fn new(manifest: SourceManifest) -> Self {
+        Self { manifest }
+    }
 }
 
-fn public_ipv4(ip: Ipv4Addr) -> bool {
-    let [a, b, c, _] = ip.octets();
-    !(a == 0
-        || a == 10
-        || a == 127
-        || a >= 224
-        || (a == 100 && (64..=127).contains(&b))
-        || (a == 169 && b == 254)
-        || (a == 172 && (16..=31).contains(&b))
-        || (a == 192 && (b == 168 || (b == 0 && c == 0) || (b == 0 && c == 2)))
-        || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
-        || (a == 203 && b == 0 && c == 113))
-}
-
-fn public_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => public_ipv4(ip),
-        IpAddr::V6(ip) => {
-            if let Some(mapped) = ip.to_ipv4_mapped() {
-                return public_ipv4(mapped);
-            }
-            !(ip.is_unspecified()
-                || ip.is_loopback()
-                || ip.is_multicast()
-                || ip.is_unique_local()
-                || ip.is_unicast_link_local())
+impl BookSource for JsonSource {
+    fn descriptor(&self) -> SourceDescriptor {
+        SourceDescriptor {
+            id: self.manifest.id.clone(),
+            name: self.manifest.name.clone(),
+            api_version: API_VERSION,
+            capabilities: SourceCapabilities {
+                search: true,
+                download: !self.manifest.download_url_field.is_empty(),
+                pagination: false,
+                details: false,
+                editions: false,
+            },
         }
     }
-}
 
-pub(crate) fn safe_url(url: &str) -> bool {
-    let Ok(url) = url::Url::parse(url) else {
-        return false;
-    };
-    let Some(host) = url.host_str() else {
-        return false;
-    };
-    url.scheme() == "https"
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port().is_none()
-        && url.as_str().len() < 2048
-        && host.contains('.')
-        && host.parse::<IpAddr>().is_err()
-        && ![".local", ".localhost", ".internal", ".test", ".invalid"]
-            .iter()
-            .any(|suffix| host.ends_with(suffix))
-}
-
-/// Build a request client pinned to public DNS answers, with no redirects or proxy.
-pub(crate) async fn secure_https_client(
-    url: &url::Url,
-    timeout: Duration,
-) -> Result<reqwest::Client, String> {
-    if !safe_url(url.as_str()) {
-        return Err("URL de origem insegura.".into());
+    fn search(
+        &self,
+        request: SearchRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
+        Box::pin(async move {
+            request.validate()?;
+            if request.cursor.is_some() {
+                return Err(SourceError {
+                    code: SourceErrorCode::Unsupported,
+                    message: "Esta fonte não oferece paginação.".into(),
+                });
+            }
+            let results = search_one(
+                self.manifest.clone(),
+                request.query,
+                request.language,
+                request.format,
+            )
+            .await?;
+            Ok(SearchPage {
+                results,
+                next_cursor: None,
+            })
+        })
     }
-    let hostname = url.host_str().ok_or("Domínio ausente.")?.to_string();
-    let resolved: Vec<SocketAddr> = tokio::net::lookup_host((hostname.as_str(), 443))
-        .await
-        .map_err(|error| format!("DNS: {error}"))?
-        .take(24)
-        .collect();
-    if resolved.is_empty() || resolved.iter().any(|addr| !public_ip(addr.ip())) {
-        return Err("DNS apontou para IP interno ou inválido; conexão bloqueada.".into());
-    }
-    reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .resolve_to_addrs(&hostname, &resolved)
-        .timeout(timeout)
-        .build()
-        .map_err(|error| error.to_string())
 }
 
 fn encode(value: &str) -> String {
@@ -194,7 +160,7 @@ async fn search_one(
     query: String,
     language: String,
     format: String,
-) -> Result<Vec<SourceResult>, String> {
+) -> Result<Vec<SourceResult>, SourceError> {
     if !supports_filter(
         &source.formats,
         if fixed_format(&source).is_some() {
@@ -206,7 +172,10 @@ async fn search_one(
         "{format}",
         &format,
     ) {
-        return Err("Esta fonte não oferece o formato solicitado.".into());
+        return Err(SourceError {
+            code: SourceErrorCode::Unsupported,
+            message: "Esta fonte não oferece o formato solicitado.".into(),
+        });
     }
     if !supports_filter(
         &source.languages,
@@ -215,39 +184,67 @@ async fn search_one(
         "{language}",
         &language,
     ) {
-        return Err("Esta fonte não oferece o idioma solicitado.".into());
+        return Err(SourceError {
+            code: SourceErrorCode::Unsupported,
+            message: "Esta fonte não oferece o idioma solicitado.".into(),
+        });
     }
-    let url = search_url(&source, &query, &language, &format)?;
-    let client = secure_https_client(&url, Duration::from_secs(15)).await?;
+    let url = search_url(&source, &query, &language, &format).map_err(|message| SourceError {
+        code: SourceErrorCode::InvalidRequest,
+        message,
+    })?;
+    let client = secure_https_client(&url, Duration::from_secs(15))
+        .await
+        .map_err(|message| SourceError {
+            code: SourceErrorCode::Network,
+            message,
+        })?;
     let mut response = client
         .get(url)
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|error| format!("Conexão: {error}"))?;
+        .map_err(|error| SourceError {
+            code: SourceErrorCode::Network,
+            message: format!("Conexão: {error}"),
+        })?;
     if !response.status().is_success() {
-        return Err(format!("Resposta HTTP {}", response.status()));
+        return Err(SourceError {
+            code: SourceErrorCode::Network,
+            message: format!("Resposta HTTP {}", response.status()),
+        });
     }
     if response
         .content_length()
         .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
     {
-        return Err("Resposta JSON excede 2 MB.".into());
+        return Err(SourceError {
+            code: SourceErrorCode::InvalidResponse,
+            message: "Resposta JSON excede 2 MB.".into(),
+        });
     }
     let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("Leitura: {error}"))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(|error| SourceError {
+        code: SourceErrorCode::Network,
+        message: format!("Leitura: {error}"),
+    })? {
         if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
-            return Err("Resposta JSON excede 2 MB.".into());
+            return Err(SourceError {
+                code: SourceErrorCode::InvalidResponse,
+                message: "Resposta JSON excede 2 MB.".into(),
+            });
         }
         body.extend_from_slice(&chunk);
     }
-    let data: Value =
-        serde_json::from_slice(&body).map_err(|error| format!("JSON inválido: {error}"))?;
-    let mut results = extract_results(&source, &data, &language, &format)?;
+    let data: Value = serde_json::from_slice(&body).map_err(|error| SourceError {
+        code: SourceErrorCode::InvalidResponse,
+        message: format!("JSON inválido: {error}"),
+    })?;
+    let mut results =
+        extract_results(&source, &data, &language, &format).map_err(|message| SourceError {
+            code: SourceErrorCode::InvalidResponse,
+            message,
+        })?;
     if source.local_search {
         results.retain(|item| matches_local_query(&item.title, &item.author, &query));
     }
@@ -346,105 +343,9 @@ pub(crate) fn extract_results(
     Ok(result)
 }
 
-#[tauri::command]
-pub async fn search_sources(
-    app: tauri::AppHandle,
-    query: String,
-    language: String,
-    format: String,
-    source_ids: Vec<String>,
-) -> Result<SearchOutcome, String> {
-    if query.trim().chars().count() < 2
-        || query.chars().count() > 200
-        || query.chars().any(char::is_control)
-    {
-        return Err("Digite uma pesquisa de 2–200 caracteres.".into());
-    }
-    if language.len() > 25
-        || format.len() > 25
-        || ![&language, &format].iter().all(|value| {
-            value
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'-')
-        })
-    {
-        return Err("Filtros inválidos.".into());
-    }
-    let sources = sources::list_sources(app)?
-        .into_iter()
-        .filter(|source| {
-            source.enabled && (source_ids.is_empty() || source_ids.contains(&source.manifest.id))
-        })
-        .collect::<Vec<_>>();
-    if sources.len() > 12 {
-        return Err("Selecione no máximo 12 fontes por pesquisa.".into());
-    }
-    if sources.is_empty() {
-        return Ok(SearchOutcome {
-            results: vec![],
-            errors: vec!["Nenhuma fonte ativa selecionada.".into()],
-        });
-    }
-
-    let mut jobs = tokio::task::JoinSet::new();
-    for source in sources {
-        let query = query.clone();
-        let language = language.clone();
-        let format = format.clone();
-        jobs.spawn(async move {
-            let name = source.manifest.name.clone();
-            (
-                name,
-                search_one(source.manifest, query, language, format).await,
-            )
-        });
-    }
-    let mut outcome = SearchOutcome {
-        results: Vec::new(),
-        errors: Vec::new(),
-    };
-    while let Some(done) = jobs.join_next().await {
-        match done {
-            Ok((_, Ok(results))) => outcome.results.extend(results),
-            Ok((name, Err(error))) => outcome.errors.push(format!("{name}: {error}")),
-            Err(error) => outcome
-                .errors
-                .push(format!("Erro interno de pesquisa: {error}")),
-        }
-    }
-    outcome.results.sort_by(|a, b| {
-        a.source_name
-            .cmp(&b.source_name)
-            .then(a.title.cmp(&b.title))
-    });
-    Ok(outcome)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn prevents_private_networks_and_unsafe_urls() {
-        for ip in [
-            "127.0.0.1",
-            "10.0.0.3",
-            "192.168.1.1",
-            "169.254.169.254",
-            "172.19.0.1",
-            "100.64.0.1",
-            "::1",
-            "fc00::1",
-        ] {
-            assert!(
-                !public_ip(ip.parse().unwrap()),
-                "IP should be blocked: {ip}"
-            );
-        }
-        assert!(public_ip("1.1.1.1".parse().unwrap()));
-        assert!(!safe_url("http://example.org/"));
-        assert!(!safe_url("https://127.0.0.1/"));
-        assert!(!safe_url("https://example.org:8443/"));
-    }
     #[test]
     fn rejects_unsupported_filters_without_metadata_or_endpoint_support() {
         assert!(!supports_filter(

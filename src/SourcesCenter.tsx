@@ -10,7 +10,7 @@ import "./sources.css";
 import "./source-search.css";
 
 export type SourceManifest = {
-  schemaVersion: number; id: string; name: string; description: string;
+  schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json"; id: string; name: string; description: string;
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
@@ -20,7 +20,7 @@ type SourceResult = { sourceId: string; sourceName: string; title: string; autho
 type SearchOutcome = { results: SourceResult[]; errors: string[] };
 
 const sampleManifest = JSON.stringify({
-  schemaVersion: 1, id: "minha-fonte", name: "Minha fonte", description: "Catálogo JSON público",
+  schemaVersion: 1, apiVersion: 1, version: "1.0.0", adapter: "json", id: "minha-fonte", name: "Minha fonte", description: "Catálogo JSON público",
   baseUrl: "https://example.org", searchPath: "/api/books?q={query}&lang={language}",
   itemsPath: "results", titleField: "title", authorField: "author",
   formatField: "format", languageField: "language", downloadUrlField: "download_url",
@@ -188,7 +188,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     </> : <>
     {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled }) => <article className="source-card glass-panel" key={manifest.id}>
       <div className="source-card-main"><div className="source-icon"><Globe2 size={24}/></div><div className="source-info">
-        <strong>{manifest.name}</strong><small>{manifest.description || manifest.baseUrl}</small>
+        <strong>{manifest.name}</strong><small>{manifest.description || manifest.baseUrl}</small><small>v{manifest.version ?? "1.0.0"} · API {manifest.apiVersion ?? 1}</small>
         <code title={manifest.baseUrl}>{manifest.baseUrl}</code>
       </div><span className={"source-state " + (enabled ? "enabled" : "")}>{enabled ? "Ativa" : "Pausada"}</span></div>
       <div className="source-capabilities">

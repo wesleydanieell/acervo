@@ -19,3 +19,7 @@ Fichas JSON podem associar arquivos físicos existentes por seleção e confirma
 ## Referência de aquisição persistente
 
 A fila registra a raiz e a identidade exata da ficha JSON. A identidade é revalidada durante a associação e tolera reordenação da lista, mas não edição dos campos identificadores. As operações de escrita do catálogo JSON são serializadas no processo. O salvamento físico e a associação têm resultados distintos; falha de metadados não apaga o livro importado. UUIDs persistentes e recuperação transacional entre arquivo, ficha e histórico continuam no roadmap.
+
+## Host de extensões
+
+Consulte [Acervo Extension API e Host v1](extension-api.md). Os adaptadores implementam o contrato comum; catálogo, downloads e segurança de rede são serviços do aplicativo.

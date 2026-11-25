@@ -1,6 +1,6 @@
 //! Persistent staged download queue. Nothing enters the library before explicit approval.
 use super::catalog_lists::CatalogTarget;
-use super::source_search::{safe_url, secure_https_client};
+use super::extension_network::{safe_url, secure_https_client};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
