@@ -28,7 +28,8 @@ import { PromptFolderPicker } from "./PromptFolderPicker";
 import acervoIcon from "../branding/acervo-icon.svg";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
 
-type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
+type LibraryEdition = {path:string;sourceName:string;metadata:{title:string;author:string;language:string;publisher:string;editionLabel:string;remoteId?:string|null;sourceId:string};fingerprint:{bytes:number;sha256:string}};
+type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number; edition?: LibraryEdition };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
 type Collection = { root: string; files: BookFile[]; folders: string[]; works: CatalogWork[]; warnings: string[] };
 type View = "catalog" | "lists" | "settings" | "sources" | "extensions" | "downloads";
@@ -59,7 +60,7 @@ function getEntries(collection: Collection): Entry[] {
       return { key: "work:" + work.id, type: "work", title: work.title, author: work.author, format: linked?.format || "PENDENTE", folder: work.destination || ".", present: Boolean(linked), file: linked, work };
     }),
     ...collection.files.filter((file) => !assigned.has(file.path)).map((file): Entry => ({
-      key: file.id + ":" + file.path, type: "file", title: file.title, author: "", format: file.format, folder: file.folder, present: true, file,
+      key: file.id + ":" + file.path, type: "file", title: file.edition?.metadata.title || file.title, author: file.edition?.metadata.author || "", format: file.format, folder: file.folder, present: true, file,
     })),
   ].sort((a, b) => a.title.localeCompare(b.title, "pt-BR"));
 }
@@ -217,12 +218,12 @@ function App() {
     const byFile = new Map(collection.works.flatMap((work) => work.associatedFiles.map((path) => [path, work] as const)));
     return collection.files.map((file): Entry => {
       const work = byFile.get(file.path);
-      return { key: "file:" + file.path, type: "file", title: work?.title || file.title,
-        author: work?.author || "", format: file.format, folder: file.folder, present: true, file, work };
+      return { key: "file:" + file.path, type: "file", title: work?.title || file.edition?.metadata.title || file.title,
+        author: work?.author || file.edition?.metadata.author || "", format: file.format, folder: file.folder, present: true, file, work };
     });
   }, [collection]);
   const searchNeedle = useMemo(() => fold(search), [search]);
-  const librarySearchIndex = useMemo(() => new Map(libraryEntries.map(entry => [entry.key, fold(entry.title + " " + entry.author + " " + entry.folder)])), [libraryEntries]);
+  const librarySearchIndex = useMemo(() => new Map(libraryEntries.map(entry => [entry.key, fold([entry.title,entry.author,entry.folder,entry.file?.edition?.metadata.title,entry.file?.edition?.metadata.author,entry.file?.edition?.metadata.publisher,entry.file?.edition?.metadata.editionLabel,entry.file?.edition?.metadata.language].filter(Boolean).join(" "))])), [libraryEntries]);
   const filtered = useMemo(() => libraryEntries.filter((entry) => {
     if (!entry.present) return false; // A biblioteca é um explorador real: nunca exibe desejos.
     if (selectedFolder && !(entry.folder === selectedFolder || entry.folder.startsWith(selectedFolder + "/"))) return false;
@@ -724,8 +725,14 @@ ${JSON.stringify(sample, null, 2)}`;
           </>}
         </main>
       </div>
-      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside aria-label="Detalhes da obra" className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className="details-cover"><BookCover key={selection.key} root={collection?.root || ""} file={selection.file} format={selection.format} present={selection.present} title={selection.title}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selection.work.id < 0 && <section className="edition-options"><h3>Arquivos associados</h3>
-        {selection.work.associatedFiles.length > 0 && <div className="associated-paths">{selection.work.associatedFiles.map(path => <span key={path} title={path}>{path}</span>)}</div>}
+      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside aria-label="Detalhes da obra" className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className="details-cover"><BookCover key={selection.key} root={collection?.root || ""} file={selection.file} format={selection.format} present={selection.present} title={selection.title}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.file?.edition && <section className="edition-options"><h3>Edição adquirida</h3><div className="detail-list">
+        {([["Título original",selection.file.edition.metadata.title],["Autor informado",selection.file.edition.metadata.author],["Idioma",selection.file.edition.metadata.language],["Editora",selection.file.edition.metadata.publisher],["Edição",selection.file.edition.metadata.editionLabel],["Fonte",selection.file.edition.sourceName]] as const).filter(([,value])=>value).map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+        </div><small>Metadados informados pela fonte.</small></section>}{selection.work && selection.work.id < 0 && <section className="edition-options"><h3>Arquivos associados</h3>
+        {selection.work.associatedFiles.length > 0 && <div className="associated-paths">{selection.work.associatedFiles.map(path => {
+          const file=collection?.files.find(file=>file.path===path);
+          const label=[file?.edition?.metadata.editionLabel,file?.edition?.metadata.publisher,file?.edition?.metadata.language].filter(Boolean).join(" · ");
+          return <span key={path} title={path}>{path}{label && <small className="associated-edition-label">{label}</small>}</span>;
+        })}</div>}
         <button className="button secondary full" disabled={associationBusy} onClick={() => void associateExistingFile(selection.work!)}><Link2 size={16}/> Associar arquivo existente</button>
         {associationError && <p className="association-error" role="alert">{associationError}</p>}
       </section>}{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <div key={file.path} className="edition-option-row"><button className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>{selection.work!.id < 0 && <button className="icon-button" disabled={associationBusy} aria-label={"Associar " + file.path} title="Associar edição" onClick={() => void associateExistingFile(selection.work!, file.path)}><Link2 size={16}/></button>}</div>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>Pesquise nas fontes instaladas. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchInInstalledSources(selection)}><Search size={17}/> Pesquisar nas fontes</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}

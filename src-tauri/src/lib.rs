@@ -10,6 +10,7 @@ mod extension_repositories;
 mod html_parser;
 mod html_source;
 mod import_fingerprint;
+mod library_editions;
 mod opds_parser;
 mod opds_source;
 mod organization;
@@ -32,6 +33,8 @@ struct BookFile {
     folder: String,
     format: String,
     bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edition: Option<library_editions::EditionRecord>,
 }
 
 #[derive(Debug, Serialize)]
@@ -156,6 +159,7 @@ fn scan_dir(
                 folder,
                 format,
                 bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
+                edition: None,
             });
         }
     }
@@ -224,6 +228,24 @@ fn scan_collection(root: String) -> Result<Collection, String> {
     let mut folders = BTreeSet::new();
     let mut warnings = Vec::new();
     scan_dir(&path, &path, &mut files, &mut folders, &mut warnings, 0);
+    match library_editions::load(&path) {
+        Ok(mut editions) => {
+            for file in &mut files {
+                if let Some(edition) = editions.remove(&file.path) {
+                    // Fast scan: size is a cheap stale-data guard, not content verification.
+                    if edition.fingerprint.bytes == file.bytes {
+                        file.edition = Some(edition);
+                    } else {
+                        warnings.push(format!(
+                            "Metadados de edição não exibidos: tamanho mudou em {}",
+                            file.path
+                        ));
+                    }
+                }
+            }
+        }
+        Err(error) => warnings.push(format!("Registro de edições: {error}")),
+    }
     files.sort_by_cached_key(|file| file.title.to_lowercase());
     let mut works = read_catalog(&path, &files, &mut warnings);
     works.extend(catalog_lists::load(&path, &files, &mut warnings));
@@ -401,6 +423,14 @@ fn move_book(root: String, relative_path: String, destination: String) -> Result
                 "Falha ao atualizar listas: {error}; reversão de catálogo: {catalog:?}; reversão de arquivo: {file:?}. Verifique a biblioteca."
             ),
         });
+    }
+    if let Err(error) = library_editions::sync_move(&root, &old_relative, &new_relative) {
+        let lists = catalog_lists::sync_move_refs(&root, &new_relative, &old_relative);
+        let catalog = sync_catalog_move(&root, &new_relative, &old_relative);
+        let file = fs::rename(&target, &source);
+        return Err(format!(
+            "Falha ao mover registro de edição: {error}; reversão de listas: {lists:?}, catálogo: {catalog:?}, arquivo: {file:?}."
+        ));
     }
     Ok(new_relative)
 }
@@ -615,6 +645,64 @@ mod tests {
                 .iter()
                 .any(|item| item.title == "Obra" && item.present)
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn edition_index_survives_scan_and_app_moves_independently_of_download_history() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "acervo-editions-integration-{}-{seed}",
+            std::process::id()
+        ));
+        fs::create_dir_all(root.join("A")).unwrap();
+        fs::create_dir_all(root.join("B")).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let book = root.join("A/Book.pdf");
+        fs::write(&book, b"%PDF-1.7 edition").unwrap();
+        let record = library_editions::EditionRecord {
+            path: "A/Book.pdf".into(),
+            source_name: "Fixture".into(),
+            metadata: downloads::DownloadEdition {
+                title: "Original".into(),
+                author: "Author".into(),
+                publisher: "Publisher".into(),
+                language: "pt".into(),
+                edition_label: "Second edition".into(),
+                source_id: "fixture".into(),
+                ..Default::default()
+            },
+            fingerprint: import_fingerprint::fingerprint(&book).unwrap(),
+        };
+        library_editions::record(&root, record.clone()).unwrap();
+        let root_text = root.to_str().unwrap().to_owned();
+        let first = scan_collection(root_text.clone()).unwrap();
+        assert_eq!(first.files[0].edition.as_ref(), Some(&record));
+        assert_eq!(
+            move_book(root_text.clone(), "A/Book.pdf".into(), "B".into()).unwrap(),
+            "B/Book.pdf"
+        );
+        let second = scan_collection(root_text.clone()).unwrap();
+        let moved = second.files[0].edition.as_ref().unwrap();
+        assert_eq!(moved.path, "B/Book.pdf");
+        assert_eq!(moved.metadata, record.metadata);
+        assert_eq!(moved.fingerprint, record.fingerprint);
+        fs::write(
+            root.join("B/Book.pdf"),
+            b"%PDF-1.7 changed content and length",
+        )
+        .unwrap();
+        let changed = scan_collection(root_text.clone()).unwrap();
+        assert!(changed.files[0].edition.is_none());
+        assert!(changed.warnings.iter().any(|w| w.contains("tamanho mudou")));
+        // Stale fingerprint must block a move rather than move the record to unrelated bytes.
+        assert!(move_book(root_text, "B/Book.pdf".into(), "A".into()).is_err());
+        assert!(root.join("B/Book.pdf").is_file());
+        assert!(!root.join("A/Book.pdf").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
