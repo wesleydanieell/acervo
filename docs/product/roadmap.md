@@ -7,7 +7,7 @@
 5. Coleções inteligentes, metadados e organização com histórico.
 6. Leitura e sincronização opcionais após núcleo estável.
 
-Cada entrega pequena, com testes, Conventional Commits e PR revisável. Não prometer paridade sem validar. Critérios: abrir biblioteca não muda arquivos, download inválido não entra no catálogo, mover nunca sobrescreve arquivo, pesquisa e navegação continuam responsivas.
+Cada entrega coerente, com Conventional Commits pequenos, testes e PR agrupado por etapa. Não prometer paridade sem validar. Critérios: abrir biblioteca não muda arquivos, download inválido não entra no catálogo, mover nunca sobrescreve arquivo, pesquisa e navegação continuam responsivas.
 
 ## Evolução contínua de UI e UX
 
@@ -41,6 +41,8 @@ Não tratar alterações cosméticas isoladas como conclusão de uma etapa. Pres
 - [ ] Ajustes de qualidade: consistência nos três estilos, validação em WebKitGTK, janelas pequenas, mudanças rápidas e preferência de movimento reduzido. Priorizar composição GPU; evitar animações ilimitadas em listas grandes e elementos que não estejam visíveis.
 
 ## Workspace de organização da biblioteca (entregas por fluxo)
+
+Especificação detalhada, dependências e critérios de aceitação: [Workspace de biblioteca](library-workspace.md).
 
 Fluxo de contribuição: commits semânticos pequenos dentro de uma branch de trabalho por etapa coerente. PRs agrupam mudanças relacionadas; não abrir um PR por detalhe visual. Mudanças que alteram arquivos ou índices requerem revisão, testes de regressão e validação nativa antes da integração. Não usar a main como área de experimentação de operações de arquivos.
 
