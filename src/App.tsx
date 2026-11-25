@@ -27,6 +27,8 @@ import { namingOptions, readNamingPreset, type NamingPreset } from "./download-n
 import { DownloadsCenter } from "./DownloadsCenter";
 import type { DiscoveryRequest } from "./download-workspace";
 import { BookCover } from "./BookCover";
+import { VirtualBookList } from "./VirtualBookList";
+import "./virtual-list.css";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import { selectVisibleRange } from "./library-selection";
@@ -298,12 +300,13 @@ function App() {
     return left.localeCompare(right, "pt-BR") || a.title.localeCompare(b.title, "pt-BR");
   }), [libraryEntries, librarySearchIndex, selectedFolder, format, searchNeedle, sortBy]);
   const breadcrumbs = selectedFolder.split("/").filter(Boolean).map((label, index, parts) => ({ label, path: parts.slice(0, index + 1).join("/") }));
-  useEffect(() => setVisibleLimit(80), [selectedFolder, format, search, sortBy, groupBy]);
+  useEffect(() => { setVisibleLimit(80); if(mainRef.current) mainRef.current.scrollTop=0; }, [selectedFolder, format, search, sortBy, groupBy, layout, collection?.root]);
   const groupLabel = (entry: Entry) => groupBy === "folder" ? entry.folder || "Raiz" : groupBy === "format" ? entry.format : groupBy === "author" ? entry.author || "Sem autor" : "";
   const displayEntries = useMemo(() => groupBy === "none" ? filtered : [...filtered].sort((a, b) =>
     groupLabel(a).localeCompare(groupLabel(b), "pt-BR") || a.title.localeCompare(b.title, "pt-BR")
   ), [filtered, groupBy]);
-  const visibleEntries = displayEntries.slice(0, visibleLimit);
+  const virtualList = layout==="list"&&groupBy==="none"&&displayEntries.length>80;
+  const visibleEntries = virtualList ? displayEntries : displayEntries.slice(0, visibleLimit);
   const suggestions = useMemo(() => {
     const needle = fold(search.trim());
     if (!needle || !searchFocused) return [] as { type: "Livro" | "Autor" | "Pasta"; value: string }[];
@@ -612,6 +615,22 @@ ${JSON.stringify(sample, null, 2)}`;
     } catch (failure) { setError(String(failure)); }
   };
 
+  const renderBookCard=(entry:Entry,tabIndex=0)=> (
+    <button className={"book-card glass-panel" + (selection?.key === entry.key ? " selected" : "") + (bulkSelected.has(entry.file?.path || "") ? " bulk-selected" : "")} key={entry.key} tabIndex={tabIndex}
+              aria-pressed={selectionMode && entry.file ? bulkSelected.has(entry.file.path) : undefined}
+              onContextMenu={(event) => { if (entry.file) openContextMenu(event, "file", entry.file.path); }}
+              onClick={(event) => {
+                if (!entry.file) { setSelection(entry); return; }
+                if (event.shiftKey) selectBookRange(entry.file.path, event.ctrlKey || event.metaKey);
+                else if (selectionMode || event.ctrlKey || event.metaKey) toggleBookSelection(entry.file.path);
+                else { selectionAnchor.current = entry.file.path; setSelection(entry); }
+              }} draggable={Boolean(entry.file)}
+              onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
+              {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
+              <BookCover root={collection?.root || ""} file={entry.file} format={entry.format} present={entry.present} title={entry.title} />
+              <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || "Autor não informado"}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? entry.format : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
+  );
+
   return (
     <div className="app-shell">
       <div className="background-orb orb-a" /><div className="background-orb orb-b" />
@@ -775,23 +794,11 @@ ${JSON.stringify(sample, null, 2)}`;
           <div className="content-top"><div><h2>Arquivos <span>{filtered.length}</span></h2></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); selectionAnchor.current = null; }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><div className="pill-control"><Filter size={16}/><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}>{formatOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={14}/></div><div className="pill-control sort-control"><ArrowUpDown size={16}/><select aria-label="Ordenar livros" value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}><option value="title">Título</option><option value="author">Autor</option><option value="format">Formato</option><option value="size">Tamanho</option></select><ChevronDown size={14}/></div><div className="pill-control group-control"><Layers3 size={15}/><select aria-label="Agrupar livros" value={groupBy} onChange={(event) => setGroupBy(event.target.value as GroupBy)}><option value="none">Sem grupos</option><option value="folder">Por pasta</option><option value="format">Por formato</option><option value="author">Por autor</option></select><ChevronDown size={14}/></div><div className="view-switch" role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" aria-label="Grade" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" aria-label="Lista" aria-pressed={layout === "list"} onClick={() => setLayout("list")}><List size={17}/></button></div></div></div>
           {bulkSelected.size > 0 && <div className="bulk-toolbar glass-panel"><div><Check size={17}/><strong>{bulkSelected.size} selecionado(s)</strong><small>Arraste para uma pasta ou escolha um destino.</small></div><button className="button primary" onClick={() => queueMove([...bulkSelected], selectedFolder || "")}><FolderOpen size={17}/> Mover para…</button><button className="icon-button" onClick={() => { setBulkSelected(new Set()); selectionAnchor.current = null; }} title="Limpar seleção" aria-label="Limpar seleção"><X size={17}/></button></div>}
           {!collection ? <div className="empty-state glass-panel"><Archive size={42}/><h3>Seu acervo, no seu controle.</h3><p>Selecione uma pasta para visualizar os livros e o catálogo existente. Nada será alterado ao abrir.</p><button className="button primary" onClick={() => void chooseRoot()}>Escolher pelo explorador <FolderOpen size={16}/></button></div>
-          : filtered.length ? <><div className={"books-" + layout}>{visibleEntries.map((entry, index) => (
+          : filtered.length ? virtualList ? <VirtualBookList key={JSON.stringify([collection.root,selectedFolder,format,search,sortBy])} items={displayEntries} scrollRef={mainRef} render={renderBookCard}/> : <><div className={"books-" + layout}>{visibleEntries.map((entry, index) => (
             <Fragment key={entry.key}>
               {groupBy !== "none" && (index === 0 || groupLabel(entry) !== groupLabel(visibleEntries[index - 1])) &&
                 <div className="book-group-heading"><span>{groupLabel(entry)}</span><span className="book-group-rule"/></div>}
-            <button className={"book-card glass-panel" + (selection?.key === entry.key ? " selected" : "") + (bulkSelected.has(entry.file?.path || "") ? " bulk-selected" : "")} key={entry.key}
-              aria-pressed={selectionMode && entry.file ? bulkSelected.has(entry.file.path) : undefined}
-              onContextMenu={(event) => { if (entry.file) openContextMenu(event, "file", entry.file.path); }}
-              onClick={(event) => {
-                if (!entry.file) { setSelection(entry); return; }
-                if (event.shiftKey) selectBookRange(entry.file.path, event.ctrlKey || event.metaKey);
-                else if (selectionMode || event.ctrlKey || event.metaKey) toggleBookSelection(entry.file.path);
-                else { selectionAnchor.current = entry.file.path; setSelection(entry); }
-              }} draggable={Boolean(entry.file)}
-              onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
-              {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
-              <BookCover root={collection?.root || ""} file={entry.file} format={entry.format} present={entry.present} title={entry.title} />
-              <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || "Autor não informado"}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? entry.format : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
+            {renderBookCard(entry)}
             </Fragment>
           ))}</div>{visibleLimit < filtered.length && <button className="load-more" onClick={() => setVisibleLimit((current) => current + 80)}>Mostrar mais livros <span>{visibleEntries.length} de {filtered.length}</span><ChevronDown size={16}/></button>}</> : <div className="empty-state glass-panel"><Search size={35}/><h3>Nenhum arquivo nesta pasta</h3><p>Escolha outra pasta ou altere os filtros. Obras faltantes aparecem exclusivamente no Catálogo.</p></div>}
           {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
