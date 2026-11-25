@@ -28,6 +28,49 @@ fn interruption_reason(signal: &AtomicU8) -> Option<&'static str> {
     }
 }
 
+/// Descriptive provider metadata, not authority to modify a catalog work.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DownloadEdition {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub publisher: String,
+    #[serde(default)]
+    pub edition_label: String,
+    #[serde(default)]
+    pub remote_id: Option<String>,
+    #[serde(default)]
+    pub source_id: String,
+}
+
+impl DownloadEdition {
+    fn validate(&self) -> Result<(), String> {
+        if [
+            &self.title,
+            &self.author,
+            &self.language,
+            &self.publisher,
+            &self.edition_label,
+            &self.source_id,
+        ]
+        .iter()
+        .any(|value| value.len() > 1200 || value.chars().any(char::is_control))
+            || self
+                .remote_id
+                .as_ref()
+                .is_some_and(|id| id.len() > 2048 || id.chars().any(char::is_control))
+        {
+            return Err("Metadados de edição inválidos ou muito longos.".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadInfo {
@@ -48,6 +91,11 @@ pub struct DownloadInfo {
     pub catalog_linked: bool,
     #[serde(default)]
     pub auto_import: bool,
+    #[serde(default)]
+    pub edition: Option<DownloadEdition>,
+    // None denotes the historical filename algorithm; Some("") opts into the new one.
+    #[serde(default)]
+    pub filename_suffix: Option<String>,
 }
 
 #[derive(Clone)]
@@ -108,12 +156,19 @@ fn read_download_registry(path: &Path) -> Result<Vec<DownloadRecord>, String> {
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
                 || !ids.insert(saved.info.id.clone())
-                || safe_filename(&saved.info.title, &saved.info.format)
-                    .ok()
-                    .as_deref()
+                || planned_filename(
+                    &saved.info.title,
+                    &saved.info.format,
+                    saved.info.filename_suffix.as_deref(),
+                )
+                .ok()
+                .as_deref()
                     != Some(saved.info.filename.as_str())
             {
                 return Err("Registro de downloads contém entrada inválida.".into());
+            }
+            if let Some(edition) = &saved.info.edition {
+                edition.validate()?;
             }
             if !saved.etag.is_empty() && !valid_strong_etag(&saved.etag) {
                 return Err("Registro contém um validador de arquivo inválido.".into());
@@ -373,6 +428,14 @@ fn safe_filename(title: &str, format: &str) -> Result<String, String> {
         return Err("Título inválido para nome do arquivo.".into());
     }
     Ok(format!("{stem}.{extension}"))
+}
+
+fn planned_filename(title: &str, format: &str, suffix: Option<&str>) -> Result<String, String> {
+    match suffix {
+        Some(suffix) if suffix.len() > 300 => Err("Complemento do nome excede 300 bytes.".into()),
+        Some(suffix) => super::download_naming::edition_filename(title, format, suffix),
+        None => safe_filename(title, format),
+    }
 }
 
 fn staged_path(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, String> {
@@ -735,6 +798,8 @@ pub fn queue_download(
     planned_destination: String,
     catalog_target: Option<CatalogTarget>,
     auto_import: Option<bool>,
+    edition: Option<DownloadEdition>,
+    filename_suffix: Option<String>,
 ) -> Result<Vec<DownloadInfo>, String> {
     let source = super::sources::list_sources(app.clone())?
         .into_iter()
@@ -744,6 +809,28 @@ pub fn queue_download(
         return Err("O domínio do download não é permitido por esta extensão.".into());
     }
     let source_name = source.manifest.name;
+    let edition = edition
+        .map(|mut metadata| {
+            metadata.source_id = source_id.clone();
+            for value in [
+                &mut metadata.title,
+                &mut metadata.author,
+                &mut metadata.language,
+                &mut metadata.publisher,
+                &mut metadata.edition_label,
+            ] {
+                *value = value
+                    .chars()
+                    .map(|c| if c.is_control() { ' ' } else { c })
+                    .collect::<String>()
+                    .trim()
+                    .into();
+            }
+            metadata.validate()?;
+            Ok::<_, String>(metadata)
+        })
+        .transpose()?;
+    let filename_suffix = Some(filename_suffix.unwrap_or_default());
     let auto_import = auto_import.unwrap_or(false);
     let (title, planned_destination) = if let Some(target) = &catalog_target {
         target.validate()?;
@@ -768,7 +855,7 @@ pub fn queue_download(
     if title.len() > 500 || source_name.len() > 120 || planned_destination.len() > 600 {
         return Err("Metadados de download fora do limite.".into());
     }
-    let filename = safe_filename(&title, &format)?;
+    let filename = planned_filename(&title, &format, filename_suffix.as_deref())?;
     let id = format!(
         "{}-{}",
         SystemTime::now()
@@ -794,6 +881,8 @@ pub fn queue_download(
             catalog_target,
             catalog_linked: false,
             auto_import,
+            edition,
+            filename_suffix,
         },
         url: url.clone(),
         etag: String::new(),
@@ -1127,6 +1216,49 @@ fn commit_staged_with_mode(
     let _ = fs::remove_file(&temp);
     let _ = fs::remove_file(stage);
     Ok(target)
+}
+
+/// Rename only a staged, ready download; never touch the physical library here.
+#[tauri::command]
+pub fn rename_ready_download(
+    manager: tauri::State<'_, DownloadManager>,
+    id: String,
+    suffix: String,
+) -> Result<Vec<DownloadInfo>, String> {
+    rename_ready(&manager, &id, &suffix)?;
+    manager.snapshot()
+}
+
+fn rename_ready(manager: &DownloadManager, id: &str, suffix: &str) -> Result<(), String> {
+    if let Some(error) = &manager.2 {
+        return Err(error.clone());
+    }
+    let path = manager
+        .1
+        .as_ref()
+        .ok_or("Registro de downloads indisponível.")?;
+    let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
+    let index = items
+        .iter()
+        .position(|item| item.info.id == id)
+        .ok_or("Download desconhecido.")?;
+    if items[index].info.status != "ready" {
+        return Err("Somente downloads prontos podem ser renomeados.".into());
+    }
+    let next = planned_filename(
+        &items[index].info.title,
+        &items[index].info.format,
+        Some(suffix),
+    )?;
+    let old = items[index].info.clone();
+    items[index].info.filename = next;
+    items[index].info.filename_suffix = Some(suffix.into());
+    items[index].info.error.clear();
+    if let Err(error) = write_download_registry(path, &items) {
+        items[index].info = old;
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// User-approved commit into the library. Prefer atomic hard links; fallback to
@@ -1656,6 +1788,8 @@ mod tests {
                 catalog_target: None,
                 catalog_linked: false,
                 auto_import: false,
+                edition: None,
+                filename_suffix: None,
             },
             url: "https://example.org/public-domain.epub".into(),
             etag: "\"edition-42\"".into(),
@@ -1686,11 +1820,23 @@ mod tests {
         info.remove("catalogTarget");
         info.remove("catalogLinked");
         info.remove("autoImport");
+        info.remove("edition");
+        info.remove("filenameSuffix");
         fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
         let mut loaded = read_download_registry(&path).unwrap();
         assert!(loaded[0].info.catalog_target.is_none());
         assert!(!loaded[0].info.catalog_linked);
         assert!(!loaded[0].info.auto_import);
+        assert!(loaded[0].info.edition.is_none() && loaded[0].info.filename_suffix.is_none());
+        loaded[0].info.edition = Some(DownloadEdition {
+            title: "Original".into(),
+            publisher: "Editora".into(),
+            language: "pt".into(),
+            ..Default::default()
+        });
+        loaded[0].info.filename_suffix = Some("pt - Editora".into());
+        loaded[0].info.filename = planned_filename("Teste", "epub", Some("pt - Editora")).unwrap();
+
         loaded[0].info.auto_import = true;
         loaded[0].info.catalog_target = Some(CatalogTarget {
             root: "/books".into(),
@@ -1707,6 +1853,35 @@ mod tests {
             loaded[0].info.catalog_target
         );
         assert!(read_download_registry(&path).unwrap()[0].info.auto_import);
+        let restored = read_download_registry(&path).unwrap();
+        assert_eq!(restored[0].info.edition, loaded[0].info.edition);
+        assert_eq!(restored[0].info.filename, loaded[0].info.filename);
+        let manager = DownloadManager(Arc::new(Mutex::new(restored)), Some(path.clone()), None);
+        assert!(rename_ready(&manager, "job-1", "Outra").is_err());
+        manager.change("job-1", |item| item.info.status = "ready".into());
+        rename_ready(&manager, "job-1", "Outra").unwrap();
+        assert_eq!(
+            read_download_registry(&path).unwrap()[0].info.filename,
+            "Teste - Outra.epub"
+        );
+        assert!(rename_ready(&manager, "job-1", &"x".repeat(301)).is_err());
+        assert_eq!(
+            manager.snapshot().unwrap()[0].filename,
+            "Teste - Outra.epub"
+        );
+        let invalid_registry = dir.join("missing-parent");
+        fs::write(&invalid_registry, b"not a directory").unwrap();
+        let broken = DownloadManager(
+            manager.0.clone(),
+            Some(invalid_registry.join("downloads.json")),
+            None,
+        );
+        assert!(rename_ready(&broken, "job-1", "Not persisted").is_err());
+        assert_eq!(
+            manager.snapshot().unwrap()[0].filename,
+            "Teste - Outra.epub"
+        );
+
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].url, "https://example.org/public-domain.epub");
         assert_eq!(loaded[0].etag, "\"edition-42\"");

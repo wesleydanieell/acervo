@@ -48,3 +48,12 @@ test("download picker searches catalog metadata and preserves explicit identity 
   assert.equal(sameCatalogChoice(catalogChoice("/books", second),catalogChoice("/books",{...second,id:6})),false);
   assert.equal(sameCatalogChoice(catalogChoice("/books", first),catalogChoice("/books",{...first,destination:"Other"})),false);
 });
+
+test("suggested edition suffix preserves useful metadata and respects UTF-8 budget",async()=>{
+  const {suggestedEditionSuffix}=await import("../src/download-workspace.ts");
+  assert.equal(suggestedEditionSuffix({editionLabel:"2ª edição",publisher:"Editora",language:"pt"}),"2ª edição - Editora - pt");
+  assert.equal(suggestedEditionSuffix({editionLabel:"",publisher:"pt",language:"pt"}),"pt");
+  const long=suggestedEditionSuffix({editionLabel:"漢".repeat(100)});
+  assert.equal(new TextEncoder().encode(long).length,72);
+  assert.equal(suggestedEditionSuffix({publisher:"A\nB"}),"A B");
+});
