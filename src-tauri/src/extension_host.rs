@@ -178,6 +178,8 @@ mod tests {
                         language: request.language,
                         download_url: String::new(),
                         remote_id: None,
+                        publisher: String::new(),
+                        edition_label: String::new(),
                     }],
                     next_cursor: (self.name == "a").then(|| "2".into()),
                 })

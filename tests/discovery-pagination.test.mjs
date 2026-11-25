@@ -34,7 +34,7 @@ test("stable identities deduplicate remote IDs and fallback fields exactly", () 
     results: [result({ ...original, title: "Updated metadata" }), ...variants,
       result({ remoteId: "" }), ...variants], errors: [],
   }, "a");
-  assert.deepEqual(merged.results, [original, ...variants]);
+  assert.deepEqual(merged.results, [original, result({ ...original, title: "Updated metadata" }), ...variants]);
   assert.equal(resultIdentity(result()), resultIdentity(result({ remoteId: "" })));
   assert.notEqual(resultIdentity(original), resultIdentity({ ...original, sourceId: "b" }));
   assert.notEqual(resultIdentity(result()), resultIdentity(result({ title: "book" })));

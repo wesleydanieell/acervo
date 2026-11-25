@@ -106,6 +106,8 @@ fn emit(
         format: fmt.into(),
         language: bounded(language),
         download_url: url.into(),
+        publisher: String::new(),
+        edition_label: String::new(),
         // IDs are opaque: reject oversized values rather than truncate their identity.
         remote_id: entry
             .id

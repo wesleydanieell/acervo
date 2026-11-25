@@ -70,6 +70,22 @@ pub struct SourceManifest {
     pub download_domains: Option<Vec<String>>,
     #[serde(default)]
     pub html: Option<HtmlMapping>,
+    #[serde(default)]
+    pub editions: Option<JsonEditions>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct JsonEditions {
+    pub items_field: String,
+    pub format_field: String,
+    pub download_url_field: String,
+    #[serde(default)]
+    pub language_field: String,
+    #[serde(default)]
+    pub publisher_field: String,
+    #[serde(default)]
+    pub label_field: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,6 +225,22 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
                 .into(),
         );
     }
+    if let Some(editions) = &manifest.editions {
+        if manifest.adapter != AdapterKind::Json
+            || !manifest.download_url_field.is_empty()
+            || !manifest.format_field.is_empty()
+            || !validate_field(&manifest.remote_id_field, true)
+            || manifest.download_domains.is_none()
+            || !validate_field(&editions.items_field, true)
+            || !validate_field(&editions.format_field, true)
+            || !validate_field(&editions.download_url_field, true)
+            || !validate_field(&editions.language_field, false)
+            || !validate_field(&editions.publisher_field, false)
+            || !validate_field(&editions.label_field, false)
+        {
+            return Err("Edições JSON exigem ID da obra, seletores válidos, domínios explícitos e ausência de link/formato simples.".into());
+        }
+    }
     if manifest.adapter != AdapterKind::Html && manifest.html.is_some() {
         return Err("Mapeamento HTML só pode ser usado pelo adaptador html.".into());
     }
@@ -311,7 +343,9 @@ pub(crate) fn valid_cursor(cursor: &str) -> bool {
 }
 
 pub(crate) fn permits_download(manifest: &SourceManifest, link: &str) -> bool {
-    if (manifest.adapter == AdapterKind::Json && manifest.download_url_field.is_empty())
+    if (manifest.adapter == AdapterKind::Json
+        && manifest.download_url_field.is_empty()
+        && manifest.editions.is_none())
         || (manifest.adapter == AdapterKind::Html
             && manifest
                 .html
@@ -550,6 +584,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             pagination: None,
             download_domains: None,
             html: None,
+            editions: None,
         },
     )
 }
@@ -632,6 +667,7 @@ mod tests {
             pagination: None,
             download_domains: None,
             html: None,
+            editions: None,
         }
     }
 
@@ -761,6 +797,33 @@ mod tests {
         sources[0].repository = None;
         manifest.version = "2.0.0".into();
         assert!(apply_repository_entry(&mut sources, manifest, repo, "c".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn nested_editions_require_identity_and_exclusive_mapping() {
+        let mut manifest = example();
+        manifest.download_url_field.clear();
+        manifest.format_field.clear();
+        manifest.remote_id_field = "id".into();
+        manifest.download_domains = Some(vec!["example.org".into()]);
+        manifest.editions = Some(JsonEditions {
+            items_field: "files".into(),
+            format_field: "format".into(),
+            download_url_field: "url".into(),
+            language_field: "lang".into(),
+            publisher_field: "publisher".into(),
+            label_field: "label".into(),
+        });
+        validate(&manifest).unwrap();
+        assert!(permits_download(&manifest, "https://example.org/book.epub"));
+        manifest.remote_id_field.clear();
+        assert!(validate(&manifest).is_err());
+        manifest.remote_id_field = "id".into();
+        manifest.download_url_field = "url".into();
+        assert!(validate(&manifest).is_err());
+        manifest.download_url_field.clear();
+        manifest.download_domains = None;
+        assert!(validate(&manifest).is_err());
     }
 
     #[test]

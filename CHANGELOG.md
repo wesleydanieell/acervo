@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Agrupamento seguro de obras na descoberta e seleção de formatos/edições, com mapeamento JSON aninhado e metadados opcionais de editora e edição.
 - Repositórios HTTPS de extensões, instalação revisada, SHA-256, procedência e atualização manual por versão.
 - Adaptador HTML declarativo com seletores CSS, links diretos, paginação na mesma origem e permissões de domínio.
 - Adaptador OPDS para feeds de aquisição Atom/XML e JSON, com paginação de mesma origem e permissões explícitas.

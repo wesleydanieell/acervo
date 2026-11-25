@@ -164,6 +164,38 @@
           "maxLength": 200
         }
       }
+    },
+    "editions": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "itemsField",
+        "formatField",
+        "downloadUrlField"
+      ],
+      "properties": {
+        "itemsField": {
+          "$ref": "#/$defs/requiredSelector"
+        },
+        "formatField": {
+          "$ref": "#/$defs/requiredSelector"
+        },
+        "downloadUrlField": {
+          "$ref": "#/$defs/requiredSelector"
+        },
+        "languageField": {
+          "$ref": "#/$defs/optionalSelector"
+        },
+        "publisherField": {
+          "$ref": "#/$defs/optionalSelector"
+        },
+        "labelField": {
+          "$ref": "#/$defs/optionalSelector"
+        }
+      }
     }
   },
   "$defs": {
@@ -298,6 +330,41 @@
             "html": {
               "type": "null"
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "editions": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "editions"
+        ]
+      },
+      "then": {
+        "required": [
+          "remoteIdField",
+          "downloadDomains"
+        ],
+        "properties": {
+          "adapter": {
+            "const": "json"
+          },
+          "remoteIdField": {
+            "$ref": "#/$defs/requiredSelector"
+          },
+          "downloadDomains": {
+            "type": "array"
+          },
+          "downloadUrlField": {
+            "const": ""
+          },
+          "formatField": {
+            "const": ""
           }
         }
       }

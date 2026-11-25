@@ -137,3 +137,8 @@ Use adapter: "html", searchPath com {query}, html com itemSelector e titleSelect
 ## Repositórios remotos (preview)
 
 Em Extensões → Repositórios, adicione a URL de um índice JSON v1, consulte fontes e revise as permissões antes de confirmar a instalação. O SHA-256 confere o manifesto com o índice; não autentica o publicador. Atualizações exigem a mesma URL de repositório e uma versão maior. Veja integrations/extension-repository/README.md para o índice de referência. A remoção do repositório não apaga extensões nem livros. Sem atualizações automáticas ou assinaturas nesta etapa.
+
+
+## Múltiplas edições JSON
+
+Use editions com itemsField, formatField, downloadUrlField e seletores opcionais de idioma, editora e descrição. O registro pai precisa de remoteIdField e a fonte precisa declarar downloadDomains. Não combine com formatField/downloadUrlField no nível da obra. Consulte sdk/extensions/manifest.editions.example.json. As opções agrupadas aparecem na descoberta e a edição escolhida segue o fluxo de importação existente.

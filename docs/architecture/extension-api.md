@@ -41,3 +41,8 @@ html_source.rs realiza a requisição pela fronteira HTTPS comum e html_parser.r
 ## Extension repository preview
 
 repository_index.rs validates versioned indexes and manifest identity/checksum; extension_repositories.rs manages explicit HTTPS repository URLs, bounded fetches and verified installation. sources.rs stores optional repository provenance and digest, serializes registry writes, rejects ID collisions across origins and downgrades, and preserves enabled state on updates. Manifests are declarative only. The review step shows actual manifest origin and download domains; installation re-fetches against the reviewed digest. No signature infrastructure, package execution, automated update or official update channel is implemented. Removing a repository preserves installed manifests. Local installation remains supported.
+
+
+## Obras e edições na descoberta
+
+O contrato SourceBook continua plano e compatível com a fila, com publisher e editionLabel opcionais. O adaptador JSON aceita mapeamento de array de edições aninhado por obra com ID remoto obrigatório; cada aquisição preserva formato, idioma, editora, descrição e URL. Na interface discovery-works.ts agrupa somente identidades exatas da mesma fonte, nunca por similaridade. OPDS reaproveita o agrupamento de seus links; HTML continua com o primeiro link por container. A API não oferece ainda get_details/get_editions separados nem identidade bibliográfica global. As informações da edição são mostradas antes de associar ao catálogo, mas não sobrescrevem seus metadados.

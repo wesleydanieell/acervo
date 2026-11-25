@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "version": "1.0.0",
+  "adapter": "json",
+  "id": "example-editions",
+  "name": "Example editions",
+  "baseUrl": "https://example.org",
+  "searchPath": "/books?q={query}",
+  "itemsPath": "results",
+  "titleField": "title",
+  "authorField": "author",
+  "remoteIdField": "id",
+  "downloadDomains": [
+    "example.org"
+  ],
+  "formats": [
+    "epub",
+    "pdf"
+  ],
+  "editions": {
+    "itemsField": "files",
+    "formatField": "format",
+    "downloadUrlField": "url",
+    "languageField": "language",
+    "publisherField": "publisher",
+    "labelField": "label"
+  }
+}

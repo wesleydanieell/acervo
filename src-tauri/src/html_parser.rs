@@ -196,6 +196,8 @@ pub(crate) fn parse_html(
             language,
             format,
             download_url,
+            publisher: String::new(),
+            edition_label: String::new(),
             remote_id: (!remote_id.is_empty() && remote_id.len() < MAX_TEXT - 3)
                 .then_some(remote_id),
         });
