@@ -14,7 +14,7 @@
  border:1px solid var(--popup-border);border-radius:var(--popup-radius);background:var(--popup-surface)!important;box-shadow:var(--popup-shadow)!important;padding:5px;
  animation:popup-enter var(--motion-standard) var(--motion-ease);transform-origin:top left;
 }
-:root .acervo-popup{position:fixed;z-index:95;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+:root .acervo-popup{box-sizing:border-box;position:fixed;z-index:95;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
 :root .acervo-context-menu{max-height:calc(100vh - 20px);max-width:calc(100vw - 20px);overflow:auto}
 :root .acervo-popup[data-placement=above]{transform-origin:bottom left}
 :root .acervo-popup button,:root .acervo-context-menu button,:root .action-menu-panel button{
@@ -31,3 +31,17 @@
 :root .acervo-popup.motion-exiting,:root .action-menu-panel.motion-exiting{animation:popup-enter var(--motion-exit) ease-in reverse both}
 @keyframes popup-enter{from{opacity:0;transform:translateY(-4px) scale(.96)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){:root .acervo-popup,:root .acervo-context-menu,:root .action-menu-panel{animation-duration:.01ms!important}}
+
+/* Field variant: same popup and keyboard contract, with a separate label. */
+.shared-select-field{display:grid;gap:8px;min-width:0}
+.shared-select-field>span{font-size:12px;font-weight:650;color:var(--text-muted)}
+:root .shared-select-field>.toolbar-select{width:100%;min-width:0;justify-content:space-between}
+:root .shared-select-field .toolbar-select-label{max-width:none;min-width:0;flex:1}
+:root .source-search-form .shared-select-field>.toolbar-select{height:43px}
+:root .duplicate-scan-bar>.shared-select-field{flex:1;min-width:min(180px,100%)}
+:root .duplicate-filter-bar>.toolbar-select{flex:0 1 auto}
+:root .settings-field.shared-select-field{display:grid}
+:root dialog.download-picker:has(>.toolbar-select-popup){overflow:visible}
+@media(max-width:520px){:root .duplicate-filter-bar>.toolbar-select{flex:1 1 125px}}
+
+:root dialog.download-picker>.toolbar-select-popup{position:absolute}

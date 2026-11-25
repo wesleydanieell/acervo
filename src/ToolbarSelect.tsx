@@ -10,6 +10,7 @@ export function ToolbarSelect<T extends string>({label,value,options,onChange,ic
   const trigger=useRef<HTMLButtonElement>(null);
   const panel=useRef<HTMLDivElement>(null);
   const [open,setOpen]=useState(false);
+  const [portalHost,setPortalHost]=useState<HTMLElement|null>(null);
   const [position,setPosition]=useState({left:0,top:0,width:200,maxHeight:320,above:false});
   const selected=options.find(option=>option.value===value);
   const close=useCallback((restore=false)=>{
@@ -19,8 +20,24 @@ export function ToolbarSelect<T extends string>({label,value,options,onChange,ic
   const place=useCallback(()=>{
     const rect=trigger.current?.getBoundingClientRect();
     if(!rect)return;
-    setPosition(popupPosition(rect,Math.max(200,rect.width),Math.min(320,options.length*38+14),window.innerWidth,window.innerHeight));
+    const next=popupPosition(rect,Math.max(200,rect.width),Math.min(320,options.length*38+14),window.innerWidth,window.innerHeight);
+    const host=trigger.current?.closest("dialog[open]") as HTMLDialogElement|null;
+    if(host){
+      // A dialog's backdrop-filter (Glass) creates its own fixed containing
+      // block. Always use its local absolute coordinates, across all modes.
+      const bounds=host.getBoundingClientRect();
+      const sx=bounds.width/host.offsetWidth||1,sy=bounds.height/host.offsetHeight||1;
+      next.left=(next.left-bounds.left)/sx-host.clientLeft+host.scrollLeft;
+      next.top=(next.top-bounds.top)/sy-host.clientTop+host.scrollTop;
+      next.width/=sx;next.maxHeight/=sy;
+    }
+    setPosition(next);
   },[options.length]);
+  const show=()=>{
+    const host=trigger.current?.closest("dialog[open]") as HTMLElement|null;
+    setPortalHost(host??document.body);
+    place();setOpen(true);
+  };
   useLayoutEffect(()=>{
     if(!open)return;
     place();
@@ -28,9 +45,10 @@ export function ToolbarSelect<T extends string>({label,value,options,onChange,ic
       item.focus({preventScroll:true});
       const container=panel.current;
       if(container){
-        const outer=container.getBoundingClientRect(),inner=item.getBoundingClientRect();
-        if(inner.bottom>outer.bottom)container.scrollTop+=inner.bottom-outer.bottom+5;
-        else if(inner.top<outer.top)container.scrollTop-=outer.top-inner.top+5;
+        // Layout coordinates are not scaled by the opening animation.
+        const top=item.offsetTop,bottom=top+item.offsetHeight;
+        if(bottom>container.scrollTop+container.clientHeight)container.scrollTop=bottom-container.clientHeight+5;
+        else if(top<container.scrollTop)container.scrollTop=Math.max(0,top-5);
       }};
     focus();
     const outside=(event:PointerEvent)=>{
@@ -38,19 +56,21 @@ export function ToolbarSelect<T extends string>({label,value,options,onChange,ic
     };
     const scroll=(event:Event)=>{if(!panel.current?.contains(event.target as Node))close();};
     const resize=()=>close(true);
+    // Reposition once the containing dialog's entrance has settled.
+    const settled=window.setTimeout(place,360);
     window.addEventListener("pointerdown",outside,true);
     window.addEventListener("scroll",scroll,true);
     window.addEventListener("resize",resize);
-    return()=>{window.removeEventListener("pointerdown",outside,true);window.removeEventListener("scroll",scroll,true);window.removeEventListener("resize",resize);};
+    return()=>{window.clearTimeout(settled);window.removeEventListener("pointerdown",outside,true);window.removeEventListener("scroll",scroll,true);window.removeEventListener("resize",resize);};
   },[open,place,close]);
   useLayoutEffect(()=>{if(disabled)close();},[disabled,close]);
   return <>
     <button type="button" ref={trigger} className={"pill-control toolbar-select "+className} aria-label={label+": "+(selected?.label??value)} aria-haspopup="menu" aria-expanded={open} aria-controls={open?id:undefined} disabled={disabled}
-      onClick={()=>{if(open)close();else{place();setOpen(true);}}}
-      onKeyDown={event=>{if(["ArrowDown","ArrowUp"].includes(event.key)){event.preventDefault();if(!open){place();setOpen(true);}}}}>
+      onClick={()=>{if(open)close();else show()}}
+      onKeyDown={event=>{if(["ArrowDown","ArrowUp"].includes(event.key)){event.preventDefault();if(!open)show()}}}>
       {icon}<span className="toolbar-select-label" title={selected?.label}>{selected?.label??value}</span><ChevronDown className="toolbar-select-chevron" size={14} aria-hidden="true"/>
     </button>
-    {createPortal(<MotionPresence>{open&&<div ref={panel} id={id} className="acervo-popup toolbar-select-popup" role="menu" aria-label={label} data-placement={position.above?"above":"below"}
+    {portalHost&&createPortal(<MotionPresence>{open&&<div ref={panel} id={id} className="acervo-popup toolbar-select-popup" role="menu" aria-label={label} data-placement={position.above?"above":"below"}
       style={{left:position.left,top:position.top,width:position.width,maxHeight:position.maxHeight}}
       onContextMenu={event=>{event.preventDefault();event.stopPropagation();}}
       onBlur={event=>{if(event.relatedTarget&&!event.currentTarget.contains(event.relatedTarget)&&event.relatedTarget!==trigger.current)close();}}
@@ -68,6 +88,6 @@ export function ToolbarSelect<T extends string>({label,value,options,onChange,ic
       }}>
       {options.map(option=><button type="button" key={option.value} role="menuitemradio" aria-checked={option.value===value} disabled={option.disabled}
         onClick={()=>{close(true);onChange(option.value);}}><span>{option.label}</span>{option.value===value&&<Check size={16} aria-hidden="true"/>}</button>)}
-    </div>}</MotionPresence>,document.body)}
+    </div>}</MotionPresence>,portalHost)}
   </>;
 }
