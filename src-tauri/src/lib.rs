@@ -17,6 +17,7 @@ mod library_editions;
 mod library_index;
 mod library_index_disk;
 mod library_monitor;
+mod manual_metadata;
 mod metadata_cache;
 mod opds_parser;
 mod opds_source;
@@ -45,6 +46,8 @@ struct BookFile {
     bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     edition: Option<library_editions::EditionRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manual: Option<manual_metadata::ManualRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     embedded: Option<metadata_cache::CachedMetadata>,
 }
@@ -224,6 +227,7 @@ fn scan_selected_disk(
                         continue;
                     }
                 },
+                manual: None,
                 edition: None,
                 embedded: None,
             });
@@ -379,6 +383,28 @@ fn hydrate_collection(
             }
         }
         Err(error) => warnings.push(format!("Cache de metadados: {error}")),
+    }
+    for file in &mut files {
+        file.manual = None;
+    }
+    match manual_metadata::load(path) {
+        Ok(index) => {
+            for file in &mut files {
+                if let Some(record) = index.entries.get(&file.path) {
+                    if manual_metadata::identity(path, &file.path).ok().as_ref()
+                        == Some(&record.identity)
+                    {
+                        file.manual = Some(record.clone());
+                    } else {
+                        warnings.push(format!(
+                            "Metadados manuais preservados, identidade divergente: {}",
+                            file.path
+                        ));
+                    }
+                }
+            }
+        }
+        Err(error) => warnings.push(format!("Metadados manuais: {error}")),
     }
     files.sort_by_cached_key(|file| (file.title.to_lowercase(), file.path.clone()));
     let mut works = read_catalog(&path, &files, &mut warnings);
@@ -642,6 +668,10 @@ fn move_book_with_policy(
         .unwrap()
         .to_string_lossy()
         .replace('\\', "/");
+    let _manual_guard = manual_metadata::MUTATIONS
+        .lock()
+        .map_err(|_| "Índice manual indisponível.")?;
+    manual_metadata::load(&root)?;
     let embedded_signature = metadata_cache::current_signature(&root, &old_relative).ok();
     // Fail before touching the filesystem if the edition index is already invalid.
     library_editions::load(&root)?;
@@ -671,12 +701,24 @@ fn move_book_with_policy(
             ));
         }
     };
+    let manual_undo = match manual_metadata::sync_move(&root, &old_relative, &new_relative) {
+        Ok(undo) => undo,
+        Err(error) => {
+            let lists = catalog_lists::rollback_move(&root, lists_undo);
+            let catalog = rollback_catalog_move(&root, legacy_undo);
+            let file = rename_without_replace(&target, &source);
+            return Err(format!(
+                "Falha nos metadados manuais: {error}; reversão: {lists:?}, {catalog:?}, {file:?}."
+            ));
+        }
+    };
     if let Err(error) = library_editions::sync_move(&root, &old_relative, &new_relative) {
+        let manual = manual_metadata::rollback_move(&root, manual_undo);
         let lists = catalog_lists::rollback_move(&root, lists_undo);
         let catalog = rollback_catalog_move(&root, legacy_undo);
         let file = rename_without_replace(&target, &source);
         return Err(format!(
-            "Falha ao mover registro de edição: {error}; reversão de listas: {lists:?}, catálogo: {catalog:?}, arquivo: {file:?}."
+            "Falha ao mover registro de edição: {error}; reversão manual: {manual:?}, listas: {lists:?}, catálogo: {catalog:?}, arquivo: {file:?}."
         ));
     }
     metadata_cache::after_move(&root, &old_relative, &new_relative, embedded_signature);
@@ -806,6 +848,8 @@ pub fn run() {
     let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
         load_collection,
         library_duplicates::scan_duplicate_books,
+        manual_metadata::get_manual_book_metadata,
+        manual_metadata::save_manual_book_metadata,
         load_initial_collection,
         refresh_indexed_collection,
         library_monitor::set_library_monitor,

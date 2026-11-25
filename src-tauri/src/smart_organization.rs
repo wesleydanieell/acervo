@@ -41,6 +41,7 @@ impl CustomRule {
         if !self.enabled {
             return false;
         }
+        let manual = file.manual.as_ref().map(|r| &r.metadata);
         let edition = file.edition.as_ref().map(|entry| &entry.metadata);
         let embedded = file
             .embedded
@@ -59,22 +60,31 @@ impl CustomRule {
             && matches_value(
                 &self.author,
                 prefer(
-                    edition.map(|entry| entry.author.as_str()),
-                    embedded.map(|entry| entry.author.as_str()),
+                    manual.and_then(|m| m.author.as_deref()),
+                    prefer(
+                        edition.map(|entry| entry.author.as_str()),
+                        embedded.map(|entry| entry.author.as_str()),
+                    ),
                 ),
             )
             && matches_value(
                 &self.language,
                 prefer(
-                    edition.map(|entry| entry.language.as_str()),
-                    embedded.map(|entry| entry.language.as_str()),
+                    manual.and_then(|m| m.language.as_deref()),
+                    prefer(
+                        edition.map(|entry| entry.language.as_str()),
+                        embedded.map(|entry| entry.language.as_str()),
+                    ),
                 ),
             )
             && matches_value(
                 &self.publisher,
                 prefer(
-                    edition.map(|entry| entry.publisher.as_str()),
-                    embedded.map(|entry| entry.publisher.as_str()),
+                    manual.and_then(|m| m.publisher.as_deref()),
+                    prefer(
+                        edition.map(|entry| entry.publisher.as_str()),
+                        embedded.map(|entry| entry.publisher.as_str()),
+                    ),
                 ),
             )
     }
@@ -547,6 +557,7 @@ mod tests {
             folder: String::new(),
             format: "EPUB".into(),
             bytes: 4,
+            manual: None,
             edition: None,
             embedded: Some(crate::metadata_cache::CachedMetadata {
                 metadata: Some(crate::embedded_metadata::EmbeddedMetadata {
@@ -583,6 +594,22 @@ mod tests {
         assert!(!rule.matches(&file));
         file.edition.as_mut().unwrap().metadata.author.clear();
         assert!(rule.matches(&file));
+        let root = std::env::temp_dir().join(format!("acervo-manual-rule-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("File.epub"), b"book").unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        file.manual = Some(crate::manual_metadata::ManualRecord {
+            metadata: crate::manual_metadata::ManualMetadata {
+                author: Some("Manual".into()),
+                ..Default::default()
+            },
+            identity: crate::manual_metadata::identity(&root, "File.epub").unwrap(),
+        });
+        assert!(!rule.matches(&file));
+        file.manual.as_mut().unwrap().metadata.author = Some("Writer".into());
+        file.edition.as_mut().unwrap().metadata.author = "Source".into();
+        assert!(rule.matches(&file));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
