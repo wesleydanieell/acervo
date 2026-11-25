@@ -54,6 +54,7 @@ fn relevant(root: &Path, event: &Event) -> bool {
                             | "Acervo_Listas.json"
                             | "Acervo_Edicoes.json"
                             | "Acervo_Metadados.json"
+                            | "Acervo_Metadados_Manuais.json"
                     ));
         }
         // Discovery excludes hidden directories, not hidden book filenames.
@@ -240,6 +241,13 @@ mod tests {
         assert!(relevant(
             &root,
             &event("99 - Catálogo/Acervo_Metadados.json", EventKind::Any)
+        ));
+        assert!(relevant(
+            &root,
+            &event(
+                "99 - Catálogo/Acervo_Metadados_Manuais.json",
+                EventKind::Any
+            )
         ));
         assert!(relevant(&root, &event("New/Book.epub", EventKind::Any)));
     }

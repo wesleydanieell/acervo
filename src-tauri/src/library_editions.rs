@@ -231,19 +231,13 @@ impl Write for LimitedBuffer {
     }
 }
 
-fn persist(root: &Path, entries: BTreeMap<String, EditionRecord>) -> Result<(), String> {
-    if entries.len() > MAX_ENTRIES {
-        return Err("Índice excede 20000 edições.".into());
-    }
+pub(crate) fn persist_json<T: Serialize>(
+    root: &Path,
+    index: &str,
+    envelope: &T,
+) -> Result<(), String> {
     let mut buffer = LimitedBuffer(Vec::new());
-    serde_json::to_writer(
-        &mut buffer,
-        &Envelope {
-            version: 1,
-            entries,
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    serde_json::to_writer(&mut buffer, envelope).map_err(|e| e.to_string())?;
     canonical_root(root)?;
     if service(root)?.is_none() {
         match fs::create_dir(root.join(SERVICE)) {
@@ -253,7 +247,7 @@ fn persist(root: &Path, entries: BTreeMap<String, EditionRecord>) -> Result<(), 
         }
     }
     let directory = service(root)?.ok_or("Pasta de serviço ausente.")?;
-    let target = directory.join(INDEX);
+    let target = directory.join(index);
     let check_target = || -> Result<(), String> {
         match fs::symlink_metadata(&target) {
             Ok(m) if m.file_type().is_file() => Ok(()),
@@ -265,7 +259,7 @@ fn persist(root: &Path, entries: BTreeMap<String, EditionRecord>) -> Result<(), 
     check_target()?;
     let (temp, mut file) = loop {
         let temp = directory.join(format!(
-            ".Acervo_Edicoes-{}-{}.tmp",
+            ".{index}-{}-{}.tmp",
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
@@ -293,6 +287,20 @@ fn persist(root: &Path, entries: BTreeMap<String, EditionRecord>) -> Result<(), 
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+fn persist(root: &Path, entries: BTreeMap<String, EditionRecord>) -> Result<(), String> {
+    if entries.len() > MAX_ENTRIES {
+        return Err("Índice excede 20000 edições.".into());
+    }
+    persist_json(
+        root,
+        INDEX,
+        &Envelope {
+            version: 1,
+            entries,
+        },
+    )
 }
 
 pub(crate) fn record(root: &Path, entry: EditionRecord) -> Result<(), String> {
