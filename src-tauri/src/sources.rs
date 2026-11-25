@@ -48,6 +48,8 @@ pub struct SourceManifest {
     pub search_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feed_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub feed_categories: Vec<FeedCategory>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub cover_url_field: String,
     #[serde(default)]
@@ -78,6 +80,14 @@ pub struct SourceManifest {
     pub html: Option<HtmlMapping>,
     #[serde(default)]
     pub editions: Option<JsonEditions>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FeedCategory {
+    pub id: String,
+    pub label: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,12 +143,38 @@ pub struct InstalledSource {
 
 impl SourceManifest {
     pub(crate) fn supports_feed(&self) -> bool {
+        self.has_default_feed() || !self.feed_categories.is_empty()
+    }
+
+    pub(crate) fn has_default_feed(&self) -> bool {
         self.feed_path.is_some() || (self.adapter == AdapterKind::Json && self.local_search)
     }
 
     /// Derive an internal browse mapping from the validated manifest, never from UI URLs.
-    pub(crate) fn for_feed(&self) -> Result<Self, crate::extension_api::SourceError> {
+    pub(crate) fn for_feed(
+        &self,
+        category: Option<&str>,
+    ) -> Result<Self, crate::extension_api::SourceError> {
         let mut copy = self.clone();
+        let selected = match category {
+            Some(id) => Some(
+                self.feed_categories
+                    .iter()
+                    .find(|item| item.id == id)
+                    .ok_or_else(|| crate::extension_api::SourceError {
+                        code: crate::extension_api::SourceErrorCode::InvalidRequest,
+                        message: "Categoria de feed desconhecida.".into(),
+                    })?,
+            ),
+            None if !self.has_default_feed() => self.feed_categories.first(),
+            None => None,
+        };
+        if let Some(selected) = selected {
+            copy.search_path = selected.path.clone();
+            copy.feed_path = Some(selected.path.clone());
+            copy.local_search = false;
+            return Ok(copy);
+        }
         if let Some(path) = &self.feed_path {
             copy.search_path = path.clone();
         } else if self.adapter == AdapterKind::Json && self.local_search {
@@ -156,6 +192,20 @@ impl SourceManifest {
         copy.local_search = false;
         Ok(copy)
     }
+}
+
+fn valid_feed_path(manifest: &SourceManifest, origin: &url::Url, path: &str) -> bool {
+    path.len() <= 1000
+        && path.starts_with('/')
+        && !path.starts_with("//")
+        && !path.contains(['\\', '#'])
+        && !path.contains("..")
+        && !path.chars().any(char::is_control)
+        && (path.contains("{cursor}") == manifest.pagination.is_some())
+        && !path.replace("{cursor}", "").contains(['{', '}'])
+        && origin.join(path).is_ok_and(|feed| {
+            feed.origin() == origin.origin() && crate::extension_network::safe_url(feed.as_str())
+        })
 }
 
 fn validate_field(field: &str, required: bool) -> bool {
@@ -265,21 +315,33 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
                 .into(),
         );
     }
-    if let Some(path) = &manifest.feed_path {
-        if path.len() > 1000
-            || !path.starts_with('/')
-            || path.starts_with("//")
-            || path.contains('\\')
-            || path.contains('#')
-            || path.contains("..")
-            || path.chars().any(char::is_control)
-            || (path.contains("{cursor}") != manifest.pagination.is_some())
-            || path.replace("{cursor}", "").contains(['{', '}'])
-            || !url.join(path).is_ok_and(|feed| {
-                feed.origin() == url.origin() && crate::extension_network::safe_url(feed.as_str())
-            })
+    if manifest.feed_categories.len() > 12 {
+        return Err("Uma fonte pode declarar até 12 categorias de feed.".into());
+    }
+    let mut category_ids = std::collections::HashSet::new();
+    for item in &manifest.feed_categories {
+        if item.id.is_empty()
+            || item.id.len() > 48
+            || !item
+                .id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || !category_ids.insert(&item.id)
+            || item.label.trim() != item.label
+            || item.label.is_empty()
+            || item.label.len() > 80
+            || item.label.chars().any(char::is_control)
         {
-            return Err("feedPath deve apontar para uma página da mesma origem, sem pesquisa, e usar {cursor} apenas com paginação JSON.".into());
+            return Err("Categoria de feed inválida ou duplicada.".into());
+        }
+    }
+    for path in manifest
+        .feed_path
+        .iter()
+        .chain(manifest.feed_categories.iter().map(|item| &item.path))
+    {
+        if !valid_feed_path(manifest, &url, path) {
+            return Err("Feed deve apontar para uma página da mesma origem, sem pesquisa, e usar {cursor} apenas com paginação JSON.".into());
         }
     }
     if !manifest.cover_url_field.is_empty()
@@ -650,6 +712,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             editions: None,
             website_url: None,
             feed_path: None,
+            feed_categories: vec![],
             cover_url_field: String::new(),
         },
     )
@@ -736,6 +799,7 @@ mod tests {
             editions: None,
             website_url: None,
             feed_path: None,
+            feed_categories: vec![],
             cover_url_field: String::new(),
         }
     }
@@ -744,15 +808,15 @@ mod tests {
     fn feed_paths_are_explicit_and_origin_bound() {
         let mut m = example();
         assert!(!m.supports_feed());
-        assert!(m.for_feed().is_err());
+        assert!(m.for_feed(None).is_err());
         m.local_search = true;
         assert!(m.supports_feed());
-        assert!(!m.for_feed().unwrap().search_path.contains("{query}"));
-        assert!(!m.for_feed().unwrap().local_search);
+        assert!(!m.for_feed(None).unwrap().search_path.contains("{query}"));
+        assert!(!m.for_feed(None).unwrap().local_search);
         m.local_search = false;
         m.feed_path = Some("/catalog/popular".into());
         validate(&m).unwrap();
-        assert_eq!(m.for_feed().unwrap().search_path, "/catalog/popular");
+        assert_eq!(m.for_feed(None).unwrap().search_path, "/catalog/popular");
         for path in [
             "//other.org/feed",
             "/\\other.org/feed",
@@ -772,6 +836,39 @@ mod tests {
         m.feed_path = Some("/catalog?page={cursor}".into());
         validate(&m).unwrap();
         m.feed_path = Some("/catalog".into());
+        assert!(validate(&m).is_err());
+    }
+
+    #[test]
+    fn categories_are_validated_and_selected_without_changing_search() {
+        let mut m = example();
+        m.feed_categories = vec![
+            FeedCategory {
+                id: "recent".into(),
+                label: "Novidades".into(),
+                path: "/recent".into(),
+            },
+            FeedCategory {
+                id: "popular".into(),
+                label: "Populares".into(),
+                path: "/popular".into(),
+            },
+        ];
+        validate(&m).unwrap();
+        assert!(m.supports_feed());
+        assert_eq!(m.for_feed(None).unwrap().search_path, "/recent");
+        assert_eq!(m.for_feed(Some("popular")).unwrap().search_path, "/popular");
+        assert!(m.for_feed(Some("missing")).is_err());
+        assert!(m.search_path.contains("{query}"));
+        m.feed_path = Some("/catalog".into());
+        assert_eq!(m.for_feed(None).unwrap().search_path, "/catalog");
+        m.feed_categories[1].id = "recent".into();
+        assert!(validate(&m).is_err());
+        m.feed_categories[1].id = "popular".into();
+        m.feed_categories[1].path = "//evil.org/".into();
+        assert!(validate(&m).is_err());
+        m.feed_categories[1].path = "/popular".into();
+        m.feed_categories[1].label = " ".into();
         assert!(validate(&m).is_err());
     }
 

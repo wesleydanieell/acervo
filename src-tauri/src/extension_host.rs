@@ -135,19 +135,23 @@ pub async fn search_sources(
 pub async fn browse_source(
     app: tauri::AppHandle,
     id: String,
+    category: Option<String>,
     cursor: Option<String>,
 ) -> Result<SearchOutcome, String> {
     let installed = sources::list_sources(app)?
         .into_iter()
         .find(|s| s.enabled && s.manifest.id == id)
         .ok_or("Fonte indisponível.")?;
+    // The opaque cursor includes the selected category so accidentally reusing a
+    // previous tab's cursor is rejected before the adapter sees it.
+    let cursor = unwrap_feed_cursor(category.as_deref(), cursor)?;
     let adapter = create_source(installed.manifest).map_err(|e| e.message)?;
     if !adapter.descriptor().capabilities.feed {
         return Err("Esta fonte não oferece feed.".into());
     }
     let page = tokio::time::timeout(
         std::time::Duration::from_secs(20),
-        adapter.browse(cursor.clone()),
+        adapter.browse(category.clone(), cursor.clone()),
     )
     .await
     .map_err(|_| "Tempo limite ao carregar feed.")?
@@ -157,7 +161,7 @@ pub async fn browse_source(
         .next_cursor
         .filter(|next| Some(next) != cursor.as_ref())
     {
-        next_pages.insert(id.clone(), next);
+        next_pages.insert(id.clone(), wrap_feed_cursor(category.as_deref(), &next)?);
     }
     Ok(SearchOutcome {
         results: page
@@ -171,11 +175,50 @@ pub async fn browse_source(
     })
 }
 
+fn wrap_feed_cursor(category: Option<&str>, cursor: &str) -> Result<String, String> {
+    serde_json::to_string(&(category, cursor)).map_err(|e| e.to_string())
+}
+fn unwrap_feed_cursor(
+    category: Option<&str>,
+    cursor: Option<String>,
+) -> Result<Option<String>, String> {
+    let Some(cursor) = cursor else {
+        return Ok(None);
+    };
+    if cursor.len() > 4300 {
+        return Err("Cursor de feed inválido.".into());
+    }
+    let (selected, value): (Option<String>, String) =
+        serde_json::from_str(&cursor).map_err(|_| "Cursor de feed inválido.")?;
+    if selected.as_deref() != category
+        || value.len() > 2048
+        || value.trim().is_empty()
+        || value.chars().any(char::is_control)
+    {
+        return Err("Cursor de outra categoria ou inválido.".into());
+    }
+    Ok(Some(value))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::extension_api::{API_VERSION, SearchPage, SourceCapabilities};
     use std::{future::Future, pin::Pin};
+
+    #[test]
+    fn category_cursors_do_not_cross_tabs() {
+        let encoded = wrap_feed_cursor(Some("recent"), "next+42").unwrap();
+        assert_eq!(
+            unwrap_feed_cursor(Some("recent"), Some(encoded.clone()))
+                .unwrap()
+                .as_deref(),
+            Some("next+42")
+        );
+        assert!(unwrap_feed_cursor(Some("popular"), Some(encoded.clone())).is_err());
+        assert!(unwrap_feed_cursor(None, Some(encoded)).is_err());
+        assert!(unwrap_feed_cursor(None, Some("unwrapped".into())).is_err());
+    }
 
     struct FakeSource {
         name: &'static str,

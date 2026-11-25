@@ -60,10 +60,11 @@ impl BookSource for JsonSource {
     }
     fn browse(
         &self,
+        category: Option<String>,
         cursor: Option<String>,
     ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
         Box::pin(async move {
-            let manifest = self.manifest.for_feed()?;
+            let manifest = self.manifest.for_feed(category.as_deref())?;
             let request = SearchRequest {
                 query: String::new(),
                 language: String::new(),

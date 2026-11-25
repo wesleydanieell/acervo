@@ -143,6 +143,7 @@ pub trait BookSource: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>>;
     fn browse(
         &self,
+        _category: Option<String>,
         _cursor: Option<String>,
     ) -> Pin<Box<dyn Future<Output = Result<SearchPage, SourceError>> + Send + '_>> {
         Box::pin(async {

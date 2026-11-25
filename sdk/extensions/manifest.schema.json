@@ -221,6 +221,35 @@
     "coverUrlField": {
       "type": "string",
       "maxLength": 200
+    },
+    "feedCategories": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,48}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 1000,
+            "pattern": "^/(?!/)"
+          }
+        }
+      }
     }
   },
   "$defs": {

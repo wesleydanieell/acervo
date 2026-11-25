@@ -17,7 +17,7 @@ import "./source-search.css";
 export type SourceManifest = {
   schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html"; id: string; name: string; description: string;
   coverUrlField?: string;
-  websiteUrl?: string | null; feedPath?: string | null; localSearch?: boolean;
+  websiteUrl?: string | null; feedPath?: string | null; localSearch?: boolean; feedCategories?: {id:string;label:string;path:string}[];
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
@@ -270,7 +270,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && (manifest.downloadDomains == null || manifest.downloadDomains.length > 0) && <span><Download size={13}/> Link de download</span>}
         {(manifest.adapter === "opds" || manifest.pagination || manifest.html?.nextSelector) && <span>Paginação</span>}
         {manifest.editions && <span>Múltiplas edições</span>}
-        {(manifest.feedPath || manifest.localSearch) && <span>Feed</span>}
+        {(manifest.feedPath || manifest.localSearch || !!manifest.feedCategories?.length) && <span>Feed</span>}
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
       <div className="source-actions">
