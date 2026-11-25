@@ -313,29 +313,42 @@ fn create_folder(root: String, parent: String, name: String) -> Result<String, S
         .replace('\\', "/"))
 }
 
-fn sync_catalog_move(root: &Path, old: &str, new: &str) -> Result<(), String> {
+#[derive(Debug)]
+struct LegacyMoveUndo {
+    id: i64,
+    previous_paths: Option<String>,
+    previous_destination: Option<String>,
+    updated_paths: String,
+    updated_destination: String,
+}
+
+fn sync_catalog_move(root: &Path, old: &str, new: &str) -> Result<Vec<LegacyMoveUndo>, String> {
     use rusqlite::Connection;
     let db = root.join("99 - Catálogo").join("Catalogo_Conhecimento.db");
     if !db.exists() {
-        return Ok(());
+        return Ok(vec![]);
     }
     let mut connection = Connection::open(db).map_err(|e| e.to_string())?;
     let tx = connection.transaction().map_err(|e| e.to_string())?;
+    let mut undo = Vec::new();
     {
         let mut stmt = tx
-            .prepare("SELECT id,arquivos_encontrados FROM livros")
+            .prepare("SELECT id,arquivos_encontrados,local_indicado FROM livros")
             .map_err(|e| e.to_string())?;
         let associations = stmt
             .query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
-                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
         for association in associations {
-            let (id, raw) = association.map_err(|e| e.to_string())?;
-            let Ok(mut paths) = serde_json::from_str::<Vec<String>>(&raw) else {
+            let (id, raw, previous_destination) = association.map_err(|e| e.to_string())?;
+            let Ok(mut paths) =
+                serde_json::from_str::<Vec<String>>(raw.as_deref().unwrap_or_default())
+            else {
                 continue;
             };
             if !paths.iter().any(|path| path == old) {
@@ -351,15 +364,39 @@ fn sync_catalog_move(root: &Path, old: &str, new: &str) -> Result<(), String> {
                 .unwrap_or(Path::new("."))
                 .to_string_lossy()
                 .to_string();
+            let updated_paths = serde_json::to_string(&paths).map_err(|e| e.to_string())?;
             tx.execute(
                 "UPDATE livros SET arquivos_encontrados=?1, local_indicado=?2 WHERE id=?3",
-                (
-                    serde_json::to_string(&paths).map_err(|e| e.to_string())?,
-                    first_parent,
-                    id,
-                ),
+                (&updated_paths, &first_parent, id),
             )
             .map_err(|e| e.to_string())?;
+            undo.push(LegacyMoveUndo {
+                id,
+                previous_paths: raw,
+                previous_destination,
+                updated_paths,
+                updated_destination: first_parent,
+            });
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(undo)
+}
+
+fn rollback_catalog_move(root: &Path, undo: Vec<LegacyMoveUndo>) -> Result<(), String> {
+    if undo.is_empty() {
+        return Ok(());
+    }
+    let db = root.join("99 - Catálogo").join("Catalogo_Conhecimento.db");
+    let mut connection =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .map_err(|e| e.to_string())?;
+    let tx = connection.transaction().map_err(|e| e.to_string())?;
+    for row in undo {
+        let changed=tx.execute("UPDATE livros SET arquivos_encontrados=?1,local_indicado=?2 WHERE id=?3 AND arquivos_encontrados IS ?4 AND local_indicado IS ?5",
+          (row.previous_paths,row.previous_destination,row.id,row.updated_paths,row.updated_destination)).map_err(|e|e.to_string())?;
+        if changed != 1 {
+            return Err("O catálogo mudou durante a movimentação; reversão não aplicada.".into());
         }
     }
     tx.commit().map_err(|e| e.to_string())
@@ -401,32 +438,31 @@ fn move_book(root: String, relative_path: String, destination: String) -> Result
         .unwrap()
         .to_string_lossy()
         .replace('\\', "/");
+    // Fail before touching the filesystem if the edition index is already invalid.
+    library_editions::load(&root)?;
     fs::rename(&source, &target).map_err(|e| format!("Falha ao mover o livro: {e}"))?;
-    if let Err(error) = sync_catalog_move(&root, &old_relative, &new_relative) {
-        let undo = fs::rename(&target, &source);
-        return Err(if let Err(rollback) = undo {
-            format!(
-                "Falha no catálogo: {error}; reversão também falhou: {rollback}. Verifique manualmente o arquivo."
-            )
-        } else {
-            format!("Catálogo não atualizado; a movimentação foi revertida: {error}")
-        });
-    }
-    if let Err(error) = catalog_lists::sync_move_refs(&root, &old_relative, &new_relative) {
-        let catalog_rollback = sync_catalog_move(&root, &new_relative, &old_relative);
-        let file_rollback = fs::rename(&target, &source);
-        return Err(match (catalog_rollback, file_rollback) {
-            (Ok(()), Ok(())) => {
-                format!("Falha ao atualizar listas; movimentação revertida: {error}")
-            }
-            (catalog, file) => format!(
-                "Falha ao atualizar listas: {error}; reversão de catálogo: {catalog:?}; reversão de arquivo: {file:?}. Verifique a biblioteca."
-            ),
-        });
-    }
+    let legacy_undo = match sync_catalog_move(&root, &old_relative, &new_relative) {
+        Ok(undo) => undo,
+        Err(error) => {
+            let file = fs::rename(&target, &source);
+            return Err(format!(
+                "Falha no catálogo: {error}; reversão de arquivo: {file:?}."
+            ));
+        }
+    };
+    let lists_undo = match catalog_lists::sync_move_refs(&root, &old_relative, &new_relative) {
+        Ok(undo) => undo,
+        Err(error) => {
+            let catalog = rollback_catalog_move(&root, legacy_undo);
+            let file = fs::rename(&target, &source);
+            return Err(format!(
+                "Falha nas listas: {error}; reversão de catálogo: {catalog:?}, arquivo: {file:?}."
+            ));
+        }
+    };
     if let Err(error) = library_editions::sync_move(&root, &old_relative, &new_relative) {
-        let lists = catalog_lists::sync_move_refs(&root, &new_relative, &old_relative);
-        let catalog = sync_catalog_move(&root, &new_relative, &old_relative);
+        let lists = catalog_lists::rollback_move(&root, lists_undo);
+        let catalog = rollback_catalog_move(&root, legacy_undo);
         let file = fs::rename(&target, &source);
         return Err(format!(
             "Falha ao mover registro de edição: {error}; reversão de listas: {lists:?}, catálogo: {catalog:?}, arquivo: {file:?}."
@@ -703,6 +739,69 @@ mod tests {
         assert!(move_book(root_text, "B/Book.pdf".into(), "A".into()).is_err());
         assert!(root.join("B/Book.pdf").is_file());
         assert!(!root.join("A/Book.pdf").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_edition_move_restores_original_planned_catalog_destinations() {
+        let root = std::env::temp_dir().join(format!(
+            "acervo-move-undo-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for folder in ["A", "B", "99 - Catálogo"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        let root = fs::canonicalize(root).unwrap();
+        let book = root.join("A/Book.pdf");
+        fs::write(&book, b"%PDF-1.7 original").unwrap();
+        let list = root.join("99 - Catálogo/Acervo_Listas.json");
+        fs::write(&list,r#"{"versao":1,"obras":[{"titulo":"Book","local_indicado":"Planned","arquivos_encontrados":["A/Book.pdf"]}]}"#).unwrap();
+        let before: serde_json::Value = serde_json::from_slice(&fs::read(&list).unwrap()).unwrap();
+        let db = rusqlite::Connection::open(root.join("99 - Catálogo/Catalogo_Conhecimento.db"))
+            .unwrap();
+        db.execute_batch(r#"CREATE TABLE livros (id INTEGER PRIMARY KEY, arquivos_encontrados TEXT, local_indicado TEXT); INSERT INTO livros VALUES(1,'["A/Book.pdf"]','Legacy planned');"#).unwrap();
+        library_editions::record(
+            &root,
+            library_editions::EditionRecord {
+                path: "A/Book.pdf".into(),
+                source_name: "Source".into(),
+                metadata: downloads::DownloadEdition {
+                    title: "Book".into(),
+                    ..Default::default()
+                },
+                fingerprint: import_fingerprint::fingerprint(&book).unwrap(),
+            },
+        )
+        .unwrap();
+        fs::write(&book, b"%PDF-1.7 changed").unwrap();
+        assert!(
+            move_book(
+                root.to_str().unwrap().into(),
+                "A/Book.pdf".into(),
+                "B".into()
+            )
+            .is_err()
+        );
+        assert!(book.is_file());
+        assert!(!root.join("B/Book.pdf").exists());
+        let after: serde_json::Value = serde_json::from_slice(&fs::read(list).unwrap()).unwrap();
+        assert_eq!(before, after);
+        let legacy: (String, String) = db
+            .query_row(
+                "SELECT arquivos_encontrados,local_indicado FROM livros WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            legacy,
+            (r#"["A/Book.pdf"]"#.into(), "Legacy planned".into())
+        );
+        drop(db);
         fs::remove_dir_all(root).unwrap();
     }
 
