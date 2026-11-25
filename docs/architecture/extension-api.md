@@ -46,3 +46,8 @@ repository_index.rs validates versioned indexes and manifest identity/checksum; 
 ## Obras e edições na descoberta
 
 O contrato SourceBook continua plano e compatível com a fila, com publisher e editionLabel opcionais. O adaptador JSON aceita mapeamento de array de edições aninhado por obra com ID remoto obrigatório; cada aquisição preserva formato, idioma, editora, descrição e URL. Na interface discovery-works.ts agrupa somente identidades exatas da mesma fonte, nunca por similaridade. OPDS reaproveita o agrupamento de seus links; HTML continua com o primeiro link por container. A API não oferece ainda get_details/get_editions separados nem identidade bibliográfica global. As informações da edição são mostradas antes de associar ao catálogo, mas não sobrescrevem seus metadados.
+
+
+## Metadados de aquisição e nomes
+
+A fila persiste um snapshot dos metadados descritivos da edição (título original, autor, idioma, editora, descrição, ID remoto e ID da fonte conferido pelo host), separado do título e destino da ficha escolhida. Não são metadados bibliográficos verificados. O histórico os mantém até sua remoção; o catálogo não recebe esses campos automaticamente. O usuário escolhe um complemento opcional antes de baixar, com sugestão baseada nos metadados. O Rust sanitiza nomes e limita os bytes UTF-8 sem cortar caracteres; a extensão vem do formato permitido. Entradas antigas mantêm o algoritmo original, identificado pela ausência de filenameSuffix. Downloads prontos podem ter o complemento alterado sem retransferência; a mudança é persistida antes de confirmar, com rollback em caso de falha. Arquivos físicos existentes nunca são substituídos. Não há regras globais de nomenclatura nem recuperação transacional de importações nesta etapa.
