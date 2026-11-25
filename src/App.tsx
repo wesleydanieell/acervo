@@ -149,7 +149,7 @@ function App() {
   },[monitorEnabled,monitoredRoot]);
   useEffect(() => {
     let disposed=false;
-    let pending="";
+    let pending: {root:string;changes:string[]|null}|null=null;
     let running=false;
     let timer:number|undefined;
     const schedule=()=>{
@@ -159,23 +159,31 @@ function App() {
     const drain=async()=>{
       if(disposed||running||!pending)return;
       if(manualRefresh.current){schedule();return;}
-      const payload=pending;pending="";
+      const batch=pending;pending=null;
+      const payload=batch.root;
       if(payload!==currentCollectionRoot.current||payload!==requestedRoot.current)return;
       running=true;
       const generation=refreshGeneration.current;
       try{
-        const data=await invoke<Collection>("load_collection",{root:payload});
+        const data=await invoke<Collection>("refresh_indexed_collection",{root:payload,changes:batch.changes});
         if(!disposed&&generation===refreshGeneration.current&&payload===requestedRoot.current&&payload===currentCollectionRoot.current){
           setCollection(data);setSelection(null);
         }
       }catch(failure){if(!disposed&&generation===refreshGeneration.current)setError(String(failure));}
       finally{running=false;schedule();}
     };
-    const changed=({payload}:{payload:string})=>{
-      if(disposed||payload!==currentCollectionRoot.current||payload!==requestedRoot.current)return;
-      pending=payload;schedule();
+    const changed=(root:string,changes:string[]|null)=>{
+      if(disposed||root!==currentCollectionRoot.current)return;
+      if(pending?.root===root){
+        if(pending.changes===null||changes===null)pending={root,changes:null};
+        else{
+          const combined=[...new Set([...pending.changes,...changes])];
+          pending={root,changes:combined.length>128?null:combined};
+        }
+      }else pending={root,changes};
+      schedule();
     };
-    const subscriptions=[listen<string>("acervo-library-changed",changed),listen<string>("acervo-library-fs-changed",event=>{if(monitorEnabledRef.current)changed(event);})];
+    const subscriptions=[listen<string>("acervo-library-changed",event=>changed(event.payload,null)),listen<{root:string;changes:string[]|null}>("acervo-library-fs-changed",event=>{if(monitorEnabledRef.current)changed(event.payload.root,event.payload.changes);})];
     return()=>{disposed=true;if(timer!==undefined)window.clearTimeout(timer);for(const subscription of subscriptions)void subscription.then(unlisten=>unlisten()).catch(()=>{});};
   }, []);
 
