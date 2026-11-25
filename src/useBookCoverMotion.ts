@@ -1,64 +1,95 @@
-import {useLayoutEffect,useRef} from "react";
+import {useLayoutEffect,useRef,useState} from "react";
 import {animateElement,morphTransform,motion,reducedMotion,type Rect} from "./motion";
-type Snapshot={key:string;rect:Rect;radius:string;cover:HTMLElement;source:HTMLElement};
+type Snapshot={key:string;root:string;direction:"open"|"close";rect:Rect;radius:string;cover:HTMLElement;source:HTMLElement};
 const visible=(rect:DOMRect,clip:DOMRect)=>rect.width>0&&rect.height>0&&rect.left>=Math.max(0,clip.left)&&rect.top>=Math.max(0,clip.top)&&rect.right<=Math.min(window.innerWidth,clip.right)&&rect.bottom<=Math.min(window.innerHeight,clip.bottom);
+function cardCover(key:string){
+  return document.querySelector<HTMLElement>('.main-area .book-card[data-book-key="'+CSS.escape(key)+'"] .book-cover');
+}
+function snapshot(key:string,root:string,direction:Snapshot["direction"],cover:HTMLElement):Snapshot{
+  const clone=cover.cloneNode(true) as HTMLElement;
+  clone.removeAttribute("id");
+  clone.setAttribute("aria-hidden","true");
+  clone.inert=true;
+  clone.classList.remove("shared-cover-target");
+  clone.classList.add("shared-cover-flight");
+  const image=clone.querySelector("img");
+  if(image)image.loading="eager";
+  const style=getComputedStyle(cover);
+  clone.style.background=style.background;
+  clone.style.color=style.color;
+  clone.style.boxShadow=style.boxShadow;
+  return {key,root,direction,rect:cover.getBoundingClientRect(),radius:style.borderRadius,cover:clone,source:cover};
+}
 
-/** A single, non-interactive visual clone makes the cover travel to its
- * destination without retaining book rows or moving their real DOM nodes. */
+/** A single inert visual clone travels between the library and the details.
+ * A closing dock releases its layout before measuring the return destination.
+ * Off-screen or unmounted rows always use the ordinary drawer exit. */
 export function useBookCoverMotion(selectionKey:string|undefined,root:string){
   const pending=useRef<Snapshot|null>(null);
+  const active=useRef<{key:string;clone:HTMLElement}|null>(null);
+  const [immediateExit,setImmediateExit]=useState(false);
   const prepare=(key:string,card:HTMLElement)=>{
     pending.current=null;
-    if(reducedMotion()||document.hidden)return;
+    setImmediateExit(false);
+    if(key===selectionKey||reducedMotion()||document.hidden)return;
     const cover=card.querySelector<HTMLElement>(".book-cover");
     const main=card.closest(".main-area");
-    if(!cover||!main)return;
-    const rect=cover.getBoundingClientRect();
-    if(!visible(rect,main.getBoundingClientRect()))return;
-    const clone=cover.cloneNode(true) as HTMLElement;
-    clone.removeAttribute("id");
-    clone.setAttribute("aria-hidden","true");
-    clone.inert=true;
-    clone.classList.add("shared-cover-flight");
-    // The real image is already decoded/cached. Don't leave a lazy image
-    // waiting for an observer on the flight layer.
-    const image=clone.querySelector("img");
-    if(image)image.loading="eager";
-    const style=getComputedStyle(cover);
-    clone.style.background=style.background;
-    clone.style.color=style.color;
-    clone.style.boxShadow=style.boxShadow;
-    pending.current={key,rect,radius:style.borderRadius,cover:clone,source:cover};
+    if(!cover||!main||!visible(cover.getBoundingClientRect(),main.getBoundingClientRect()))return;
+    pending.current=snapshot(key,root,"open",cover);
+  };
+  const prepareReturn=()=>{
+    pending.current=null;
+    setImmediateExit(false);
+    if(!selectionKey||reducedMotion()||document.hidden)return;
+    const drawer=document.querySelector<HTMLElement>(".drawer-backdrop:not(.motion-exiting)");
+    const original=drawer?.querySelector<HTMLElement>(".details-cover .book-cover");
+    const destination=cardCover(selectionKey);
+    const main=destination?.closest(".main-area");
+    if(!drawer||!original||!destination||!main||!visible(destination.getBoundingClientRect(),main.getBoundingClientRect()))return;
+    // Reverse from the current flight position if the user closes mid-open.
+    const source=active.current?.key===selectionKey?active.current.clone:original;
+    if(!visible(source.getBoundingClientRect(),document.documentElement.getBoundingClientRect()))return;
+    pending.current=snapshot(selectionKey,root,"close",source);
+    if(getComputedStyle(drawer).position==="relative")setImmediateExit(true);
   };
   useLayoutEffect(()=>{
-    const snapshot=pending.current;
+    const shot=pending.current;
     pending.current=null;
-    if(!snapshot||snapshot.key!==selectionKey||reducedMotion()||document.hidden)return;
+    if(immediateExit)setImmediateExit(false);
+    if(!shot||shot.root!==root||reducedMotion()||document.hidden)return;
+    const opening=shot.direction==="open";
+    if(opening?shot.key!==selectionKey:!!selectionKey)return;
     const drawer=document.querySelector<HTMLElement>(".drawer-backdrop:not(.motion-exiting)");
-    const target=drawer?.querySelector<HTMLElement>(".details-cover .book-cover");
-    if(!drawer||!target)return;
-    // The cover itself travels; the containing drawer should not translate
-    // beneath its destination. Keep the ordinary fade and exit animations.
-    drawer.dataset.sharedCover="true";
+    const target=opening?drawer?.querySelector<HTMLElement>(".details-cover .book-cover"):cardCover(shot.key);
+    if(!target)return;
+    if(opening&&drawer)drawer.dataset.sharedCover="true";
     const rect=target.getBoundingClientRect();
-    const transform=morphTransform(snapshot.rect,rect);
-    if(!transform||rect.width<=0||rect.height<=0||rect.top<0||rect.bottom>window.innerHeight){
-      delete drawer.dataset.sharedCover;return;
+    const clip=opening?document.documentElement:target.closest(".main-area");
+    const transform=morphTransform(shot.rect,rect);
+    if(!transform||!clip||!visible(rect,clip.getBoundingClientRect())){
+      if(opening&&drawer)delete drawer.dataset.sharedCover;return;
     }
-    const clone=snapshot.cover;
+    const clone=shot.cover;
     const radius=getComputedStyle(target).borderRadius;
     Object.assign(clone.style,{left:rect.left+"px",top:rect.top+"px",width:rect.width+"px",height:rect.height+"px",borderRadius:radius});
     document.body.append(clone);
+    active.current={key:shot.key,clone};
     target.classList.add("shared-cover-target");
-    snapshot.source.classList.add("shared-cover-target");
-    const animation=animateElement(clone,[{transform,borderRadius:snapshot.radius},{transform:"none",borderRadius:radius}],motion.emphasized+80);
+    shot.source.classList.add("shared-cover-target");
+    // On a rapid close the captured source was the previous flight, not the
+    // real drawer cover. Hide the retained exiting cover as well.
+    const exiting=opening?null:document.querySelector<HTMLElement>(".drawer-backdrop.motion-exiting .details-cover .book-cover");
+    exiting?.classList.add("shared-cover-target");
+    const animation=animateElement(clone,[{transform,borderRadius:shot.radius},{transform:"none",borderRadius:radius}],opening?motion.emphasized+80:motion.emphasized);
     let finished=false;
     const finish=()=>{
       if(finished)return;
       finished=true;
       animation?.cancel();clone.remove();
+      if(active.current?.clone===clone)active.current=null;
       target.classList.remove("shared-cover-target");
-      snapshot.source.classList.remove("shared-cover-target");
+      shot.source.classList.remove("shared-cover-target");
+      exiting?.classList.remove("shared-cover-target");
       window.removeEventListener("resize",finish);
       window.removeEventListener("scroll",finish,true);
       document.removeEventListener("visibilitychange",hide);
@@ -75,5 +106,5 @@ export function useBookCoverMotion(selectionKey:string|undefined,root:string){
     void animation.finished.then(finish,finish);
     return finish;
   },[selectionKey,root]);
-  return prepare;
+  return {prepare,prepareReturn,immediateExit};
 }
