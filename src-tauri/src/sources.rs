@@ -48,6 +48,8 @@ pub struct SourceManifest {
     pub search_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feed_path: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cover_url_field: String,
     #[serde(default)]
     pub items_path: String,
     #[serde(default)]
@@ -107,6 +109,8 @@ pub struct HtmlMapping {
     pub download_selector: String,
     #[serde(default)]
     pub next_selector: String,
+    #[serde(default)]
+    pub cover_selector: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,6 +281,12 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
         {
             return Err("feedPath deve apontar para uma página da mesma origem, sem pesquisa, e usar {cursor} apenas com paginação JSON.".into());
         }
+    }
+    if !manifest.cover_url_field.is_empty()
+        && (manifest.adapter != AdapterKind::Json
+            || !validate_field(&manifest.cover_url_field, false))
+    {
+        return Err("coverUrlField exige um seletor JSON válido.".into());
     }
     if let Some(editions) = &manifest.editions {
         if manifest.adapter != AdapterKind::Json
@@ -640,6 +650,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             editions: None,
             website_url: None,
             feed_path: None,
+            cover_url_field: String::new(),
         },
     )
 }
@@ -725,6 +736,7 @@ mod tests {
             editions: None,
             website_url: None,
             feed_path: None,
+            cover_url_field: String::new(),
         }
     }
 

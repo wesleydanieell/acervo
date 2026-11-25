@@ -47,6 +47,7 @@ pub(crate) fn validate_mapping(mapping: &HtmlMapping) -> Result<(), String> {
         (&mapping.id_selector, false),
         (&mapping.download_selector, false),
         (&mapping.next_selector, false),
+        (&mapping.cover_selector, false),
     ] {
         selector(value, required)?;
     }
@@ -136,7 +137,11 @@ pub(crate) fn parse_html(
     url: &Url,
     request: &SearchRequest,
 ) -> Result<SearchPage, SourceError> {
-    request.validate()?;
+    if request.query.is_empty() && manifest.feed_path.is_some() {
+        request.validate_feed()?;
+    } else {
+        request.validate()?;
+    }
     if body.len() > MAX_BODY {
         return Err(invalid("Resposta HTML excede 2 MB."));
     }
@@ -154,6 +159,7 @@ pub(crate) fn parse_html(
     let id = selector(&mapping.id_selector, false).map_err(invalid)?;
     let download = selector(&mapping.download_selector, false).map_err(invalid)?;
     let next = selector(&mapping.next_selector, false).map_err(invalid)?;
+    let cover = selector(&mapping.cover_selector, false).map_err(invalid)?;
     let document = Html::parse_document(body);
     if document.tree.nodes().take(MAX_NODES + 1).count() > MAX_NODES {
         return Err(invalid("Resposta HTML contém nós demais."));
@@ -196,6 +202,14 @@ pub(crate) fn parse_html(
             language,
             format,
             download_url,
+            cover_url: cover.as_ref().and_then(|selector| {
+                row.select(selector).find_map(|element| {
+                    if element.value().name() != "img" {
+                        return None;
+                    }
+                    crate::source_covers::resolve_cover(manifest, url, element.value().attr("src")?)
+                })
+            }),
             publisher: String::new(),
             edition_label: String::new(),
             remote_id: (!remote_id.is_empty() && remote_id.len() < MAX_TEXT - 3)
@@ -265,6 +279,22 @@ mod tests {
         )
         .unwrap()
     }
+    #[test]
+    fn declared_feed_accepts_empty_query_and_extracts_only_same_origin_covers() {
+        let mut m = manifest();
+        m.feed_path = Some("/catalog".into());
+        m.html.as_mut().unwrap().cover_selector = ".cover".into();
+        let mut r = request();
+        r.query.clear();
+        let base = Url::parse("https://example.org/catalog").unwrap();
+        let page=parse_html(&m,r#"<article><h2 class=title>Book</h2><img class=cover src="/cover.jpg"></article><article><h2 class=title>Other</h2><img class=cover src="https://evil.org/cover.jpg"></article>"#,&base,&r).unwrap();
+        assert_eq!(
+            page.results[0].cover_url.as_deref(),
+            Some("https://example.org/cover.jpg")
+        );
+        assert!(page.results[1].cover_url.is_none());
+    }
+
     #[test]
     fn filters_are_case_insensitive() {
         let mut req = request();

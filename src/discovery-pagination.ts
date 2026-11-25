@@ -8,6 +8,7 @@ export type SourceResult = {
   downloadUrl: string;
   remoteId?: string;
   publisher?: string;
+  coverUrl?: string;
   editionLabel?: string;
 };
 

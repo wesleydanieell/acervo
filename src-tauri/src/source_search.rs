@@ -129,6 +129,12 @@ fn field<'a>(record: &'a Value, path: &str) -> Option<&'a Value> {
     Some(value)
 }
 
+fn cover_url(source: &SourceManifest, record: &Value) -> Option<String> {
+    let base = url::Url::parse(&source.base_url).ok()?;
+    let href = field(record, &source.cover_url_field)?.as_str()?;
+    crate::source_covers::resolve_cover(source, &base, href)
+}
+
 fn read_string(record: &Value, path: &str) -> String {
     let value = field(record, path);
     let text = match value {
@@ -388,6 +394,7 @@ fn extract_nested_editions(
                 language: lang.to_ascii_lowercase(),
                 download_url: link.into(),
                 remote_id: Some(remote_id.clone()),
+                cover_url: cover_url(source, record),
                 publisher: read_string(edition, &mapping.publisher_field),
                 edition_label: read_string(edition, &mapping.label_field),
             });
@@ -406,6 +413,7 @@ fn extract_nested_editions(
             language: read_string(record, &source.language_field),
             download_url: String::new(),
             remote_id: Some(remote_id),
+            cover_url: cover_url(source, record),
             publisher: String::new(),
             edition_label: String::new(),
         });
@@ -509,6 +517,7 @@ fn extract_matching_results(
             language: item_language,
             download_url,
             remote_id: cursor_value(record, &source.remote_id_field),
+            cover_url: cover_url(source, record),
             publisher: String::new(),
             edition_label: String::new(),
         });

@@ -16,6 +16,7 @@ mod opds_source;
 mod organization;
 mod repository_index;
 mod source_browser;
+mod source_covers;
 mod source_search;
 mod sources;
 
@@ -605,6 +606,7 @@ pub fn run() {
         organization::apply_organization,
         sources::list_sources,
         source_browser::open_source_webview,
+        source_covers::get_source_cover,
         extension_repositories::list_repositories,
         extension_repositories::add_repository,
         extension_repositories::remove_repository,
