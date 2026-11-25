@@ -16,6 +16,7 @@ mod opds_parser;
 mod opds_source;
 mod organization;
 mod repository_index;
+mod smart_organization;
 mod source_browser;
 mod source_covers;
 mod source_search;
@@ -193,7 +194,17 @@ fn read_catalog(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> 
     let known: HashSet<&str> = files.iter().map(|book| book.path.as_str()).collect();
     let rows = match statement.query_map([], |row| {
         let associated: String = row.get::<_, Option<String>>(5)?.unwrap_or_default();
-        let paths: Vec<String> = serde_json::from_str(&associated).unwrap_or_default();
+        let paths: Vec<String> = if associated.trim().is_empty() || associated.trim() == "null" {
+            vec![]
+        } else {
+            serde_json::from_str(&associated).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    5,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?
+        };
         let present = paths.iter().any(|path| known.contains(path.as_str()));
         Ok(CatalogWork {
             id: row.get(0)?,
@@ -212,7 +223,19 @@ fn read_catalog(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> 
             return Vec::new();
         }
     };
-    rows.filter_map(Result::ok).collect()
+    rows.filter_map(|row| match row {
+        Ok(work) => Some(work),
+        Err(error) => {
+            if !warnings
+                .iter()
+                .any(|w| w.starts_with("Ficha inválida no catálogo"))
+            {
+                warnings.push(format!("Ficha inválida no catálogo: {error}"));
+            }
+            None
+        }
+    })
+    .collect()
 }
 
 #[tauri::command]
@@ -322,10 +345,15 @@ struct LegacyMoveUndo {
     previous_paths: Option<String>,
     previous_destination: Option<String>,
     updated_paths: String,
-    updated_destination: String,
+    updated_destination: Option<String>,
 }
 
-fn sync_catalog_move(root: &Path, old: &str, new: &str) -> Result<Vec<LegacyMoveUndo>, String> {
+fn sync_catalog_move(
+    root: &Path,
+    old: &str,
+    new: &str,
+    preserve_destination: bool,
+) -> Result<Vec<LegacyMoveUndo>, String> {
     use rusqlite::Connection;
     let db = root.join("99 - Catálogo").join("Catalogo_Conhecimento.db");
     if !db.exists() {
@@ -367,10 +395,15 @@ fn sync_catalog_move(root: &Path, old: &str, new: &str) -> Result<Vec<LegacyMove
                 .unwrap_or(Path::new("."))
                 .to_string_lossy()
                 .to_string();
+            let updated_destination = if preserve_destination {
+                previous_destination.clone()
+            } else {
+                Some(first_parent)
+            };
             let updated_paths = serde_json::to_string(&paths).map_err(|e| e.to_string())?;
             tx.execute(
                 "UPDATE livros SET arquivos_encontrados=?1, local_indicado=?2 WHERE id=?3",
-                (&updated_paths, &first_parent, id),
+                (&updated_paths, &updated_destination, id),
             )
             .map_err(|e| e.to_string())?;
             undo.push(LegacyMoveUndo {
@@ -378,7 +411,7 @@ fn sync_catalog_move(root: &Path, old: &str, new: &str) -> Result<Vec<LegacyMove
                 previous_paths: raw,
                 previous_destination,
                 updated_paths,
-                updated_destination: first_parent,
+                updated_destination,
             });
         }
     }
@@ -405,8 +438,68 @@ fn rollback_catalog_move(root: &Path, undo: Vec<LegacyMoveUndo>) -> Result<(), S
     tx.commit().map_err(|e| e.to_string())
 }
 
+// The destination existence check is only a preview. The rename itself must
+// refuse replacement, including rollback after a catalog failure.
+fn rename_without_replace(source: &Path, target: &Path) -> std::io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::{ffi::CString, os::unix::ffi::OsStrExt};
+        let source = CString::new(source.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+        let target = CString::new(target.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+        #[cfg(target_os = "linux")]
+        let result = unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                source.as_ptr(),
+                libc::AT_FDCWD,
+                target.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        #[cfg(target_os = "macos")]
+        let result =
+            unsafe { libc::renamex_np(source.as_ptr(), target.as_ptr(), libc::RENAME_EXCL) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn MoveFileW(existing: *const u16, new: *const u16) -> i32;
+        }
+        let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+        let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        if unsafe { MoveFileW(source.as_ptr(), target.as_ptr()) } != 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (source, target);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Movimentação sem sobrescrita não suportada.",
+        ))
+    }
+}
+
 #[tauri::command]
 fn move_book(root: String, relative_path: String, destination: String) -> Result<String, String> {
+    move_book_with_policy(root, relative_path, destination, false)
+}
+fn move_book_with_policy(
+    root: String,
+    relative_path: String,
+    destination: String,
+    preserve_destination: bool,
+) -> Result<String, String> {
     let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
     if !root.is_dir() {
         return Err("Biblioteca inválida.".into());
@@ -443,21 +536,27 @@ fn move_book(root: String, relative_path: String, destination: String) -> Result
         .replace('\\', "/");
     // Fail before touching the filesystem if the edition index is already invalid.
     library_editions::load(&root)?;
-    fs::rename(&source, &target).map_err(|e| format!("Falha ao mover o livro: {e}"))?;
-    let legacy_undo = match sync_catalog_move(&root, &old_relative, &new_relative) {
-        Ok(undo) => undo,
-        Err(error) => {
-            let file = fs::rename(&target, &source);
-            return Err(format!(
-                "Falha no catálogo: {error}; reversão de arquivo: {file:?}."
-            ));
-        }
-    };
-    let lists_undo = match catalog_lists::sync_move_refs(&root, &old_relative, &new_relative) {
+    rename_without_replace(&source, &target).map_err(|e| format!("Falha ao mover o livro: {e}"))?;
+    let legacy_undo =
+        match sync_catalog_move(&root, &old_relative, &new_relative, preserve_destination) {
+            Ok(undo) => undo,
+            Err(error) => {
+                let file = rename_without_replace(&target, &source);
+                return Err(format!(
+                    "Falha no catálogo: {error}; reversão de arquivo: {file:?}."
+                ));
+            }
+        };
+    let lists_undo = match catalog_lists::sync_move_refs(
+        &root,
+        &old_relative,
+        &new_relative,
+        preserve_destination,
+    ) {
         Ok(undo) => undo,
         Err(error) => {
             let catalog = rollback_catalog_move(&root, legacy_undo);
-            let file = fs::rename(&target, &source);
+            let file = rename_without_replace(&target, &source);
             return Err(format!(
                 "Falha nas listas: {error}; reversão de catálogo: {catalog:?}, arquivo: {file:?}."
             ));
@@ -466,7 +565,7 @@ fn move_book(root: String, relative_path: String, destination: String) -> Result
     if let Err(error) = library_editions::sync_move(&root, &old_relative, &new_relative) {
         let lists = catalog_lists::rollback_move(&root, lists_undo);
         let catalog = rollback_catalog_move(&root, legacy_undo);
-        let file = fs::rename(&target, &source);
+        let file = rename_without_replace(&target, &source);
         return Err(format!(
             "Falha ao mover registro de edição: {error}; reversão de listas: {lists:?}, catálogo: {catalog:?}, arquivo: {file:?}."
         ));
@@ -603,6 +702,8 @@ pub fn run() {
         create_folder,
         move_book,
         move_books,
+        smart_organization::preview_smart_organization,
+        smart_organization::apply_smart_organization,
         organization::preview_organization,
         organization::apply_organization,
         sources::list_sources,
@@ -662,6 +763,30 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rename_never_replaces_a_destination_even_during_rollback() {
+        let dir = std::env::temp_dir().join(format!(
+            "acervo-no-clobber-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let source = dir.join("source");
+        let target = dir.join("target");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&target, b"existing").unwrap();
+        assert!(rename_without_replace(&source, &target).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"source");
+        assert_eq!(fs::read(&target).unwrap(), b"existing");
+        fs::remove_file(&target).unwrap();
+        rename_without_replace(&source, &target).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"source");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn move_book_updates_app_owned_catalog_links() {
         use std::time::{SystemTime, UNIX_EPOCH};

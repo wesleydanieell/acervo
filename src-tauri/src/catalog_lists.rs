@@ -165,6 +165,7 @@ pub(super) fn sync_move_refs(
     root: &Path,
     old: &str,
     new: &str,
+    preserve_destination: bool,
 ) -> Result<Option<MoveUndo>, String> {
     let _guard = LIST_WRITE_LOCK
         .lock()
@@ -188,7 +189,7 @@ pub(super) fn sync_move_refs(
         }
         if found {
             let parent = Path::new(new).parent().unwrap_or(Path::new(""));
-            if let Some(map) = work.as_object_mut() {
+            if !preserve_destination && let Some(map) = work.as_object_mut() {
                 map.insert(
                     "local_indicado".into(),
                     Value::String(parent.to_string_lossy().replace('\\', "/")),
@@ -234,6 +235,17 @@ pub fn load(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> Vec<
         .into_iter()
         .enumerate()
         .map(|(index, book)| {
+            if book.get("arquivos_encontrados").is_some_and(|value| {
+                !value.is_null()
+                    && !value
+                        .as_array()
+                        .is_some_and(|items| items.iter().all(Value::is_string))
+            }) && !warnings
+                .iter()
+                .any(|w| w.starts_with("Associações inválidas nas listas"))
+            {
+                warnings.push("Associações inválidas nas listas do Acervo.".into());
+            }
             let associated: Vec<String> = book
                 .get("arquivos_encontrados")
                 .and_then(Value::as_array)
