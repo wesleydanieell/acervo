@@ -9,6 +9,7 @@ mod extension_network;
 mod extension_repositories;
 mod html_parser;
 mod html_source;
+mod import_fingerprint;
 mod opds_parser;
 mod opds_source;
 mod organization;
@@ -564,6 +565,7 @@ pub fn run() {
             downloads::dismiss_download,
             downloads::save_download,
             downloads::rename_ready_download,
+            downloads::recover_download_import,
             read_noctalia_colors
         ])
         .run(tauri::generate_context!())

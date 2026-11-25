@@ -1,6 +1,7 @@
 //! Persistent staged download queue. Nothing enters the library before explicit approval.
 use super::catalog_lists::CatalogTarget;
 use super::extension_network::{safe_url, secure_https_client};
+use super::import_fingerprint::{FileFingerprint, fingerprint};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -71,6 +72,30 @@ impl DownloadEdition {
     }
 }
 
+/// Durable record of the exact user-approved import. Never resume filesystem writes
+/// from this record without explicit user confirmation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ImportIntent {
+    root: String,
+    destination: String,
+    link_catalog: bool,
+    fingerprint: FileFingerprint,
+}
+
+impl ImportIntent {
+    fn validate(&self) -> Result<(), String> {
+        if self.root.len() > 4096
+            || !Path::new(&self.root).is_absolute()
+            || self.root.chars().any(char::is_control)
+        {
+            return Err("Raiz de recuperação inválida.".into());
+        }
+        destination_parts(&self.destination)?;
+        self.fingerprint.validate()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadInfo {
@@ -96,6 +121,8 @@ pub struct DownloadInfo {
     // None denotes the historical filename algorithm; Some("") opts into the new one.
     #[serde(default)]
     pub filename_suffix: Option<String>,
+    #[serde(default)]
+    import_intent: Option<ImportIntent>,
 }
 
 #[derive(Clone)]
@@ -167,6 +194,18 @@ fn read_download_registry(path: &Path) -> Result<Vec<DownloadRecord>, String> {
             {
                 return Err("Registro de downloads contém entrada inválida.".into());
             }
+            if let Some(intent) = &saved.info.import_intent {
+                intent.validate()?;
+                if intent.link_catalog && saved.info.catalog_target.is_none()
+                    || saved
+                        .info
+                        .catalog_target
+                        .as_ref()
+                        .is_some_and(|target| target.root != intent.root)
+                {
+                    return Err("Plano de importação incompatível com a ficha.".into());
+                }
+            }
             if let Some(edition) = &saved.info.edition {
                 edition.validate()?;
             }
@@ -229,7 +268,21 @@ fn write_download_registry(path: &Path, records: &[DownloadRecord]) -> Result<()
 }
 
 fn reconcile_restored(record: &mut DownloadRecord, staged_size: Option<u64>) {
+    if record.info.import_intent.is_some() {
+        record.info.status = "recovery".into();
+        record.info.error =
+            "Importação interrompida. Verifique o destino e recupere sem sobrescrever arquivos."
+                .into();
+        return;
+    }
     match record.info.status.as_str() {
+        "saving"
+            if staged_size.is_some_and(|size| size > 0 && size == record.info.downloaded_bytes) =>
+        {
+            record.info.status = "ready".into();
+            record.info.error =
+                "Importação anterior interrompida; confira o destino antes de salvar.".into();
+        }
         "queued" | "downloading" | "saving" => {
             record.info.status = "failed".into();
             record.info.error =
@@ -278,7 +331,8 @@ impl DownloadManager {
         for record in &mut records {
             let staged = staged_path(app, &record.info.id).ok();
             let staged_size = staged
-                .and_then(|path| fs::metadata(path).ok())
+                .and_then(|path| fs::symlink_metadata(path).ok())
+                .filter(|meta| meta.is_file() && !meta.file_type().is_symlink())
                 .map(|meta| meta.len());
             reconcile_restored(record, staged_size);
         }
@@ -780,7 +834,7 @@ pub fn list_downloads(
 fn same_unfinished_download(existing: &DownloadRecord, candidate: &DownloadRecord) -> bool {
     matches!(
         existing.info.status.as_str(),
-        "queued" | "downloading" | "pausing" | "paused" | "ready" | "saving"
+        "queued" | "downloading" | "pausing" | "paused" | "ready" | "saving" | "recovery"
     ) && existing.url == candidate.url
         && existing.info.format == candidate.info.format
         && existing.info.planned_destination == candidate.info.planned_destination
@@ -883,6 +937,7 @@ pub fn queue_download(
             auto_import,
             edition,
             filename_suffix,
+            import_intent: None,
         },
         url: url.clone(),
         etag: String::new(),
@@ -1071,7 +1126,7 @@ pub fn dismiss_download(
             .ok_or("Download desconhecido.")?;
         if matches!(
             items[index].info.status.as_str(),
-            "queued" | "downloading" | "saving"
+            "queued" | "downloading" | "pausing" | "saving" | "recovery"
         ) {
             return Err("Cancele ou conclua o download antes de removê-lo.".into());
         }
@@ -1177,7 +1232,11 @@ fn commit_staged_with_mode(
     if !stage.is_file() {
         return Err("Arquivo temporário ausente. Reinicie o download.".into());
     }
-    let temp = directory.join(format!(".acervo-{id}.tmp"));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let temp = directory.join(format!(".acervo-{id}-{nonce}.tmp"));
     let mut input = fs::File::open(stage).map_err(|error| error.to_string())?;
     let mut output = OpenOptions::new()
         .write(true)
@@ -1289,6 +1348,89 @@ pub async fn save_download(
     .map_err(|error| format!("Falha ao executar a importação: {error}"))?
 }
 
+fn approved_root(
+    root: &str,
+    catalog_target: Option<&CatalogTarget>,
+    link_catalog: bool,
+) -> Result<PathBuf, String> {
+    let root = fs::canonicalize(root).map_err(|error| format!("Biblioteca inválida: {error}"))?;
+    if !root.is_dir() {
+        return Err("Biblioteca inválida.".into());
+    }
+    if let Some(target) = catalog_target {
+        if root.to_str() != Some(target.root.as_str()) {
+            return Err("Selecione a biblioteca de origem deste download.".into());
+        }
+    } else if link_catalog {
+        return Err("Download sem ficha de origem.".into());
+    }
+    Ok(root)
+}
+
+/// Check an existing path without following any symlink or creating directories.
+/// A missing ancestor means the file is missing.
+fn inspect_target(
+    root: &Path,
+    destination: &str,
+    filename: &str,
+) -> Result<Option<PathBuf>, String> {
+    let mut directory = root.to_path_buf();
+    for part in destination_parts(destination)? {
+        directory.push(part);
+        match fs::symlink_metadata(&directory) {
+            Ok(meta)
+                if meta.is_dir()
+                    && !meta.file_type().is_symlink()
+                    && fs::canonicalize(&directory).ok().as_ref() == Some(&directory) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            _ => return Err("Destino indisponível ou contém link simbólico.".into()),
+        }
+    }
+    let target = directory.join(filename);
+    match fs::symlink_metadata(&target) {
+        Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => Ok(Some(target)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        _ => Err("Arquivo de destino inválido ou indisponível.".into()),
+    }
+}
+
+fn update_import_record(
+    manager: &DownloadManager,
+    id: &str,
+    update: impl FnOnce(&mut DownloadRecord),
+) -> Result<(), String> {
+    if let Some(error) = &manager.2 {
+        return Err(error.clone());
+    }
+    let path = manager
+        .1
+        .as_ref()
+        .ok_or("Registro de downloads indisponível.")?;
+    let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
+    let index = items
+        .iter()
+        .position(|record| record.info.id == id)
+        .ok_or("Download desconhecido.")?;
+    let previous = items[index].clone();
+    update(&mut items[index]);
+    if let Err(error) = write_download_registry(path, &items) {
+        items[index] = previous;
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn mark_saved(item: &mut DownloadRecord, path: &str, association: Option<Result<(), String>>) {
+    item.info.status = "saved".into();
+    item.info.saved_path = path.into();
+    item.info.catalog_linked = matches!(&association, Some(Ok(())));
+    item.info.error = match association {
+        Some(Err(error)) => format!("Arquivo salvo; associação não concluída: {error}"),
+        _ => String::new(),
+    };
+    item.info.import_intent = None;
+}
+
 fn save_download_to_library(
     app: tauri::AppHandle,
     manager: DownloadManager,
@@ -1298,7 +1440,7 @@ fn save_download_to_library(
     create_missing: bool,
     link_catalog: bool,
 ) -> Result<String, String> {
-    let (filename, format, catalog_target) = {
+    let info = {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
         let item = items
             .iter_mut()
@@ -1308,52 +1450,219 @@ fn save_download_to_library(
             return Err("O download ainda não está pronto.".into());
         }
         item.info.status = "saving".into();
-        (
-            item.info.filename.clone(),
-            item.info.format.clone(),
-            item.info.catalog_target.clone(),
-        )
+        item.info.clone()
     };
-    let (operation, association_result) = match staged_path(&app, &id) {
-        Ok(stage) => import_staged_book(
-            &stage,
-            &root,
-            &destination,
-            &filename,
-            &format,
-            &id,
-            create_missing,
-            catalog_target.as_ref(),
-            link_catalog,
-        ),
-        Err(error) => (Err(error), None),
-    };
-    manager.change(&id, |item| match &operation {
-        Ok(path) => {
-            item.info.status = "saved".into();
-            item.info.saved_path = path.clone();
-            item.info.catalog_linked = matches!(&association_result, Some(Ok(())));
-            item.info.error = match &association_result {
-                Some(Err(error)) => format!("Arquivo salvo; associação não concluída: {error}"),
-                _ => String::new(),
-            };
+    let prepare = (|| -> Result<(PathBuf, ImportIntent), String> {
+        let stage = staged_path(&app, &id)?;
+        let root = approved_root(&root, info.catalog_target.as_ref(), link_catalog)?;
+        super::download_validation::validate_staged_book(&stage, &info.format)?;
+        if inspect_target(&root, &destination, &info.filename)?.is_some() {
+            return Err(format!("Já existe {} no destino.", info.filename));
         }
+        let intent = ImportIntent {
+            root: root.to_str().ok_or("Raiz não UTF-8.")?.into(),
+            destination: destination.clone(),
+            link_catalog,
+            fingerprint: fingerprint(&stage)?,
+        };
+        intent.validate()?;
+        if intent.fingerprint.bytes != info.downloaded_bytes {
+            return Err("Arquivo temporário mudou de tamanho.".into());
+        }
+        Ok((stage, intent))
+    })();
+    let (stage, intent) = match prepare {
+        Ok(value) => value,
+        Err(error) => {
+            manager.change(&id, |item| {
+                item.info.status = "ready".into();
+                item.info.error = error.clone();
+            });
+            return Err(error);
+        }
+    };
+    if let Err(error) = update_import_record(&manager, &id, |item| {
+        item.info.import_intent = Some(intent.clone())
+    }) {
+        manager.change(&id, |item| {
+            item.info.status = "ready".into();
+            item.info.error = error.clone();
+        });
+        return Err(error);
+    }
+    // The exact authorized target and verified bytes are durable before any library write.
+    let (operation, association) = import_staged_book(
+        &stage,
+        &intent.root,
+        &destination,
+        &info.filename,
+        &info.format,
+        &id,
+        create_missing,
+        info.catalog_target.as_ref(),
+        link_catalog,
+    );
+    if let Err(error) = update_import_record(&manager, &id, |item| match &operation {
+        Ok(path) => mark_saved(item, path, association),
         Err(error) => {
             item.info.status = "ready".into();
             item.info.error = error.clone();
+            item.info.import_intent = None;
         }
-    });
-    if operation.is_ok() {
-        let _ = app.emit("acervo-library-changed", root.clone());
+    }) {
+        manager.change(&id, |item| {
+            item.info.status = "recovery".into();
+            item.info.error = format!("Importação requer recuperação: {error}");
+        });
+        if operation.is_ok() {
+            let _ = app.emit("acervo-library-changed", intent.root);
+        }
+        return Err(error);
     }
-    if let Err(error) = manager.persist() {
-        if let Ok(path) = &operation {
-            return Err(format!(
-                "Livro salvo em {path}, mas o histórico não pôde ser atualizado: {error}"
-            ));
-        }
+    if operation.is_ok() {
+        let _ = app.emit("acervo-library-changed", intent.root);
     }
     operation
+}
+
+enum RecoveryOutcome {
+    Saved(String, Option<Result<(), String>>),
+    Ready(String),
+    Failed(String),
+}
+
+fn inspect_interrupted_import(
+    stage: &Path,
+    info: &DownloadInfo,
+    intent: &ImportIntent,
+    root: &Path,
+) -> Result<RecoveryOutcome, String> {
+    let target = inspect_target(root, &intent.destination, &info.filename)?;
+    if let Some(target) = &target {
+        if fs::symlink_metadata(target)
+            .map_err(|e| e.to_string())?
+            .len()
+            == intent.fingerprint.bytes
+            && fingerprint(target)? == intent.fingerprint
+        {
+            super::download_validation::validate_staged_book(target, &info.format)?;
+            let relative = target
+                .strip_prefix(root)
+                .map_err(|e| e.to_string())?
+                .to_str()
+                .ok_or("Destino não UTF-8.")?
+                .replace('\\', "/");
+            let association = if intent.link_catalog {
+                Some(
+                    info.catalog_target
+                        .as_ref()
+                        .ok_or("Ficha de origem ausente.")?
+                        .link(root, &relative),
+                )
+            } else {
+                None
+            };
+            return Ok(RecoveryOutcome::Saved(relative, association));
+        }
+    }
+    let stage_matches = fingerprint(stage).is_ok_and(|value| value == intent.fingerprint)
+        && super::download_validation::validate_staged_book(stage, &info.format).is_ok();
+    if stage_matches {
+        let message = if target.is_some() {
+            "O destino contém outro arquivo, preservado. Altere o nome ou a pasta e importe novamente."
+        } else {
+            "Arquivo temporário recuperado. Confirme a importação novamente."
+        };
+        Ok(RecoveryOutcome::Ready(message.into()))
+    } else {
+        Ok(RecoveryOutcome::Failed(
+            "Nenhuma cópia íntegra localizada. O destino foi preservado; tente baixar novamente."
+                .into(),
+        ))
+    }
+}
+
+#[tauri::command]
+pub async fn recover_download_import(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, DownloadManager>,
+    id: String,
+    root: String,
+) -> Result<Vec<DownloadInfo>, String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (info, intent, stage, root) = {
+            let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
+            let item = items
+                .iter_mut()
+                .find(|item| item.info.id == id)
+                .ok_or("Download desconhecido.")?;
+            if item.info.status != "recovery" {
+                return Err("Download não está aguardando recuperação.".into());
+            }
+            let intent = item
+                .info
+                .import_intent
+                .clone()
+                .ok_or("Plano de recuperação ausente.")?;
+            let root = approved_root(
+                &root,
+                item.info.catalog_target.as_ref(),
+                intent.link_catalog,
+            )?;
+            if root.to_str() != Some(intent.root.as_str()) {
+                return Err("Selecione a biblioteca da importação original.".into());
+            }
+            let stage = staged_path(&app, &id)?;
+            item.info.status = "saving".into();
+            (item.info.clone(), intent, stage, root)
+        };
+        let outcome = match inspect_interrupted_import(&stage, &info, &intent, &root) {
+            Ok(value) => value,
+            Err(error) => {
+                manager.change(&id, |item| {
+                    item.info.status = "recovery".into();
+                    item.info.error = error.clone();
+                });
+                return Err(error);
+            }
+        };
+        let saved = matches!(&outcome, RecoveryOutcome::Saved(..));
+        if let Err(error) = update_import_record(&manager, &id, |item| match outcome {
+            RecoveryOutcome::Saved(path, association) => mark_saved(item, &path, association),
+            RecoveryOutcome::Ready(message) => {
+                item.info.status = "ready".into();
+                item.info.error = message;
+                item.info.auto_import = false;
+                item.info.import_intent = None;
+            }
+            RecoveryOutcome::Failed(message) => {
+                item.info.status = "failed".into();
+                item.info.error = message;
+                item.info.import_intent = None;
+                item.info.auto_import = false;
+                item.etag.clear();
+                item.info.downloaded_bytes = 0;
+                item.info.total_bytes = None;
+            }
+        }) {
+            manager.change(&id, |item| {
+                item.info.status = "recovery".into();
+                item.info.error = error.clone();
+            });
+            return Err(error);
+        }
+        if saved {
+            // Only clean up an identical cache copy, after the recovered history is durable.
+            if fingerprint(&stage).is_ok_and(|value| value == intent.fingerprint) {
+                let _ = fs::remove_file(stage);
+            }
+            let _ = app.emit("acervo-library-changed", intent.root);
+        }
+        manager.snapshot()
+    })
+    .await
+    .map_err(|error| format!("Falha na recuperação: {error}"))?
 }
 
 /// Keep physical import and optional association independently observable:
@@ -1414,6 +1723,133 @@ fn import_staged_book(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interrupted_import_recovers_verified_destination_or_cache_without_overwriting() {
+        let dir = std::env::temp_dir().join(format!(
+            "acervo-recovery-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&dir).unwrap();
+        let dir = fs::canonicalize(dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir(&root).unwrap();
+        let root_text = root.to_str().unwrap();
+        let stage = dir.join("download.part");
+        let bytes = b"%PDF-1.7\noriginal";
+        fs::write(&stage, bytes).unwrap();
+        super::super::catalog_lists::import_catalog_json(
+            root_text.into(),
+            r#"{"versao":1,"obras":[{"titulo":"Book","autor":"Author","local_indicado":"Books"}]}"#
+                .into(),
+        )
+        .unwrap();
+        let target = CatalogTarget {
+            root: root_text.into(),
+            title: "Book".into(),
+            author: "Author".into(),
+            destination: "Books".into(),
+            legacy_id: None,
+        };
+        let intent = ImportIntent {
+            root: root_text.into(),
+            destination: "Books".into(),
+            link_catalog: true,
+            fingerprint: fingerprint(&stage).unwrap(),
+        };
+        let info = DownloadInfo {
+            id: "job-1".into(),
+            title: "Book".into(),
+            source_name: "Test".into(),
+            format: "pdf".into(),
+            filename: "Book.pdf".into(),
+            planned_destination: "Books".into(),
+            status: "saving".into(),
+            downloaded_bytes: bytes.len() as u64,
+            total_bytes: Some(bytes.len() as u64),
+            error: String::new(),
+            saved_path: String::new(),
+            catalog_target: Some(target.clone()),
+            catalog_linked: false,
+            auto_import: true,
+            edition: None,
+            filename_suffix: None,
+            import_intent: Some(intent.clone()),
+        };
+        let record = DownloadRecord {
+            info: info.clone(),
+            url: "https://example.org/book.pdf".into(),
+            etag: String::new(),
+            control: Arc::new(AtomicU8::new(RUNNING)),
+        };
+        let registry = dir.join("downloads.json");
+        write_download_registry(&registry, &[record]).unwrap();
+        let mut restored = read_download_registry(&registry).unwrap().remove(0);
+        reconcile_restored(&mut restored, Some(bytes.len() as u64));
+        assert_eq!(restored.info.status, "recovery");
+        let bad_parent = dir.join("not-a-directory");
+        fs::write(&bad_parent, b"x").unwrap();
+        let manager = DownloadManager(
+            Arc::new(Mutex::new(vec![restored.clone()])),
+            Some(bad_parent.join("downloads.json")),
+            None,
+        );
+        assert!(
+            update_import_record(&manager, "job-1", |item| {
+                item.info.import_intent = None;
+                item.info.status = "saved".into();
+            })
+            .is_err()
+        );
+        assert_eq!(manager.snapshot().unwrap()[0].status, "recovery");
+        assert!(manager.snapshot().unwrap()[0].import_intent.is_some());
+
+        assert!(matches!(
+            inspect_interrupted_import(&stage, &info, &intent, &root).unwrap(),
+            RecoveryOutcome::Ready(_)
+        ));
+        fs::create_dir(root.join("Books")).unwrap();
+        let destination = root.join("Books/Book.pdf");
+        let different = b"%PDF-1.7\nmodified";
+        assert_eq!(bytes.len(), different.len());
+        fs::write(&destination, b"").unwrap();
+        assert!(matches!(
+            inspect_interrupted_import(&stage, &info, &intent, &root).unwrap(),
+            RecoveryOutcome::Ready(_)
+        ));
+        assert_eq!(fs::metadata(&destination).unwrap().len(), 0);
+        fs::write(&destination, different).unwrap();
+        assert!(matches!(
+            inspect_interrupted_import(&stage, &info, &intent, &root).unwrap(),
+            RecoveryOutcome::Ready(_)
+        ));
+        assert_eq!(fs::read(&destination).unwrap(), different);
+        fs::remove_file(&stage).unwrap();
+        assert!(matches!(
+            inspect_interrupted_import(&stage, &info, &intent, &root).unwrap(),
+            RecoveryOutcome::Failed(_)
+        ));
+        assert_eq!(fs::read(&destination).unwrap(), different);
+        fs::write(&destination, bytes).unwrap();
+        for _ in 0..2 {
+            assert!(
+                matches!(inspect_interrupted_import(&stage,&info,&intent,&root).unwrap(),RecoveryOutcome::Saved(path,Some(Ok(()))) if path=="Books/Book.pdf")
+            );
+        }
+        let scanned = super::super::scan_collection(root_text.into()).unwrap();
+        let work = scanned.works.iter().find(|w| w.title == "Book").unwrap();
+        assert!(work.present);
+        assert!(approved_root(dir.to_str().unwrap(), Some(&target), true).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            fs::remove_file(&destination).unwrap();
+            symlink(&registry, &destination).unwrap();
+            assert!(inspect_interrupted_import(&stage, &info, &intent, &root).is_err());
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn extension_fixture_search_to_import_rejects_html_and_preserves_catalog() {
@@ -1790,6 +2226,7 @@ mod tests {
                 auto_import: false,
                 edition: None,
                 filename_suffix: None,
+                import_intent: None,
             },
             url: "https://example.org/public-domain.epub".into(),
             etag: "\"edition-42\"".into(),
