@@ -37,7 +37,9 @@ import type {PaletteName} from "./palette-motion";
 import {useNoctaliaPalette} from "./useNoctaliaPalette";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
-import { selectVisibleRange } from "./library-selection";
+import { selectVisibleRange,updateSelection,selectionSummary,nextSelectionBatch,folderContains } from "./library-selection";
+import { BulkSelectionBar } from "./BulkSelectionBar";
+import "./library-workspace.css";
 import { chosenPromptFolders, isServiceCatalogPath } from "./prompt-folder-selection";
 import { PromptFolderPicker } from "./PromptFolderPicker";
 import acervoIcon from "../branding/acervo-icon.svg";
@@ -140,16 +142,21 @@ function App() {
   const [manualEdit,setManualEdit]=useState<{root:string;file:BookFile}|null>(null);
   const [duplicateRoot,setDuplicateRoot]=useState("");
   const [organizationText, setOrganizationText] = useState("");
+  const [organizationScope,setOrganizationScope]=useState<{root:string;paths:string[]}|null>(null);
   const [organizationPreview, setOrganizationPreview] = useState<OrganizationPreview | null>(null);
+  const organizationRequest=useRef(0);
+  const approvedOrganization=useRef<{root:string;json:string}|null>(null);
+  const invalidateOrganization=()=>{organizationRequest.current++;approvedOrganization.current=null;setOrganizationPreview(null);setOrganizationConfirmed(false);};
   const [organizationConfirmed, setOrganizationConfirmed] = useState(false);
   const [organizationError, setOrganizationError] = useState("");
   const [status, setStatus] = useState("");
   const [dragTarget, setDragTarget] = useState("");
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
   const [selectionMode, setSelectionMode] = useState(false);
+  const [includeSubfolders,setIncludeSubfolders]=useState(true);
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(() => new Set());
   const selectionAnchor = useRef<string | null>(null);
-  const [pendingMove, setPendingMove] = useState<{ paths: string[]; destination: string } | null>(null);
+  const [pendingMove, setPendingMove] = useState<{ root:string; paths: string[]; destination: string } | null>(null);
   const [visibleLimit, setVisibleLimit] = useState(80);
   useEffect(() => { localStorage.setItem("acervo-sidebar-width", String(sidebarWidth)); }, [sidebarWidth]);
 
@@ -217,7 +224,7 @@ function App() {
     try {
       const data = await invoke<Collection>(initial ? "load_initial_collection" : "load_collection", { root: location.trim() });
       if (generation !== refreshGeneration.current) return;
-      if (data.root !== root) { setPromptFolders(null); setPromptDraft(null); setSourceRequest(null); }
+      if (data.root !== currentCollectionRoot.current) { setPromptFolders(null); setPromptDraft(null); setSourceRequest(null); setBulkSelected(new Set()); setSelectionMode(false); selectionAnchor.current=null; setPendingMove(null); setOrganizationScope(null); invalidateOrganization(); setSelectedFolder(""); setExpandedFolders(new Set()); }
       requestedRoot.current = data.root; setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
       setStatus(data.files.length + " arquivos encontrados; nenhuma alteração feita nos livros.");
       setModal(null);
@@ -264,7 +271,7 @@ function App() {
   const librarySearchIndex = useMemo(() => new Map(libraryEntries.map(entry => [entry.key, fold([entry.title,entry.author,entry.folder,entry.file?.edition?.metadata.title,entry.file?.edition?.metadata.author,entry.file?.edition?.metadata.publisher,entry.file?.edition?.metadata.editionLabel,entry.file?.edition?.metadata.language,entry.file?.title,entry.file?.path,entry.file?.embedded?.metadata?.title,entry.file?.embedded?.metadata?.author,entry.file?.embedded?.metadata?.publisher,entry.file?.embedded?.metadata?.language,entry.file?.embedded?.metadata?.isbn,...Object.values(entry.file?.manual?.metadata??{})].filter(Boolean).join(" "))])), [libraryEntries]);
   const filtered = useMemo(() => libraryEntries.filter((entry) => {
     if (!entry.present) return false; // A biblioteca é um explorador real: nunca exibe desejos.
-    if (selectedFolder && !(entry.folder === selectedFolder || entry.folder.startsWith(selectedFolder + "/"))) return false;
+    if (!folderContains(selectedFolder,entry.folder,includeSubfolders)) return false;
     if (format !== "Todos" && entry.format !== format) return false;
     if (searchNeedle && !librarySearchIndex.get(entry.key)?.includes(searchNeedle)) return false;
     return true;
@@ -273,13 +280,37 @@ function App() {
     const left = sortBy === "author" ? a.author : sortBy === "format" ? a.format : a.title;
     const right = sortBy === "author" ? b.author : sortBy === "format" ? b.format : b.title;
     return left.localeCompare(right, "pt-BR") || a.title.localeCompare(b.title, "pt-BR");
-  }), [libraryEntries, librarySearchIndex, selectedFolder, format, searchNeedle, sortBy]);
+  }), [libraryEntries, librarySearchIndex, selectedFolder, format, searchNeedle, sortBy,includeSubfolders]);
   const breadcrumbs = selectedFolder.split("/").filter(Boolean).map((label, index, parts) => ({ label, path: parts.slice(0, index + 1).join("/") }));
-  useEffect(() => { setVisibleLimit(80); if(mainRef.current) mainRef.current.scrollTop=0; }, [selectedFolder, format, search, sortBy, groupBy, layout, collection?.root]);
+  useEffect(() => { setVisibleLimit(80); if(mainRef.current) mainRef.current.scrollTop=0; }, [selectedFolder, format, search, sortBy, groupBy, layout, collection?.root,includeSubfolders]);
   const groupLabel = (entry: Entry) => groupBy === "folder" ? entry.folder || "Raiz" : groupBy === "format" ? entry.format : groupBy === "author" ? entry.author || "Sem autor" : "";
   const displayEntries = useMemo(() => groupBy === "none" ? filtered : [...filtered].sort((a, b) =>
     groupLabel(a).localeCompare(groupLabel(b), "pt-BR") || a.title.localeCompare(b.title, "pt-BR")
   ), [filtered, groupBy]);
+  const resultPaths=useMemo(()=>displayEntries.flatMap(entry=>entry.file?[entry.file.path]:[]),[displayEntries]);
+  const allPaths=useMemo(()=>libraryEntries.flatMap(entry=>entry.file?[entry.file.path]:[]),[libraryEntries]);
+  const batchSummary=useMemo(()=>selectionSummary(bulkSelected,resultPaths),[bulkSelected,resultPaths]);
+  const selectResults=()=>{setSelectionMode(true);setBulkSelected(current=>updateSelection(current,resultPaths,"add"));};
+  const clearSelection=()=>{setBulkSelected(new Set());selectionAnchor.current=null;};
+  useEffect(()=>{
+    const live=new Set(allPaths);
+    setBulkSelected(current=>{
+      const next=new Set([...current].filter(path=>live.has(path)));
+      return next.size===current.size?current:next;
+    });
+    if(selectionAnchor.current&&!live.has(selectionAnchor.current))selectionAnchor.current=null;
+  },[allPaths]);
+  useEffect(()=>{
+    const key=(event:KeyboardEvent)=>{
+      if(view!=="catalog"||!collection||modal||selection||loading||event.defaultPrevented||document.querySelector('dialog[open],.acervo-popup:not(.motion-exiting),.action-menu-panel:not(.motion-exiting),.acervo-context-menu'))return;
+      const target=event.target;
+      if(target instanceof Element&&target.closest('input,textarea,select,[contenteditable="true"]'))return;
+      if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==="a"){
+        event.preventDefault();setSelectionMode(true);setBulkSelected(current=>updateSelection(current,resultPaths,"add"));
+      }else if(event.key==="Escape"&&selectionMode){clearSelection();setSelectionMode(false);}
+    };
+    window.addEventListener("keydown",key);return()=>window.removeEventListener("keydown",key);
+  },[view,collection,modal,selection,loading,resultPaths,selectionMode]);
   const virtualList = layout==="list"&&groupBy==="none"&&displayEntries.length>80;
   const visibleEntries = virtualList ? displayEntries : displayEntries.slice(0, visibleLimit);
   const suggestions = useMemo(() => {
@@ -361,10 +392,11 @@ ${JSON.stringify(sample, null, 2)}`;
 
   const createOrganizationPrompt = () => {
     if (!collection) return "";
+    const allowed=organizationScope?new Set(organizationScope.paths):null;
     const snapshot = {
       versao: 1,
-      pastas: ["", ...collection.folders],
-      arquivos: collection.files.slice(0, 5000).map((file) => ({
+      pastas: ["", ...collection.folders.filter(folder=>!isServiceCatalogPath(folder))],
+      arquivos: collection.files.filter(file=>!allowed||allowed.has(file.path)).slice(0, 5000).map((file) => ({
         arquivo: file.path, titulo: file.title, formato: file.format,
         tamanho_bytes: file.bytes, pasta_atual: file.folder,
       })),
@@ -381,34 +413,40 @@ ${JSON.stringify(sample, null, 2)}`;
       JSON.stringify(snapshot, null, 2),
     ].join("\n\n");
   };
-  const openOrganizationDialog = () => {
+  const openOrganizationDialog = (paths?:string[]) => {
+    setOrganizationScope(paths&&collection?{root:collection.root,paths}:null);
     setOrganizationText("");
-    setOrganizationPreview(null);
-    setOrganizationConfirmed(false);
+    invalidateOrganization();
     setOrganizationError("");
     setModal("organize");
   };
   const previewOrganization = async () => {
     if (!collection || !organizationText.trim()) return;
     setOrganizationError("");
-    setOrganizationConfirmed(false);
-    setOrganizationPreview(null);
+    invalidateOrganization();
+    const request=organizationRequest.current;
+    const root=collection.root,json=organizationText;
     try {
       const preview = await invoke<OrganizationPreview>("preview_organization", {
-        root: collection.root, jsonText: organizationText,
+        root, jsonText: json,
       });
+      if(request!==organizationRequest.current||currentCollectionRoot.current!==root||requestedRoot.current!==root)return;
+      if(organizationScope&&(collection.root!==organizationScope.root||preview.items.some(item=>!organizationScope.paths.includes(item.source))))throw new Error("O plano contém arquivos fora do lote selecionado.");
+      approvedOrganization.current={root,json};
       setOrganizationPreview(preview);
-    } catch (failure) { setOrganizationError(String(failure)); }
+    } catch (failure) { if(request===organizationRequest.current)setOrganizationError(String(failure)); }
   };
   const applyOrganization = async () => {
-    if (!collection || !organizationPreview || !organizationConfirmed) return;
+    if (loading || !collection || !organizationPreview || !organizationConfirmed || (organizationScope&&(organizationScope.root!==collection.root||organizationPreview.items.some(item=>!organizationScope.paths.includes(item.source))))) return;
+    const approved=approvedOrganization.current;
+    if(!approved||approved.root!==collection.root||approved.json!==organizationText||requestedRoot.current!==approved.root)return;
     setLoading(true); setOrganizationError("");
     try {
       const moved = await invoke<string[]>("apply_organization", {
-        root: collection.root, jsonText: organizationText,
+        root: approved.root, jsonText: approved.json,
       });
       await refresh(collection.root);
-      setBulkSelected(new Set()); setSelection(null); setOrganizationPreview(null);
+      setBulkSelected(current=>updateSelection(current,organizationPreview.items.map(item=>item.source),"remove")); setSelection(null); setOrganizationPreview(null);
       setStatus(moved.length + " arquivo(s) reorganizado(s) a partir do JSON.");
     } catch (failure) {
       setOrganizationError(String(failure));
@@ -480,19 +518,19 @@ ${JSON.stringify(sample, null, 2)}`;
     if (!collection || !paths.length) return;
     const unique = [...new Set(paths)];
     if (unique.length > 100) { setError("Selecione no máximo 100 livros por movimentação."); return; }
-    setPendingMove({ paths: unique, destination });
+    setPendingMove({root:collection.root, paths: unique, destination });
     setDragTarget("");
     setModal("move");
   };
   const commitMove = async () => {
-    if (!collection || !pendingMove) return;
+    if (!collection || !pendingMove || pendingMove.root!==collection.root || requestedRoot.current!==pendingMove.root || loading) return;
     setLoading(true); setError("");
     try {
       const moved = await invoke<string[]>("move_books", {
         root: collection.root, relativePaths: pendingMove.paths, destination: pendingMove.destination,
       });
       await refresh(collection.root);
-      setBulkSelected(new Set()); setSelectionMode(false); setSelection(null);
+      setBulkSelected(current=>updateSelection(current,pendingMove.paths,"remove")); setSelection(null);
       setPendingMove(null); setModal(null); setStatus(moved.length + " livro(s) movido(s). Catálogo atualizado.");
     } catch (failure) { setError(String(failure)); }
     finally { setLoading(false); }
@@ -507,7 +545,7 @@ ${JSON.stringify(sample, null, 2)}`;
     });
   };
   const selectBookRange = (path: string, extend: boolean) => {
-    const visiblePaths = visibleEntries.flatMap((entry) => entry.file ? [entry.file.path] : []);
+    const visiblePaths = resultPaths;
     const anchor = selectionAnchor.current;
     if (!anchor || !visiblePaths.includes(anchor)) selectionAnchor.current = path;
     setBulkSelected((current) => selectVisibleRange(visiblePaths, anchor, path, current, extend));
@@ -563,7 +601,7 @@ ${JSON.stringify(sample, null, 2)}`;
       const entry = libraryEntries.find((candidate) => candidate.file?.path === contextMenu.path);
       if (entry) setSelection(entry);
     } },
-    { label: "Selecionar livro", icon: <Check size={16}/>, onSelect: () => toggleBookSelection(contextMenu.path) },
+    { label: bulkSelected.has(contextMenu.path)?"Desmarcar livro":"Selecionar livro", icon: <Check size={16}/>, onSelect: () => toggleBookSelection(contextMenu.path) },
     { label: "Mover para outra pasta…", icon: <FolderOpen size={16}/>, onSelect: () => queueMove([contextMenu.path], selectedFolder) },
     { label: "Copiar caminho", icon: <ClipboardCopy size={16}/>, onSelect: () => void copy([collection?.root, contextMenu.path].filter(Boolean).join("/"), "Caminho copiado.") },
   ] : [
@@ -571,8 +609,9 @@ ${JSON.stringify(sample, null, 2)}`;
       setSelectedFolder(contextMenu.path); setView("catalog"); setSideOpen(false);
       setExpandedFolders((current) => new Set(current).add(contextMenu.path));
     } },
+    { label: "Selecionar livros desta pasta e subpastas", icon: <Check size={16}/>, onSelect:()=>{setSelectionMode(true);setBulkSelected(current=>updateSelection(current,libraryEntries.filter(entry=>entry.file&&folderContains(contextMenu.path,entry.folder,true)).map(entry=>entry.file!.path),"add"));} },
     { label: "Nova pasta aqui", icon: <FolderPlus size={16}/>, onSelect: () => openFolderDialog(contextMenu.path) },
-    ...(bulkSelected.size > 0 ? [{ label: "Mover livros selecionados aqui", icon: <FolderOpen size={16}/>, onSelect: () => queueMove([...bulkSelected], contextMenu.path) }] : []),
+    ...(bulkSelected.size > 0 ? [{ label: bulkSelected.size>100?"Mover próximos 100 aqui":"Mover livros selecionados aqui", icon: <FolderOpen size={16}/>, onSelect: () => queueMove(nextSelectionBatch(bulkSelected,allPaths), contextMenu.path) }] : []),
     { label: "Copiar caminho", icon: <ClipboardCopy size={16}/>, onSelect: () => void copy([collection?.root, contextMenu.path].filter(Boolean).join("/"), "Caminho copiado.") },
   ];
 
@@ -609,7 +648,7 @@ ${JSON.stringify(sample, null, 2)}`;
                 else if (selectionMode || event.ctrlKey || event.metaKey) toggleBookSelection(entry.file.path);
                 else { selectionAnchor.current = entry.file.path; setSelection(entry); }
               }} draggable={Boolean(entry.file)}
-              onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
+              onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? nextSelectionBatch(bulkSelected,allPaths) : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
               {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
               <BookCover root={collection?.root || ""} file={entry.file} format={entry.format} present={entry.present} title={entry.title} />
               <div className="book-info"><strong title={entry.title}>{entry.title}</strong><span>{entry.author || "Autor não informado"}</span><div className="book-meta"><span className={"status-badge " + (entry.present ? "available" : "wanted")}>{entry.present ? entry.format : "Faltante"}</span><span className="folder-path" title={entry.folder}>{entry.folder || "Raiz"}</span></div></div><ChevronRight className="book-chevron" size={17}/></button>
@@ -646,7 +685,7 @@ ${JSON.stringify(sample, null, 2)}`;
             <ArrowDownToLine size={18} strokeWidth={1.9}/> Downloads
           </button>
         </nav>
-        <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Criar pasta na pasta atual" onClick={() => openFolderDialog(selectedFolder)}><Plus size={18} /></button></div>
+        <div className="folders-header"><span className="nav-caption">PASTAS</span><button className="icon-button small" title="Expandir todas as pastas" aria-label="Expandir todas as pastas" onClick={()=>setExpandedFolders(new Set(folderParents))}><ChevronDown size={16}/></button><button className="icon-button small" title="Recolher todas as pastas" aria-label="Recolher todas as pastas" onClick={()=>setExpandedFolders(new Set())}><ChevronRight size={16}/></button><button className="icon-button small" title="Criar pasta na pasta atual" onClick={() => openFolderDialog(selectedFolder)}><Plus size={18} /></button></div>
         <div className="folder-tree-search"><Search size={14}/><input aria-label="Filtrar pastas" placeholder="Localizar pasta…" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)}/>{folderQuery && <button aria-label="Limpar filtro de pastas" onClick={() => setFolderQuery("")}><X size={13}/></button>}</div>
         <div className="folder-scroller" role="tree" aria-label="Estrutura da biblioteca">
           <div className={"folder-row" + (view === "catalog" && !selectedFolder ? " active" : "") + (dragTarget === "/" ? " drop-target" : "")}
@@ -763,7 +802,7 @@ ${JSON.stringify(sample, null, 2)}`;
           <div className="page-intro"><div><h1>{currentLabel}</h1><p>{collection ? collection.files.length + " arquivos na biblioteca" : "Nenhuma biblioteca selecionada"}</p></div><div className="page-actions"><ActionMenu label="Gerenciar" icon={<Layers3 size={17}/>} actions={[
             {label:"Duplicatas",icon:<Archive size={17}/>,disabled:!collection||loading,run:()=>setDuplicateRoot(collection?.root??"")},
             {label:"Metadados",icon:<Book size={17}/>,disabled:!collection||loading,run:()=>setMetadataRoot(collection?.root??"")},
-            {label:"Organizar por JSON",icon:<Layers3 size={17}/>,disabled:!collection||loading,run:openOrganizationDialog},
+            {label:"Organizar por JSON",icon:<Layers3 size={17}/>,disabled:!collection||loading,run:()=>openOrganizationDialog()},
           ]}/><button className="button secondary" disabled={!collection||loading} onClick={()=>setSmartRoot(collection?.root??"")}><FolderTree size={17}/> Organizar</button><button className="button primary add-button" disabled={!collection||loading} onClick={() => openFolderDialog(selectedFolder)}><FolderPlus size={18}/> Nova pasta</button></div></div>
           {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
           {collection?.warnings.length ? <div className="warning">{collection.warnings.slice(0, 2).join(" · ")}</div> : null}
@@ -773,12 +812,13 @@ ${JSON.stringify(sample, null, 2)}`;
               <Folder size={23}/><span><strong>{folder.split("/").slice(-1)[0]}</strong><small>{folderFileCounts.get(folder) || 0} livros dentro</small></span><ChevronRight size={17}/>
             </button>
           ))}</section>}
-          <div className="content-top"><div><h2>Arquivos <span>{filtered.length}</span></h2></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); setBulkSelected(new Set()); selectionAnchor.current = null; }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><ToolbarSelect label="Filtrar formato" icon={<Filter size={16}/>} value={format} options={formatOptions.map(value=>({value,label:value}))} onChange={setFormat}/>
+          <div className="content-top"><div><h2>Arquivos <span>{filtered.length}</span></h2></div><div className="collection-controls"><button className={"selection-toggle" + (selectionMode ? " active" : "")} onClick={() => { setSelectionMode(!selectionMode); if(selectionMode)clearSelection(); }}>{selectionMode ? <Check size={16}/> : <List size={16}/>} {selectionMode ? "Concluir" : "Selecionar"}</button><ToolbarSelect label="Filtrar formato" icon={<Filter size={16}/>} value={format} options={formatOptions.map(value=>({value,label:value}))} onChange={setFormat}/>
           <ToolbarSelect<SortBy> label="Ordenar livros" icon={<ArrowUpDown size={16}/>} value={sortBy} options={[{value:"title",label:"Título"},{value:"author",label:"Autor"},{value:"format",label:"Formato"},{value:"size",label:"Tamanho"}]} onChange={setSortBy}/>
           <ToolbarSelect<GroupBy> label="Agrupar livros" icon={<Layers3 size={16}/>} value={groupBy} options={[{value:"none",label:"Sem grupos"},{value:"folder",label:"Por pasta"},{value:"format",label:"Por formato"},{value:"author",label:"Por autor"}]} onChange={setGroupBy}/><div className="view-switch" data-layout={layout} role="group" aria-label="Modo de visualização"><button className={layout === "grid" ? "chosen" : ""} title="Grade" aria-label="Grade" aria-pressed={layout === "grid"} onClick={() => changeLayout("grid")}><Grid2X2 size={17}/></button><button className={layout === "list" ? "chosen" : ""} title="Lista" aria-label="Lista" aria-pressed={layout === "list"} onClick={() => changeLayout("list")}><List size={17}/></button></div></div></div>
-          {bulkSelected.size > 0 && <div className="bulk-toolbar glass-panel"><div><Check size={17}/><strong>{bulkSelected.size} selecionado(s)</strong><small>Arraste para uma pasta ou escolha um destino.</small></div><button className="button primary" onClick={() => queueMove([...bulkSelected], selectedFolder || "")}><FolderOpen size={17}/> Mover para…</button><button className="icon-button" onClick={() => { setBulkSelected(new Set()); selectionAnchor.current = null; }} title="Limpar seleção" aria-label="Limpar seleção"><X size={17}/></button></div>}
+          <div className="library-scope-control"><button type="button" className="button secondary" aria-pressed={includeSubfolders} onClick={()=>setIncludeSubfolders(value=>!value)}><FolderTree size={15}/>{includeSubfolders?"Incluir subpastas":"Somente esta pasta"}</button>{selectionMode&&<button type="button" className="button secondary" disabled={!resultPaths.length||batchSummary.inResults===resultPaths.length} onClick={selectResults}>Selecionar todos ({resultPaths.length})</button>}</div>
+          <BulkSelectionBar active={selectionMode||bulkSelected.size>0} {...batchSummary} results={resultPaths.length} busy={loading} onAll={selectResults} onInvert={()=>setBulkSelected(current=>updateSelection(current,resultPaths,"invert"))} onKeepResults={()=>setBulkSelected(current=>new Set(resultPaths.filter(path=>current.has(path))))} onClear={clearSelection} onMove={()=>queueMove(nextSelectionBatch(bulkSelected,allPaths),selectedFolder||"")} onAi={()=>openOrganizationDialog(nextSelectionBatch(bulkSelected,allPaths))}/>
           {!collection ? <div className="empty-state glass-panel"><Archive size={42}/><h3>Seu acervo, no seu controle.</h3><p>Selecione uma pasta para visualizar os livros e o catálogo existente. Nada será alterado ao abrir.</p><button className="button primary" onClick={() => void chooseRoot()}>Escolher pelo explorador <FolderOpen size={16}/></button></div>
-          : filtered.length ? virtualList ? <VirtualBookList key={JSON.stringify([collection.root,selectedFolder,format,search,sortBy])} items={displayEntries} scrollRef={mainRef} render={renderBookCard}/> : <><div className={"books-" + layout}>{visibleEntries.map((entry, index) => (
+          : filtered.length ? virtualList ? <VirtualBookList key={JSON.stringify([collection.root,selectedFolder,format,search,sortBy,includeSubfolders])} items={displayEntries} scrollRef={mainRef} render={renderBookCard}/> : <><div className={"books-" + layout}>{visibleEntries.map((entry, index) => (
             <Fragment key={entry.key}>
               {groupBy !== "none" && (index === 0 || groupLabel(entry) !== groupLabel(visibleEntries[index - 1])) &&
                 <div className="book-group-heading"><span>{groupLabel(entry)}</span><span className="book-group-rule"/></div>}
@@ -813,14 +853,14 @@ ${JSON.stringify(sample, null, 2)}`;
           <button className="button primary full" onClick={() => void copy(promptDraft ?? createPrompt(), "Prompt copiado. Cole na IA de sua preferência.")}><ClipboardCopy size={17}/> Copiar prompt</button></div>}
         {modal === "import" && <div className="modal-body"><p>Cole uma lista JSON no formato <code>{'{ "versao": 1, "obras": [...] }'}</code>. As obras serão salvas em <code>99 - Catálogo/Acervo_Listas.json</code>; o banco antigo não será alterado.</p><label>Conteúdo JSON<textarea value={importText} onChange={(event) => { setImportText(event.target.value); setImportNotice(""); }} rows={11} placeholder='{"versao":1,"obras":[{"titulo":"O Banquete","local_indicado":"Literatura/Filosofia"}]}' /></label>{importNotice && <div className="import-notice">{importNotice}</div>}<button className="button primary full" disabled={loading || !collection || !importText.trim()} onClick={() => void importBooks()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <Check size={17}/>} Importar obras</button></div>}
         {modal === "organize" && <div className="modal-body organization-body">
-          <p>Envie à IA apenas o inventário de caminhos relativos. Confira a proposta antes de mover qualquer livro. O Acervo não envia seus dados automaticamente.</p>
+          <p>{organizationScope?"Lote de "+organizationScope.paths.length+" livros selecionados. Apenas esses arquivos podem aparecer na proposta. ":""}Envie à IA apenas o inventário de caminhos relativos. Confira a proposta antes de mover qualquer livro. O Acervo não envia seus dados automaticamente.</p>
           <button className="button secondary full" disabled={!collection} onClick={() => void copy(createOrganizationPrompt(), "Inventário e instruções copiados para a IA.")}>
             <ClipboardCopy size={17}/> Copiar inventário e prompt para IA
           </button>
           <label>Cole o plano retornado pela IA (JSON)
             <textarea spellCheck={false} rows={8} value={organizationText}
               placeholder='{"versao":1,"movimentacoes":[{"arquivo":"00 - Entrada/Livro.epub","destino":"Literatura","tamanho_bytes":12345}]}'
-              onChange={(event) => { setOrganizationText(event.target.value); setOrganizationPreview(null); setOrganizationConfirmed(false); setOrganizationError(""); }}/>
+              onChange={(event) => { setOrganizationText(event.target.value); invalidateOrganization(); setOrganizationError(""); }}/>
           </label>
           <button className="button primary full" disabled={!collection || !organizationText.trim() || loading} onClick={() => void previewOrganization()}>
             <Search size={17}/> Conferir movimentações (sem alterar arquivos)
@@ -847,7 +887,7 @@ ${JSON.stringify(sample, null, 2)}`;
         {modal === "move" && pendingMove && <div className="modal-body">
           <p>Revise a movimentação. Arquivos com o mesmo nome no destino não serão sobrescritos, e as referências no catálogo serão atualizadas.</p>
           <div className="move-summary"><strong>{pendingMove.paths.length} livro(s) selecionado(s)</strong><span>{pendingMove.paths.slice(0, 5).map((path) => <small key={path}>{path}</small>)}{pendingMove.paths.length > 5 && <small>e mais {pendingMove.paths.length - 5}…</small>}</span></div>
-          <label>Pasta de destino<select value={pendingMove.destination} onChange={(event) => setPendingMove({ ...pendingMove, destination: event.target.value })}><option value="">Raiz da biblioteca</option>{collection?.folders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}</select></label>
+          <div className="shared-select-field"><span>Pasta de destino</span><ToolbarSelect label="Pasta de destino" value={pendingMove.destination} options={[{value:"",label:"Raiz da biblioteca"},...(collection?.folders||[]).filter(folder=>!isServiceCatalogPath(folder)).map(value=>({value,label:value}))]} onChange={value=>setPendingMove({...pendingMove,destination:value})}/></div>
           {moveConflicts.length > 0 && <div className="warning">Há {moveConflicts.length} conflito(s): arquivo já presente no destino, nome repetido ou livro já nesta pasta. Selecione outro destino.</div>}
           {error && <div className="alert" role="alert">{error}</div>}
           <div className="move-actions"><button className="button secondary" onClick={() => setModal(null)}>Cancelar</button><button className="button primary" disabled={loading || moveConflicts.length > 0} onClick={() => void commitMove()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <FolderOpen size={17}/>} Confirmar movimentação</button></div>

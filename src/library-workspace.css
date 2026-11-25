@@ -1,0 +1,16 @@
+:root .library-scope-control{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+:root .library-scope-control button{min-height:32px;font-size:11px}
+:root .library-scope-control button[aria-pressed=true]{background:var(--ds-selected);border-color:color-mix(in srgb,var(--accent) 32%,var(--stroke))}
+:root .bulk-toolbar{flex-wrap:wrap;align-items:center;gap:12px;padding:12px 14px}
+:root .bulk-toolbar>.batch-summary{display:flex;align-items:center;gap:9px;flex:1 1 170px}
+.batch-summary>div{display:grid;gap:3px;min-width:0}
+:root .bulk-toolbar small{display:block;white-space:normal}
+:root .bulk-toolbar>.batch-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex:1 1 auto;flex-wrap:wrap}
+:root .bulk-toolbar .button{white-space:nowrap;font-size:11px}
+:root .bulk-toolbar.motion-exiting{animation:motion-reveal var(--motion-exit) ease-in reverse both}
+:root .book-check{transition:background-color var(--motion-fast),border-color var(--motion-fast),transform var(--motion-fast);animation:batch-check-in var(--motion-fast) var(--motion-ease)}
+:root .book-card.bulk-selected .book-check{background:var(--accent);color:var(--accent-ink)}
+:root .book-card.bulk-selected .book-check svg{animation:batch-check-in var(--motion-standard) var(--motion-ease)}
+@keyframes batch-check-in{from{opacity:.35;transform:scale(.72)}to{opacity:1;transform:none}}
+:root .folder-row.drop-target{background:var(--ds-selected);border-color:var(--accent);transition:background-color var(--motion-fast),border-color var(--motion-fast)}
+@media(max-width:600px){:root .bulk-toolbar>.batch-actions{justify-content:flex-start}}

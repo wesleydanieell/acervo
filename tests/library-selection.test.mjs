@@ -24,3 +24,26 @@ test("a stale anchor chooses only the visible target", () => {
   assert.deepEqual([...selectVisibleRange(visible, null, visible[2], new Set([visible[0]]), true)],
     [visible[0], visible[2]]);
 });
+
+import {updateSelection,selectionSummary,nextSelectionBatch,folderContains} from "../src/library-selection.ts";
+test("selection operations preserve items outside the current filter",()=>{
+ const selected=new Set(["hidden","a"]);
+ const inverted=updateSelection(selected,["a","b","b"],"invert");
+ assert.deepEqual([...inverted],["hidden","b"]);
+ assert.deepEqual(selectionSummary(inverted,["a","b"]),{total:2,inResults:1,outside:1});
+ assert.deepEqual([...updateSelection(inverted,["b"],"remove")],["hidden"]);
+});
+test("batch uses deterministic library order with explicit limit",()=>{
+ const paths=Array.from({length:220},(_,i)=>"Book "+i);
+ const selected=new Set([...paths].reverse());
+ const batch=nextSelectionBatch(selected,paths);
+ assert.deepEqual(batch,paths.slice(0,100));
+ assert.equal(updateSelection(selected,batch,"remove").size,120);
+});
+test("folder scope checks path boundaries and root direct mode",()=>{
+ assert.equal(folderContains("A","A/B",true),true);
+ assert.equal(folderContains("A","AB/B",true),false);
+ assert.equal(folderContains("A","A/B",false),false);
+ assert.equal(folderContains("","A",true),true);
+ assert.equal(folderContains("","A",false),false);
+});
