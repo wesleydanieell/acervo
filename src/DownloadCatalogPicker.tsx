@@ -1,18 +1,21 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Book, Check, Download, Folder, Search, X } from "lucide-react";
 import type { CatalogItem } from "./CatalogCenter";
-import { catalogChoice, sameCatalogChoice, filterDownloadWorks, validDownloadPath, type CatalogTarget } from "./download-workspace";
+import { catalogChoice, sameCatalogChoice, filterDownloadWorks, validDownloadPath, suggestedEditionSuffix, type CatalogTarget } from "./download-workspace";
 
 export function DownloadCatalogPicker({ book, root, works, initial, busy, error, onClose, onSubmit }: {
   book: { title: string; author: string; format: string; sourceName: string; language?:string; publisher?:string; editionLabel?:string };
   root: string; works: CatalogItem[]; initial?: CatalogTarget; busy: boolean; error: string;
-  onClose: () => void; onSubmit: (target: CatalogTarget | null, autoImport: boolean) => void;
+  onClose: () => void; onSubmit: (target: CatalogTarget | null, autoImport: boolean, filenameSuffix: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query);
   const [selected, setSelected] = useState<CatalogTarget | null>(() => initial ?? null);
   const [automatic, setAutomatic] = useState(true);
+  const [suffix, setSuffix] = useState("");
+  const suggestion = suggestedEditionSuffix(book);
+  const validSuffix = new TextEncoder().encode(suffix).length <= 300;
   const [limit, setLimit] = useState(80);
   const visible = useMemo(() => filterDownloadWorks(works, deferred), [works, deferred]);
   const matches = selected && root ? works.filter(w => sameCatalogChoice(catalogChoice(root, w), selected)) : [];
@@ -39,9 +42,15 @@ export function DownloadCatalogPicker({ book, root, works, initial, busy, error,
         <label><input type="checkbox" checked={automatic && autoAllowed} disabled={!autoAllowed || busy} onChange={e => setAutomatic(e.target.checked)}/> Importar e atualizar catálogo ao concluir</label>
         {!autoAllowed && <small>Destino inválido; escolha a pasta na fila após baixar.</small>}
       </div>}
+      <div className="download-picker-details">
+        <label htmlFor="edition-filename-suffix">Complemento do nome do arquivo (opcional)</label>
+        <div className="edition-filename-control"><input id="edition-filename-suffix" value={suffix} maxLength={300} disabled={busy} placeholder="Ex.: 2ª edição" onChange={e=>setSuffix(e.target.value)} aria-invalid={!validSuffix}/>
+          {suggestion && <button className="button secondary" disabled={busy} type="button" onClick={()=>setSuffix(suggestion)}>Usar edição</button>}</div>
+        <small>Nome sugerido: {target?.title || book.title}{suffix.trim() ? " - "+suffix.trim() : ""}.{book.format.toLowerCase()}</small>
+      </div>
       {selected && !target && <p className="download-error" role="status">A ficha está indisponível ou duplicada. Escolha outra obra.</p>}
       {error && <p className="download-error" role="alert">{error}</p>}
     </div>
-    <div className="download-picker-footer"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || (selected !== null && !target)} onClick={() => onSubmit(target, automatic && autoAllowed)}><Download size={16}/>{busy ? "Adicionando…" : target && automatic && autoAllowed ? "Baixar e importar" : "Baixar"}</button></div>
+    <div className="download-picker-footer"><button className="button secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="button primary" disabled={busy || !validSuffix || (selected !== null && !target)} onClick={() => onSubmit(target, automatic && autoAllowed, suffix)}><Download size={16}/>{busy ? "Adicionando…" : target && automatic && autoAllowed ? "Baixar e importar" : "Baixar"}</button></div>
   </dialog>;
 }

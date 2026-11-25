@@ -142,3 +142,8 @@ Em Extensões → Repositórios, adicione a URL de um índice JSON v1, consulte 
 ## Múltiplas edições JSON
 
 Use editions com itemsField, formatField, downloadUrlField e seletores opcionais de idioma, editora e descrição. O registro pai precisa de remoteIdField e a fonte precisa declarar downloadDomains. Não combine com formatField/downloadUrlField no nível da obra. Consulte sdk/extensions/manifest.editions.example.json. As opções agrupadas aparecem na descoberta e a edição escolhida segue o fluxo de importação existente.
+
+
+## Dados de edição na fila
+
+O seletor de download exibe a edição e permite um complemento de nome opcional, inclusive uma sugestão derivada de descrição, editora e idioma. O histórico guarda os metadados recebidos da extensão e a referência à ficha selecionada separadamente. Na fila A importar, Alterar nome permite corrigir o complemento, inclusive após conflito de nome, sem baixar novamente. O título da ficha permanece como base do nome e a extensão não é editável. Os metadados remotos não substituem a ficha local.

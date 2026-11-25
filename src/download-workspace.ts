@@ -61,3 +61,22 @@ export function sameCatalogChoice(a: CatalogTarget, b: CatalogTarget): boolean {
   return a.root === b.root && a.title === b.title && a.author === b.author &&
     a.destination === b.destination && (a.legacyId ?? null) === (b.legacyId ?? null);
 }
+
+
+export type DownloadEdition = {
+  title: string; author: string; language: string; publisher: string; editionLabel: string;
+  remoteId?: string; sourceId?: string;
+};
+
+export function suggestedEditionSuffix(edition: { language?: string; publisher?: string; editionLabel?: string }): string {
+  const parts = [edition.editionLabel, edition.publisher, edition.language]
+    .map(value => (value ?? "").replace(/[\p{Cc}]/gu, " ").trim())
+    .filter(Boolean);
+  const text = [...new Set(parts)].join(" - ");
+  let result = "";
+  for (const character of text) {
+    if (new TextEncoder().encode(result + character).length > 72) break;
+    result += character;
+  }
+  return result.trim().replace(/^[.]+|[.]+$/g,"").trim();
+}

@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, CircleAlert, Download, FolderCheck, FolderPlus, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
+import { Check, CircleAlert, Download, FolderCheck, FolderPlus, Pencil, Pause, RefreshCw, RotateCw, Square, Trash2, X } from "lucide-react";
 import "./downloads.css";
-import { planDownloadDestination, validDownloadPath, downloadGroup, canImportDownload, type CatalogTarget, type DownloadFilter } from "./download-workspace";
+import { planDownloadDestination, validDownloadPath, downloadGroup, canImportDownload, type CatalogTarget, type DownloadEdition, type DownloadFilter } from "./download-workspace";
 import { isServiceCatalogPath } from "./prompt-folder-selection";
 
 export type DownloadInfo = {
   id: string; title: string; sourceName: string; format: string; filename: string;
   plannedDestination: string; status: string; downloadedBytes: number;
-  totalBytes: number | null; error: string; savedPath: string; catalogTarget?: CatalogTarget | null; catalogLinked?: boolean; autoImport?: boolean;
+  totalBytes: number | null; error: string; savedPath: string; catalogTarget?: CatalogTarget | null; catalogLinked?: boolean; autoImport?: boolean; edition?: DownloadEdition | null; filenameSuffix?: string | null;
 };
 
 const sizes = (bytes: number) => bytes >= 1048576
@@ -27,6 +27,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   const [notice, setNotice] = useState("");
   const [destinations, setDestinations] = useState<Record<string, string>>({});
   const [customPaths, setCustomPaths] = useState<Record<string, string>>({});
+  const [rename, setRename] = useState<{id:string;suffix:string}|null>(null);
   const [confirmId, setConfirmId] = useState("");
   const [linkChoices, setLinkChoices] = useState<Record<string, boolean>>({});
   const [discardId, setDiscardId] = useState("");
@@ -43,7 +44,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     return items.filter(item => (filter === "all" || downloadGroup(item.status) === filter)
-      && (!needle || [item.title, item.sourceName, item.filename].some(value => value.toLocaleLowerCase("pt-BR").includes(needle))));
+      && (!needle || [item.title, item.sourceName, item.filename, item.edition?.author??"", item.edition?.publisher??"", item.edition?.editionLabel??""].some(value => value.toLocaleLowerCase("pt-BR").includes(needle))));
   }, [items, filter, query]);
   useEffect(() => { setDestinations({}); setCustomPaths({}); setLinkChoices({}); setConfirmId(""); setDiscardId(""); }, [root]);
 
@@ -66,6 +67,18 @@ export function DownloadsCenter({ root, folders, onSaved }: {
     try {
       await invoke(command, { id });
       await refresh();
+    } catch (failure) { setError(String(failure)); }
+    finally { setBusyId(""); }
+  };
+
+  const applyRename = async () => {
+    if (!rename || busyId || new TextEncoder().encode(rename.suffix).length > 300) return;
+    setBusyId(rename.id); setError(""); setNotice("");
+    try {
+      const generation = ++refreshGeneration.current;
+      const updated = await invoke<DownloadInfo[]>("rename_ready_download", {id:rename.id,suffix:rename.suffix});
+      if (generation === refreshGeneration.current) setItems(updated);
+      setRename(null); setConfirmId(""); await refresh();
     } catch (failure) { setError(String(failure)); }
     finally { setBusyId(""); }
   };
@@ -117,6 +130,7 @@ export function DownloadsCenter({ root, folders, onSaved }: {
           {(["queued", "downloading", "pausing", "paused"].includes(item.status)) && <div className="download-progress">
             <progress max={100} value={percentage ?? undefined} aria-label={"Progresso de " + item.title}/>
             <span>{sizes(item.downloadedBytes)}{item.totalBytes ? " de " + sizes(item.totalBytes) + " · " + percentage?.toFixed(0) + "%" : " · tamanho desconhecido"}</span></div>}
+          {item.edition && <small className="download-target-note">{[item.edition.title !== item.title ? item.edition.title : "",item.edition.author,item.edition.language,item.edition.publisher,item.edition.editionLabel].filter(Boolean).join(" · ")}</small>}
           {item.error && <p className="download-error" role="status">{item.error}</p>}
           {item.status === "failed" && item.downloadedBytes > 0 &&
             <p className="download-target-note">Arquivo parcial em cache: {sizes(item.downloadedBytes)}. A próxima tentativa verifica se a fonte permite retomá-lo.</p>}
@@ -125,6 +139,9 @@ export function DownloadsCenter({ root, folders, onSaved }: {
           {item.catalogTarget && <small className="download-target-note">Obra: {item.catalogTarget.title}{item.catalogTarget.author ? " — " + item.catalogTarget.author : ""}</small>}
           {item.status === "ready" && item.catalogTarget && !canImport && <p className="download-error">Biblioteca de origem: {item.catalogTarget.root}. Selecione essa biblioteca para importar.</p>}
           {item.status === "ready" && <div className="download-destination">
+            {rename?.id === item.id ? <div className="edition-filename-control"><input aria-label="Complemento do nome do arquivo" value={rename.suffix} maxLength={300} onChange={event=>setRename({id:item.id,suffix:event.target.value})}/><button className="button secondary" disabled={!!busyId || new TextEncoder().encode(rename.suffix).length > 300} onClick={()=>void applyRename()}>Aplicar</button><button className="button secondary" disabled={!!busyId} onClick={()=>setRename(null)}>Cancelar</button></div>
+              : <button className="button secondary" disabled={!!busyId} onClick={()=>{setRename({id:item.id,suffix:item.filenameSuffix??""});setConfirmId("");setDiscardId("");}}><Pencil size={15}/> Alterar nome</button>}
+
             {custom === undefined ? <label>Pasta de destino
               <select value={destination ?? "__choose__"} onChange={(event) => { setDestinations((values) => ({ ...values, [item.id]: event.target.value })); setConfirmId(""); }}>
                 {destination === null && <option value="__choose__" disabled>Escolha uma pasta</option>}
@@ -164,8 +181,8 @@ export function DownloadsCenter({ root, folders, onSaved }: {
               <button className="button secondary" onClick={() => void action("dismiss_download", item.id)}><Trash2 size={15}/> Remover da lista</button>}
             {item.status === "ready" && discardId !== item.id && (confirmId === item.id
               ? <><button className="button secondary" onClick={() => setConfirmId("")}>Voltar</button>
-                  <button className="button primary" disabled={busyId === item.id || !canImport || destination === null} onClick={() => void save(item)}><Check size={15}/> Confirmar</button></>
-              : <button className="button primary" disabled={!canImport || destination === null} onClick={() => setConfirmId(item.id)}><FolderCheck size={15}/> Salvar na biblioteca</button>)}
+                  <button className="button primary" disabled={busyId === item.id || rename?.id === item.id || !canImport || destination === null} onClick={() => void save(item)}><Check size={15}/> Confirmar</button></>
+              : <button className="button primary" disabled={!!busyId || rename?.id === item.id || !canImport || destination === null} onClick={() => setConfirmId(item.id)}><FolderCheck size={15}/> Salvar na biblioteca</button>)}
           </div>
         </article>;
       })}</div>}

@@ -1,5 +1,6 @@
 mod catalog_lists;
 mod covers;
+mod download_naming;
 mod download_validation;
 mod downloads;
 mod extension_api;
@@ -562,6 +563,7 @@ pub fn run() {
             downloads::retry_download,
             downloads::dismiss_download,
             downloads::save_download,
+            downloads::rename_ready_download,
             read_noctalia_colors
         ])
         .run(tauri::generate_context!())

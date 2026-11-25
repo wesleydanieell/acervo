@@ -129,7 +129,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     catch (failure) { setError("Falha ao copiar: " + String(failure)); }
   };
 
-  const queue = async (item: SourceResult, target: CatalogTarget | null, autoImport: boolean) => {
+  const queue = async (item: SourceResult, target: CatalogTarget | null, autoImport: boolean, filenameSuffix: string) => {
     const key = resultKey(item);
     if (queuePending.current.has(key)) return;
     queuePending.current.add(key);
@@ -138,6 +138,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     try {
       await invoke("queue_download", {
         url: item.downloadUrl, title: item.title, sourceId: item.sourceId,
+        edition: {title:item.title,author:item.author,language:item.language,publisher:item.publisher??"",editionLabel:item.editionLabel??"",remoteId:item.remoteId??null},
+        filenameSuffix,
         format: item.format, plannedDestination: target?.destination === "." ? "" : target?.destination ?? "", catalogTarget: target, autoImport,
       });
       setQueued(previous => new Set(previous).add(key));
@@ -267,6 +269,6 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     </>}
     {downloadChoice && <DownloadCatalogPicker book={downloadChoice} root={root} works={works} initial={initialSearch?.catalogTarget}
       busy={pending.has(resultKey(downloadChoice))} error={queueError} onClose={() => setDownloadChoice(null)}
-      onSubmit={(target, autoImport) => void queue(downloadChoice, target, autoImport)}/>}
+      onSubmit={(target, autoImport, filenameSuffix) => void queue(downloadChoice, target, autoImport, filenameSuffix)}/>}
   </section>;
 }
