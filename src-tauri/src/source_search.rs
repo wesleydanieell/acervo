@@ -255,14 +255,17 @@ async fn search_one(
         code: SourceErrorCode::InvalidResponse,
         message: format!("JSON inválido: {error}"),
     })?;
-    let mut results =
-        extract_results(&source, &data, &language, &format).map_err(|message| SourceError {
-            code: SourceErrorCode::InvalidResponse,
-            message,
-        })?;
-    if source.local_search {
-        results.retain(|item| matches_local_query(&item.title, &item.author, &query));
-    }
+    let results = extract_matching_results(
+        &source,
+        &data,
+        &language,
+        &format,
+        source.local_search.then_some(query.as_str()),
+    )
+    .map_err(|message| SourceError {
+        code: SourceErrorCode::InvalidResponse,
+        message,
+    })?;
     let next_cursor = source.pagination.as_ref().and_then(|pagination| {
         let token = cursor_value(&data, &pagination.next_cursor_field)?;
         let previous = cursor.as_deref().unwrap_or(&pagination.initial_cursor);
@@ -300,9 +303,11 @@ fn matches_local_query(title: &str, author: &str, query: &str) -> bool {
             .collect()
     }
     let haystack = fold(&format!("{title} {author}"));
-    fold(query)
-        .split_whitespace()
-        .all(|term| haystack.contains(term))
+    let folded = fold(query);
+    !folded.trim().is_empty()
+        && folded
+            .split_whitespace()
+            .all(|term| haystack.contains(term))
 }
 
 fn extract_nested_editions(
@@ -385,20 +390,41 @@ fn extract_nested_editions(
     results
 }
 
+#[cfg(test)]
 pub(crate) fn extract_results(
     source: &SourceManifest,
     data: &Value,
     language: &str,
     format: &str,
 ) -> Result<Vec<SourceResult>, String> {
+    extract_matching_results(source, data, language, format, None)
+}
+fn extract_matching_results(
+    source: &SourceManifest,
+    data: &Value,
+    language: &str,
+    format: &str,
+    local_query: Option<&str>,
+) -> Result<Vec<SourceResult>, String> {
     let records = field(data, &source.items_path)
         .and_then(Value::as_array)
         .ok_or_else(|| format!("Resposta não contém array em '{}'.", source.items_path))?;
 
     let mut result = Vec::new();
-    for record in records.iter().take(MAX_RESULTS_PER_SOURCE * 3) {
+    // The network body is already bounded. For local catalogs, match across the
+    // whole response before spending the result budget on matching records.
+    let scan_limit = if local_query.is_some() {
+        records.len()
+    } else {
+        MAX_RESULTS_PER_SOURCE * 3
+    };
+    for record in records.iter().take(scan_limit) {
         let title = read_string(record, &source.title_field);
-        if title.is_empty() {
+        if title.is_empty()
+            || local_query.is_some_and(|query| {
+                !matches_local_query(&title, &read_string(record, &source.author_field), query)
+            })
+        {
             continue;
         }
         if let Some(mapping) = &source.editions {
@@ -507,6 +533,25 @@ mod tests {
         );
         assert!(
             extract_results(&source, &data, "fr", "")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn local_search_matches_records_beyond_the_scan_and_result_caps() {
+        let source:SourceManifest=serde_json::from_value(serde_json::json!({"schemaVersion":1,"id":"local-example","name":"Local example","baseUrl":"https://example.org","searchPath":"/catalog?q={query}","itemsPath":"items","titleField":"title","authorField":"author","localSearch":true})).unwrap();
+        let mut items: Vec<_> = (0..150)
+            .map(|i| serde_json::json!({"title":format!("Unrelated {i}"),"author":"Writer"}))
+            .collect();
+        items.push(serde_json::json!({"title":"Memórias","author":"Machado"}));
+        let data = serde_json::json!({"items":items});
+        let results =
+            extract_matching_results(&source, &data, "", "", Some("memorias machado")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Memórias");
+        assert!(
+            extract_matching_results(&source, &data, "", "", Some("??"))
                 .unwrap()
                 .is_empty()
         );
