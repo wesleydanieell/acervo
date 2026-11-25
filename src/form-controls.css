@@ -41,7 +41,7 @@
 }
 :root input::placeholder,:root textarea::placeholder{color:var(--text-muted);opacity:1}
 :root .duplicate-search{min-height:var(--ds-control);background:var(--control-bg);border-color:var(--control-border)}
-:root .download-picker-body .duplicate-search input,:root .download-picker-body .download-picker-search input{background:none!important;box-shadow:none;border:0;outline:none;padding:0;min-height:0}
+:root .download-picker-body .duplicate-search input,:root .download-picker-body .download-picker-search input{background:none!important;box-shadow:none;border:0!important;outline:none;padding:0;min-height:0}
 :root .duplicate-search:focus-within,:root .download-picker-search:focus-within,:root .topbar-search:focus-within{outline:2px solid var(--accent);outline-offset:1px}
 :root input[type=checkbox]:not([role=switch]),:root input[type=radio]{
   -webkit-appearance:none;appearance:none;display:inline-grid;place-content:center;
