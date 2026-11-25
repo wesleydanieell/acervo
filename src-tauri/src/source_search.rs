@@ -201,6 +201,8 @@ async fn search_one(
         &source.formats,
         if let Some(editions) = &source.editions {
             &editions.format_field
+        } else if let Some(resolver) = &source.download_resolver {
+            &resolver.page_field
         } else if fixed_format(&source).is_some() {
             &source.download_url_field
         } else {
@@ -474,6 +476,15 @@ fn extract_matching_results(
             }
             continue;
         }
+        let acquisition_page = source.download_resolver.as_ref().and_then(|resolver| {
+            let base = url::Url::parse(&source.base_url).ok()?;
+            crate::download_resolver::page_url(
+                source,
+                &base,
+                field(record, &resolver.page_field)?.as_str()?,
+            )
+            .map(|url| url.to_string())
+        });
         let candidate_url = field(record, &source.download_url_field)
             .and_then(Value::as_str)
             .unwrap_or("")
@@ -483,7 +494,7 @@ fn extract_matching_results(
         } else {
             String::new()
         };
-        let item_format = if !download_url.is_empty() {
+        let mut item_format = if !download_url.is_empty() {
             fixed_format(source)
                 .map(str::to_owned)
                 .unwrap_or_else(|| read_string(record, &source.format_field))
@@ -498,6 +509,13 @@ fn extract_matching_results(
         } else {
             read_string(record, &source.language_field).to_ascii_lowercase()
         };
+        if !format.is_empty()
+            && acquisition_page.is_some()
+            && download_url.is_empty()
+            && item_format.is_empty()
+        {
+            item_format = format.to_ascii_lowercase();
+        }
         if !format.is_empty()
             && !item_format.eq_ignore_ascii_case(format)
             && (fixed_format(source).is_some()
@@ -520,15 +538,7 @@ fn extract_matching_results(
             format: item_format,
             language: item_language,
             download_url,
-            acquisition_page: source.download_resolver.as_ref().and_then(|resolver| {
-                let base = url::Url::parse(&source.base_url).ok()?;
-                crate::download_resolver::page_url(
-                    source,
-                    &base,
-                    field(record, &resolver.page_field)?.as_str()?,
-                )
-                .map(|url| url.to_string())
-            }),
+            acquisition_page,
             remote_id: cursor_value(record, &source.remote_id_field),
             cover_url: cover_url(source, record),
             publisher: String::new(),
@@ -556,6 +566,10 @@ mod tests {
         );
         assert!(result[0].download_url.is_empty());
         assert!(result[1].acquisition_page.is_none());
+        let result = extract_results(&manifest, &data, "", "PDF").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].format, "pdf");
+        assert!(result[0].download_url.is_empty());
     }
 
     #[test]

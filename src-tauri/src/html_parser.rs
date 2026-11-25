@@ -196,10 +196,22 @@ pub(crate) fn parse_html(
                     .then(|| (u.to_string(), fmt))
                 })
         });
-        if !request.format.is_empty() && acquisition.is_none() {
+        let acquisition_page = page_selector
+            .as_ref()
+            .and_then(|selector| {
+                row.select(selector)
+                    .take(MAX_SCAN)
+                    .filter_map(|e| link(url, e))
+                    .find_map(|candidate| {
+                        crate::download_resolver::page_url(manifest, url, candidate.as_str())
+                    })
+            })
+            .map(|u| u.to_string());
+        if !request.format.is_empty() && acquisition.is_none() && acquisition_page.is_none() {
             continue;
         }
-        let (download_url, format) = acquisition.unwrap_or_default();
+        let (download_url, format) =
+            acquisition.unwrap_or_else(|| (String::new(), request.format.to_ascii_lowercase()));
         let remote_id = text(row, id.as_ref());
         page.results.push(SourceBook {
             source_id: capped(&manifest.id, 64),
@@ -209,17 +221,7 @@ pub(crate) fn parse_html(
             language,
             format,
             download_url,
-            acquisition_page: page_selector
-                .as_ref()
-                .and_then(|selector| {
-                    row.select(selector)
-                        .take(MAX_SCAN)
-                        .filter_map(|e| link(url, e))
-                        .find_map(|candidate| {
-                            crate::download_resolver::page_url(manifest, url, candidate.as_str())
-                        })
-                })
-                .map(|u| u.to_string()),
+            acquisition_page,
             cover_url: cover.as_ref().and_then(|selector| {
                 row.select(selector).find_map(|element| {
                     if element.value().name() != "img" {
@@ -316,6 +318,12 @@ mod tests {
         );
         assert!(page.results[0].download_url.is_empty());
         assert!(page.results[1].acquisition_page.is_none());
+        let mut filtered = request();
+        filtered.format = "EPUB".into();
+        let page = parse_html(&m, body, &base, &filtered).unwrap();
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.results[0].format, "epub");
+        assert!(page.results[0].download_url.is_empty());
     }
 
     #[test]
