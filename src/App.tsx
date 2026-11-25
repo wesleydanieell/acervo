@@ -32,6 +32,7 @@ import "./virtual-list.css";
 import {usePaletteMotion} from "./usePaletteMotion";
 import {useAppearanceMotion,usePageMotion,useSelectionMotion} from "./useMotion";
 import {MotionPresence} from "./MotionPresence";
+import {useStyleTransition} from "./useStyleTransition";
 import type {PaletteName} from "./palette-motion";
 import {useNoctaliaPalette} from "./useNoctaliaPalette";
 import { alternateEditions, indexEditions } from "./edition-matches";
@@ -109,6 +110,7 @@ function App() {
   const [sideOpen, setSideOpen] = useState(false);
   const [palette, setPalette] = useState<PaletteName>(() => (localStorage.getItem("acervo-palette") as PaletteName) || "noctalia");
   const [visualStyle, setVisualStyle] = useState<VisualStyle>(() => { const saved = localStorage.getItem("acervo-workspace-style"); return saved === "material" || saved === "glass" ? saved : "workspace"; });
+  const changeVisualStyle=useStyleTransition(visualStyle,setVisualStyle,view==="settings");
   const theme=useNoctaliaPalette();
   const searchRef = useRef<HTMLInputElement>(null);
   const mainRef=useRef<HTMLElement>(null);
@@ -710,9 +712,9 @@ ${JSON.stringify(sample, null, 2)}`;
               <article className="settings-card glass-panel">
                 <div className="settings-card-heading"><Palette size={22}/><div><h2>Aparência</h2><p>Escolha o estilo visual.</p></div></div>
                 <div className="style-choices" role="group" aria-label="Estilo da interface">
-                  <button className={"style-choice " + (visualStyle === "workspace" ? "chosen" : "")} onClick={() => setVisualStyle("workspace")} aria-pressed={visualStyle === "workspace"}><span className="style-preview" data-preview="workspace" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Acervo</strong><small>Superfícies sólidas, capas em destaque</small></button>
-                  <button className={"style-choice " + (visualStyle === "glass" ? "chosen" : "")} onClick={() => setVisualStyle("glass")} aria-pressed={visualStyle === "glass"}><span className="style-preview" data-preview="glass" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Liquid Glass</strong><small>Transparência, brilho e profundidade</small></button>
-                  <button className={"style-choice " + (visualStyle === "material" ? "chosen" : "")} onClick={() => setVisualStyle("material")} aria-pressed={visualStyle === "material"}><span className="style-preview" data-preview="material" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Material 3</strong><small>Superfícies tonais · Niri + Noctalia</small></button>
+                  <button className={"style-choice " + (visualStyle === "workspace" ? "chosen" : "")} onClick={() => changeVisualStyle("workspace")} aria-pressed={visualStyle === "workspace"}><span className="style-preview" data-preview="workspace" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Acervo</strong><small>Superfícies sólidas, capas em destaque</small></button>
+                  <button className={"style-choice " + (visualStyle === "glass" ? "chosen" : "")} onClick={() => changeVisualStyle("glass")} aria-pressed={visualStyle === "glass"}><span className="style-preview" data-preview="glass" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Liquid Glass</strong><small>Transparência, brilho e profundidade</small></button>
+                  <button className={"style-choice " + (visualStyle === "material" ? "chosen" : "")} onClick={() => changeVisualStyle("material")} aria-pressed={visualStyle === "material"}><span className="style-preview" data-preview="material" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Material 3</strong><small>Superfícies tonais · Niri + Noctalia</small></button>
                 </div>
                 <label className="settings-field">Paleta de cores
                   <select aria-label="Paleta de cores" value={palette} onChange={(event) => setPalette(event.target.value as PaletteName)}><option value="noctalia">Automática · Noctalia</option><option value="jade">Jade</option><option value="indigo">Índigo</option><option value="rose">Rosé</option><option value="amber">Âmbar</option></select>

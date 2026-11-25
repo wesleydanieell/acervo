@@ -5,6 +5,7 @@ import "./design-system.css";
 import "./form-controls.css";
 import "./appearance-surfaces.css";
 import "./motion.css";
+import "./appearance-transition.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
