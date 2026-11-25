@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Acervo declarative JSON source v1",
+  "title": "Acervo declarative source v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -8,9 +8,7 @@
     "id",
     "name",
     "baseUrl",
-    "searchPath",
-    "itemsPath",
-    "titleField"
+    "searchPath"
   ],
   "properties": {
     "schemaVersion": {
@@ -26,7 +24,10 @@
       "default": "1.0.0"
     },
     "adapter": {
-      "const": "json",
+      "enum": [
+        "json",
+        "opds"
+      ],
       "default": "json"
     },
     "id": {
@@ -134,5 +135,62 @@
         "pattern": "^[A-Za-z0-9-]{1,25}$"
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "adapter": {
+            "const": "opds"
+          }
+        },
+        "required": [
+          "adapter"
+        ]
+      },
+      "then": {
+        "required": [
+          "downloadDomains"
+        ],
+        "properties": {
+          "downloadDomains": {
+            "type": "array"
+          },
+          "pagination": {
+            "type": "null"
+          },
+          "localSearch": {
+            "const": false
+          },
+          "itemsPath": {
+            "const": ""
+          },
+          "titleField": {
+            "const": ""
+          },
+          "authorField": {
+            "const": ""
+          },
+          "formatField": {
+            "const": ""
+          },
+          "languageField": {
+            "const": ""
+          },
+          "downloadUrlField": {
+            "const": ""
+          },
+          "remoteIdField": {
+            "const": ""
+          }
+        }
+      },
+      "else": {
+        "required": [
+          "itemsPath",
+          "titleField"
+        ]
+      }
+    }
+  ]
 }

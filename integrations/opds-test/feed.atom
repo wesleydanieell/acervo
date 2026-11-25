@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/terms/">
+  <id>urn:acervo:opds:test</id><title>Acervo OPDS fixture</title><updated>2026-11-24T00:00:00Z</updated>
+  <entry><id>urn:acervo:test:1</id><title>Acervo: Livro de teste</title><updated>2026-11-24T00:00:00Z</updated><author><name>Acervo Fixtures</name></author><dc:language>pt</dc:language>
+    <link rel="http://opds-spec.org/acquisition/open-access" type="application/epub+zip" href="https://raw.githubusercontent.com/wesleydanieell/acervo/256ca5b/integrations/test-source/test-book.epub"/>
+  </entry>
+</feed>

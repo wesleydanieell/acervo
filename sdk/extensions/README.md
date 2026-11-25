@@ -5,7 +5,7 @@ Use manifest.example.json as a starting point. The JSON Schema is for editor ass
 - schemaVersion: manifest structure.
 - apiVersion: host interface compatibility.
 - version: extension release version, numeric MAJOR.MINOR.PATCH.
-- adapter: json (only available adapter).
+- adapter: json or opds.
 - Existing manifests without these fields continue to work.
 - Source capabilities are computed by the host; declaring a download field does not guarantee that every result has a file.
 - All endpoints must use public HTTPS. The host blocks credentials, redirects, proxies and private network answers. Use downloadDomains to limit downloads to exact HTTPS hosts. Omission or null preserves legacy public HTTPS policy; [] denies all downloads. This is not a granular consent dialog. Previously queued transfers keep their authorized URL.
@@ -35,3 +35,12 @@ For paginated APIs, add pagination.initialCursor and pagination.nextCursorField,
 ```
 
 Search can aggregate multiple sources; subsequent pages are requested independently. The host rejects a cursor for more than one source. Changing query or filters invalidates the current search.
+
+
+## OPDS 1.2 and 2.0 (acquisition feeds)
+
+Use manifest.opds.example.json as a starting point. The endpoint must return an acquisition feed for the encoded search query; no JSON selectors or custom pagination configuration are necessary. The host negotiates OPDS JSON and Atom XML, extracts supported directly downloadable editions and follows a next link only within the original HTTPS origin. Explicit downloadDomains is required, with an empty list disabling all acquisition results in this preview. OPDS navigation trees, OpenSearch discovery, authentication, loans and DRM are not supported by this initial adapter. A source should provide a known search endpoint instead of a generic catalog root.
+
+Reference test manifests live in integrations/opds-test. They use static synthetic feeds and do not implement server-side keyword search.
+
+Specifications: https://specs.opds.io/opds-1.2.html and https://specs.opds.io/opds-2.0.html.

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "version": "1.0.0",
+  "adapter": "opds",
+  "id": "example-opds",
+  "name": "Example OPDS",
+  "baseUrl": "https://example.org",
+  "searchPath": "/opds/search?q={query}",
+  "downloadDomains": [
+    "example.org"
+  ],
+  "formats": [
+    "epub",
+    "pdf"
+  ]
+}

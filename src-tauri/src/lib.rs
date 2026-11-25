@@ -5,6 +5,8 @@ mod downloads;
 mod extension_api;
 mod extension_host;
 mod extension_network;
+mod opds_parser;
+mod opds_source;
 mod organization;
 mod source_search;
 mod sources;

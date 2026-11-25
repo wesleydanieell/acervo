@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "version": "1.0.0",
+  "adapter": "opds",
+  "id": "acervo-opds-json",
+  "name": "Acervo · OPDS JSON (teste)",
+  "description": "Feed estático de teste; o termo de pesquisa não altera os resultados.",
+  "baseUrl": "https://raw.githubusercontent.com",
+  "searchPath": "/wesleydanieell/acervo/ffacf4b14ae4953f87cbad12081a0d9041d93e67/integrations/opds-test/feed.json?q={query}",
+  "formats": [
+    "epub"
+  ],
+  "languages": [
+    "pt"
+  ],
+  "downloadDomains": [
+    "raw.githubusercontent.com"
+  ]
+}
