@@ -146,3 +146,10 @@
 :root .duplicate-file-name{white-space:normal;max-width:100%}
 :root .duplicate-file .duplicate-row-status{min-width:0}
 :root .action-menu-panel button span{white-space:normal;overflow-wrap:anywhere}
+
+:root dialog.duplicates-center{width:min(920px,calc(100vw - 32px))}
+:root .duplicate-group-header{min-width:0}
+:root .duplicate-group-header>small{max-width:116px}
+:root .duplicate-filter-bar{align-items:center}
+:root .duplicate-filter-bar>select{min-width:0}
+:root .duplicate-group-header strong{font-size:14px;line-height:1.4}
