@@ -142,11 +142,129 @@ pub struct JsonPagination {
     pub next_cursor_field: String,
 }
 
+/// User-owned preferences are independent of the source manifest and its repository digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourcePreferences {
+    pub global_search: bool,
+    pub show_feed: bool,
+    pub load_covers: bool,
+    pub preferred_language: String,
+    pub preferred_format: String,
+    pub preferred_category: Option<String>,
+}
+
+impl Default for SourcePreferences {
+    fn default() -> Self {
+        Self {
+            global_search: true,
+            show_feed: true,
+            load_covers: true,
+            preferred_language: String::new(),
+            preferred_format: String::new(),
+            preferred_category: None,
+        }
+    }
+}
+
+impl SourcePreferences {
+    fn valid_language(&self, manifest: &SourceManifest) -> bool {
+        let language = &self.preferred_language;
+        language.is_empty()
+            || (valid_preferred_token(language)
+                && (manifest.languages.is_empty() || manifest.languages.contains(language))
+                && match manifest.adapter {
+                    AdapterKind::Json => {
+                        !manifest.language_field.is_empty()
+                            || manifest.search_path.contains("{language}")
+                            || manifest
+                                .editions
+                                .as_ref()
+                                .is_some_and(|e| !e.language_field.is_empty())
+                    }
+                    AdapterKind::Html => manifest
+                        .html
+                        .as_ref()
+                        .is_some_and(|h| !h.language_selector.is_empty()),
+                    AdapterKind::Opds => true,
+                })
+    }
+    fn valid_format(&self, manifest: &SourceManifest) -> bool {
+        let format = &self.preferred_format;
+        format.is_empty()
+            || (matches!(format.as_str(), "epub" | "pdf" | "mobi" | "azw3" | "djvu")
+                && (manifest.formats.is_empty()
+                    || manifest
+                        .formats
+                        .iter()
+                        .any(|f| f.eq_ignore_ascii_case(format)))
+                && match manifest.adapter {
+                    AdapterKind::Json => {
+                        !manifest.format_field.is_empty()
+                            || manifest.search_path.contains("{format}")
+                            || manifest.editions.is_some()
+                            || manifest.download_resolver.is_some()
+                            || (!manifest.download_url_field.is_empty()
+                                && manifest.formats.len() == 1)
+                    }
+                    AdapterKind::Html => {
+                        manifest.download_resolver.is_some()
+                            || manifest
+                                .html
+                                .as_ref()
+                                .is_some_and(|h| !h.download_selector.is_empty())
+                    }
+                    AdapterKind::Opds => true,
+                })
+    }
+    fn valid_category(&self, manifest: &SourceManifest) -> bool {
+        self.preferred_category.as_ref().is_none_or(|id| {
+            manifest
+                .feed_categories
+                .iter()
+                .any(|category| category.id == *id)
+        })
+    }
+    fn validate(&self, manifest: &SourceManifest) -> Result<(), String> {
+        if !self.valid_language(manifest) {
+            return Err("Idioma preferido não oferecido pela fonte.".into());
+        }
+        if !self.valid_format(manifest) {
+            return Err("Formato preferido não oferecido pela fonte.".into());
+        }
+        if !self.valid_category(manifest) {
+            return Err("Categoria preferida não oferecida pela fonte.".into());
+        }
+        Ok(())
+    }
+    fn reconcile(&mut self, manifest: &SourceManifest) {
+        if !self.valid_language(manifest) {
+            self.preferred_language.clear();
+        }
+        if !self.valid_format(manifest) {
+            self.preferred_format.clear();
+        }
+        if !self.valid_category(manifest) {
+            self.preferred_category = None;
+        }
+    }
+}
+
+fn valid_preferred_token(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 25
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InstalledSource {
     pub manifest: SourceManifest,
     pub enabled: bool,
+    #[serde(default)]
+    pub preferences: SourcePreferences,
     #[serde(default)]
     pub repository: Option<String>,
     #[serde(default)]
@@ -557,6 +675,7 @@ fn read_registry(path: &Path) -> Result<Vec<InstalledSource>, String> {
     let mut ids = std::collections::HashSet::new();
     for source in &sources {
         validate(&source.manifest)?;
+        source.preferences.validate(&source.manifest)?;
         if !ids.insert(&source.manifest.id) {
             return Err("IDs duplicados no registro.".into());
         }
@@ -659,6 +778,7 @@ fn install_manifest(
     sources.push(InstalledSource {
         manifest,
         enabled: true,
+        preferences: SourcePreferences::default(),
         repository: None,
         manifest_sha256: None,
     });
@@ -701,6 +821,7 @@ fn apply_repository_entry(
         {
             return Err("Atualização exige versão superior à instalada.".into());
         }
+        installed.preferences.reconcile(&manifest);
         installed.manifest = manifest;
         installed.manifest_sha256 = Some(sha256);
     } else {
@@ -710,6 +831,7 @@ fn apply_repository_entry(
         sources.push(InstalledSource {
             manifest,
             enabled: true,
+            preferences: SourcePreferences::default(),
             repository: Some(repository),
             manifest_sha256: Some(sha256),
         });
@@ -785,6 +907,27 @@ pub fn set_source_enabled(
         .find(|source| source.manifest.id == id)
         .ok_or("Fonte não encontrada.")?;
     source.enabled = enabled;
+    write_registry(&registry, &sources)?;
+    Ok(sources)
+}
+
+#[tauri::command]
+pub fn set_source_preferences(
+    app: tauri::AppHandle,
+    id: String,
+    preferences: SourcePreferences,
+) -> Result<Vec<InstalledSource>, String> {
+    let _guard = SOURCE_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Registro indisponível.")?;
+    let registry = registry_path(&app)?;
+    let mut sources = read_registry(&registry)?;
+    let source = sources
+        .iter_mut()
+        .find(|source| source.manifest.id == id)
+        .ok_or("Fonte não encontrada.")?;
+    preferences.validate(&source.manifest)?;
+    source.preferences = preferences;
     write_registry(&registry, &sources)?;
     Ok(sources)
 }
@@ -1106,6 +1249,48 @@ mod tests {
     }
 
     #[test]
+    fn preferences_preserve_defaults_and_reconcile_removed_capabilities() {
+        let mut manifest = example();
+        manifest.languages = vec!["pt".into(), "en".into()];
+        manifest.formats = vec!["epub".into(), "pdf".into()];
+        manifest.feed_categories = vec![FeedCategory {
+            id: "recent".into(),
+            label: "Recent".into(),
+            path: "/recent".into(),
+        }];
+        let old: InstalledSource =
+            serde_json::from_value(serde_json::json!({"manifest":manifest,"enabled":true}))
+                .unwrap();
+        assert_eq!(old.preferences, SourcePreferences::default());
+        let mut prefs = SourcePreferences {
+            global_search: false,
+            show_feed: false,
+            load_covers: false,
+            preferred_language: "pt".into(),
+            preferred_format: "epub".into(),
+            preferred_category: Some("recent".into()),
+        };
+        prefs.validate(&manifest).unwrap();
+        let encoded = serde_json::to_string(&prefs).unwrap();
+        assert_eq!(
+            serde_json::from_str::<SourcePreferences>(&encoded).unwrap(),
+            prefs
+        );
+        manifest.languages = vec!["en".into()];
+        manifest.formats = vec!["pdf".into()];
+        manifest.feed_categories.clear();
+        assert!(prefs.validate(&manifest).is_err());
+        prefs.reconcile(&manifest);
+        prefs.validate(&manifest).unwrap();
+        assert!(!prefs.global_search && !prefs.show_feed && !prefs.load_covers);
+        assert!(
+            prefs.preferred_language.is_empty()
+                && prefs.preferred_format.is_empty()
+                && prefs.preferred_category.is_none()
+        );
+    }
+
+    #[test]
     fn registry_round_trip_and_duplicate_detection() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1118,11 +1303,20 @@ mod tests {
         let sources = vec![InstalledSource {
             manifest: example(),
             enabled: true,
+            preferences: SourcePreferences::default(),
             repository: None,
             manifest_sha256: None,
         }];
         write_registry(&path, &sources).unwrap();
         assert_eq!(read_registry(&path).unwrap().len(), 1);
+        let mut modified = sources.clone();
+        modified[0].preferences.global_search = false;
+        modified[0].preferences.preferred_language = "pt".into();
+        write_registry(&path, &modified).unwrap();
+        assert_eq!(
+            read_registry(&path).unwrap()[0].preferences,
+            modified[0].preferences
+        );
         let mut duplicated = sources.clone();
         duplicated.extend(sources);
         write_registry(&path, &duplicated).unwrap();

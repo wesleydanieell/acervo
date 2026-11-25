@@ -619,6 +619,7 @@ pub fn run() {
         sources::install_demo_source,
         sources::install_example_source,
         sources::set_source_enabled,
+        sources::set_source_preferences,
         sources::remove_source,
         extension_host::search_sources,
         extension_host::browse_source,

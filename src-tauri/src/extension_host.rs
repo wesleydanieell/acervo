@@ -110,7 +110,12 @@ pub async fn search_sources(
     let installed = sources::list_sources(app)?
         .into_iter()
         .filter(|source| {
-            source.enabled && (source_ids.is_empty() || source_ids.contains(&source.manifest.id))
+            source.enabled
+                && (if source_ids.is_empty() {
+                    source.preferences.global_search
+                } else {
+                    source_ids.contains(&source.manifest.id)
+                })
         })
         .collect::<Vec<_>>();
     if installed.len() > 12 {
