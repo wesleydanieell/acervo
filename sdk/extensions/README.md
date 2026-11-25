@@ -60,3 +60,10 @@ Publish a JSON index on a public HTTPS origin with schemaVersion: 1, name and ex
 See ../../integrations/extension-repository for a reproducible public example. The index hash is not a signature; publisher trust remains an explicit user decision.
 
 The repository.schema.json file provides editor validation; the Rust validator additionally checks unique IDs, exact origin and byte limits.
+
+
+## Multiple editions (JSON preview)
+
+See manifest.editions.example.json. For one work record containing an array of downloadable editions, configure editions.itemsField, formatField and downloadUrlField; optional edition-relative selectors include languageField, publisherField and labelField. The parent record must have a stable remoteIdField. Explicit downloadDomains are required; the old top-level format/download selectors are mutually exclusive with this mapping. Each edition is validated separately and normalized to SourceBook with optional publisher/editionLabel. When no edition matches, metadata-only results are possible without a format filter. The search page is capped at 40 normalized results, not 40 works.
+
+Discovery groups only the same source, exact remote ID, title and author. Without an ID, only exact duplicate results collapse. OPDS direct links with the same identifier also group; HTML still returns the first eligible link per container. No cross-source fuzzy matching or separate detail/edition endpoints exist yet. Labels and publishers are display metadata, not automatic changes to the local catalog. A second download with the same title and format may require a different destination; existing files are never overwritten.
