@@ -39,6 +39,7 @@ import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import { selectVisibleRange,updateSelection,selectionSummary,nextSelectionBatch,folderContains } from "./library-selection";
 import { BulkSelectionBar } from "./BulkSelectionBar";
+import {FolderDestinationPicker} from "./FolderDestinationPicker";
 import "./library-workspace.css";
 import { chosenPromptFolders, isServiceCatalogPath } from "./prompt-folder-selection";
 import { PromptFolderPicker } from "./PromptFolderPicker";
@@ -523,7 +524,7 @@ ${JSON.stringify(sample, null, 2)}`;
     setModal("move");
   };
   const commitMove = async () => {
-    if (!collection || !pendingMove || pendingMove.root!==collection.root || requestedRoot.current!==pendingMove.root || loading) return;
+    if (!collection || !pendingMove || pendingMove.root!==collection.root || requestedRoot.current!==pendingMove.root || loading || (pendingMove.destination!==""&&(!collection.folders.includes(pendingMove.destination)||isServiceCatalogPath(pendingMove.destination)))) return;
     setLoading(true); setError("");
     try {
       const moved = await invoke<string[]>("move_books", {
@@ -886,11 +887,11 @@ ${JSON.stringify(sample, null, 2)}`;
         {modal === "folder" && <div className="modal-body"><p>A nova pasta será criada em <strong>{folderParent || "Raiz da biblioteca"}</strong>.</p><label>Nome da pasta<input autoFocus value={newFolder} onChange={(event) => setNewFolder(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && newFolder.trim()) void addFolder(); }} placeholder="Ex.: Filosofia" /></label><button className="button primary full" disabled={!collection || !newFolder.trim()} onClick={() => void addFolder()}><FolderPlus size={17}/> Criar pasta</button></div>}
         {modal === "move" && pendingMove && <div className="modal-body">
           <p>Revise a movimentação. Arquivos com o mesmo nome no destino não serão sobrescritos, e as referências no catálogo serão atualizadas.</p>
-          <div className="move-summary"><strong>{pendingMove.paths.length} livro(s) selecionado(s)</strong><span>{pendingMove.paths.slice(0, 5).map((path) => <small key={path}>{path}</small>)}{pendingMove.paths.length > 5 && <small>e mais {pendingMove.paths.length - 5}…</small>}</span></div>
-          <div className="shared-select-field"><span>Pasta de destino</span><ToolbarSelect label="Pasta de destino" value={pendingMove.destination} options={[{value:"",label:"Raiz da biblioteca"},...(collection?.folders||[]).filter(folder=>!isServiceCatalogPath(folder)).map(value=>({value,label:value}))]} onChange={value=>setPendingMove({...pendingMove,destination:value})}/></div>
+          <FolderDestinationPicker folders={collection?.folders||[]} value={pendingMove.destination} onChange={destination=>setPendingMove(current=>current?{...current,destination}:current)} counts={folderFileCounts} disabled={loading}/>
+          <div className="move-summary"><strong>Prévia · {pendingMove.paths.length} livro(s)</strong><div className="batch-move-preview">{pendingMove.paths.map(path=><div className="batch-move-row" key={path}><span><small>Origem</small><strong title={path}>{path}</strong></span><ArrowRight size={15}/><span><small>Destino</small><strong title={[pendingMove.destination,path.split("/").slice(-1)[0]].filter(Boolean).join("/")}>{[pendingMove.destination,path.split("/").slice(-1)[0]].filter(Boolean).join("/")}</strong></span><button type="button" className="icon-button small" aria-label={"Retirar "+path+" deste lote"} disabled={loading||pendingMove.paths.length===1} onClick={()=>setPendingMove(current=>current?{...current,paths:current.paths.filter(item=>item!==path)}:current)}><X size={15}/></button></div>)}</div></div>
           {moveConflicts.length > 0 && <div className="warning">Há {moveConflicts.length} conflito(s): arquivo já presente no destino, nome repetido ou livro já nesta pasta. Selecione outro destino.</div>}
           {error && <div className="alert" role="alert">{error}</div>}
-          <div className="move-actions"><button className="button secondary" onClick={() => setModal(null)}>Cancelar</button><button className="button primary" disabled={loading || moveConflicts.length > 0} onClick={() => void commitMove()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <FolderOpen size={17}/>} Confirmar movimentação</button></div>
+          <div className="move-actions"><button className="button secondary" onClick={() => setModal(null)}>Cancelar</button><button className="button primary" disabled={loading || moveConflicts.length > 0 || (pendingMove.destination!==""&&(!collection?.folders.includes(pendingMove.destination)||isServiceCatalogPath(pendingMove.destination)))} onClick={() => void commitMove()}>{loading ? <LoaderCircle size={17} className="spinning"/> : <FolderOpen size={17}/>} Confirmar movimentação</button></div>
         </div>}
       </section></div>}</MotionPresence>
       {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} title={contextMenu.kind === "file" ? contextMenu.path.split("/").slice(-1)[0] : contextMenu.path || "Raiz da biblioteca"} actions={contextActions} onClose={() => setContextMenu(null)} />}
