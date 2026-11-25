@@ -1,0 +1,108 @@
+/* The appearance modes share semantic colors. Only the chrome receives glass;
+   book grids and content remain readable and inexpensive to render. */
+:root{
+  --text-muted:color-mix(in srgb,var(--text) 66%,var(--glass-base));
+  --stroke:color-mix(in srgb,var(--text) 14%,transparent);
+}
+:root[data-color-mode="light"]{
+  --text-muted:color-mix(in srgb,var(--text) 72%,var(--glass-base));
+}
+:root[data-visual-style="glass"]{
+  --glass-chrome:color-mix(in srgb,var(--glass-strong) 70%,transparent);
+  --glass-rim:color-mix(in srgb,var(--text) 17%,transparent);
+  --glass-reflection:color-mix(in srgb,white 14%,transparent);
+  --glass-shadow:0 12px 34px #0002,0 2px 8px #0001;
+  --ds-control-radius:18px;
+  --ds-dialog-radius:28px;
+}
+:root[data-visual-style="glass"][data-color-mode="light"]{
+  --glass-chrome:color-mix(in srgb,var(--glass-strong) 76%,transparent);
+  --glass-rim:color-mix(in srgb,var(--text) 10%,transparent);
+  --glass-reflection:color-mix(in srgb,white 65%,transparent);
+}
+:root[data-visual-style="glass"] .app-shell{
+  background:
+    radial-gradient(ellipse 65% 70% at 82% -12%,color-mix(in srgb,var(--accent) 27%,transparent),transparent),
+    radial-gradient(ellipse 66% 62% at 5% 92%,color-mix(in srgb,var(--accent) 13%,transparent),transparent),
+    var(--glass-base);
+}
+:root[data-visual-style="glass"] .background-orb{display:none}
+:root[data-visual-style="glass"] .sidebar,
+:root[data-visual-style="glass"] .topbar{
+  background:linear-gradient(150deg,var(--glass-reflection),transparent 42%),var(--glass-chrome);
+  border:1px solid var(--glass-rim);
+  border-radius:22px;
+  box-shadow:inset 0 1px 0 var(--glass-reflection),var(--glass-shadow);
+  backdrop-filter:blur(26px) saturate(145%);
+  -webkit-backdrop-filter:blur(26px) saturate(145%);
+}
+:root[data-visual-style="glass"] .sidebar{margin:12px 0 12px 12px;padding:18px 12px 12px}
+:root[data-visual-style="glass"] .topbar{margin:12px 12px 0;padding-inline:16px;height:60px}
+:root[data-visual-style="glass"] .nav-caption{letter-spacing:0;font-size:11px;text-transform:none}
+:root[data-visual-style="glass"] .nav-item,:root[data-visual-style="glass"] .folder-row{border-radius:14px}
+:root[data-visual-style="glass"] .nav-item.active,:root[data-visual-style="glass"] .folder-row.active{
+  color:var(--text);
+  background:linear-gradient(155deg,var(--glass-reflection),transparent),color-mix(in srgb,var(--accent) 23%,var(--glass-chrome));
+  border-color:var(--glass-rim);
+  box-shadow:inset 0 1px 0 var(--glass-reflection);
+}
+:root[data-visual-style="glass"] .button.secondary,
+:root[data-visual-style="glass"] .pill-control,
+:root[data-visual-style="glass"] .view-switch,
+:root[data-visual-style="glass"] .selection-toggle{
+  border-radius:999px;
+  background:linear-gradient(155deg,var(--glass-reflection),transparent 65%),var(--glass-chrome);
+  border-color:var(--glass-rim);
+  box-shadow:inset 0 1px 0 var(--glass-reflection);
+}
+:root[data-visual-style="glass"] .button.primary{border-radius:999px;box-shadow:inset 0 1px 0 var(--glass-reflection)}
+:root[data-visual-style="glass"] .topbar-search{border-radius:999px;background:color-mix(in srgb,var(--glass-base) 64%,transparent)}
+:root[data-visual-style="glass"] .download-picker::backdrop{background:color-mix(in srgb,var(--glass-base) 58%,transparent)}
+:root[data-visual-style="glass"] dialog.download-picker,
+:root[data-visual-style="glass"] .details-drawer,
+:root[data-visual-style="glass"] .action-menu-panel{
+  background:linear-gradient(155deg,var(--glass-reflection),transparent 42%),color-mix(in srgb,var(--glass-strong) 88%,transparent);
+  border-color:var(--glass-rim);
+  box-shadow:inset 0 1px 0 var(--glass-reflection),0 16px 64px #0003;
+  backdrop-filter:blur(24px) saturate(135%);
+  -webkit-backdrop-filter:blur(24px) saturate(135%);
+}
+:root[data-visual-style="glass"] .details-drawer{margin:12px;height:calc(100% - 24px);border-radius:24px;border:1px solid var(--glass-rim)}
+:root[data-visual-style="glass"] .metadata-summary>div{background:color-mix(in srgb,var(--glass-base) 32%,transparent);border-radius:14px}
+:root[data-visual-style="material"]{
+  --ds-surface:var(--glass-strong);
+  --ds-field:color-mix(in srgb,var(--glass-base) 70%,var(--glass-strong));
+  --ds-selected:color-mix(in srgb,var(--accent) 23%,var(--glass-strong));
+  --ds-card-radius:20px;
+}
+:root[data-visual-style="material"] .app-shell{background:var(--glass-base)}
+:root[data-visual-style="material"] .sidebar{background:color-mix(in srgb,var(--glass-base) 86%,var(--glass-strong));border-right:1px solid var(--stroke);padding:20px 12px 12px}
+:root[data-visual-style="material"] .nav-caption{letter-spacing:0;font-size:11px;text-transform:none}
+:root[data-visual-style="material"] .nav-item.active,:root[data-visual-style="material"] .folder-row.active{
+  color:var(--text);background:var(--ds-selected);border-radius:24px;border-color:transparent;
+}
+:root[data-visual-style="material"] .nav-item.active>svg,:root[data-visual-style="material"] .folder-row.active svg{color:var(--accent)}
+:root[data-visual-style="material"] .nav-count{background:color-mix(in srgb,var(--text) 9%,transparent)}
+:root[data-visual-style="material"] .topbar{background:var(--glass-base);border-bottom:1px solid var(--stroke)}
+:root[data-visual-style="material"] .topbar-search{border-radius:999px;background:var(--ds-field)}
+:root[data-visual-style="material"] .pill-control,:root[data-visual-style="material"] .view-switch,:root[data-visual-style="material"] .selection-toggle{border-radius:999px;background:var(--ds-field)}
+:root[data-visual-style="material"] .view-switch button{border-radius:999px}
+:root[data-visual-style="material"] .book-card,:root[data-visual-style="material"] .folder-tile{background:var(--glass-strong);border-radius:var(--ds-card-radius)}
+:root[data-visual-style="material"] .book-card:hover,:root[data-visual-style="material"] .folder-tile:hover{background:color-mix(in srgb,var(--accent) 10%,var(--glass-strong))}
+:root[data-visual-style="material"] .book-card.selected,:root[data-visual-style="material"] .book-card.bulk-selected{background:var(--ds-selected);border-color:var(--accent)}
+:root[data-visual-style="material"] .metadata-summary>div{background:var(--ds-field);border:0;border-radius:16px}
+:root[data-visual-style="material"] .duplicate-keeper{background:var(--ds-selected)}
+@media(max-width:860px){
+  :root[data-visual-style="glass"] .sidebar{margin:0;height:100%;border-radius:0 22px 22px 0;box-shadow:0 12px 30px #0003}
+  :root[data-visual-style="glass"] .topbar{margin:8px 8px 0;padding-inline:10px;height:56px}
+}
+@media(prefers-reduced-transparency:reduce){
+  :root[data-visual-style="glass"] .sidebar,:root[data-visual-style="glass"] .topbar,:root[data-visual-style="glass"] dialog.download-picker,:root[data-visual-style="glass"] .details-drawer{background:var(--glass-strong);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+
+/* Foreground and background switch as a single palette when crossing modes. */
+:root[data-palette-atomic="true"] *,
+:root[data-palette-atomic="true"] *::before,
+:root[data-palette-atomic="true"] *::after{transition:none!important}
+
+:root[data-visual-style="glass"] .action-menu-panel{background:linear-gradient(155deg,var(--glass-reflection),transparent 42%),color-mix(in srgb,var(--glass-strong) 88%,transparent)!important}

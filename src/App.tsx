@@ -29,6 +29,8 @@ import type { DiscoveryRequest } from "./download-workspace";
 import { BookCover } from "./BookCover";
 import { VirtualBookList } from "./VirtualBookList";
 import "./virtual-list.css";
+import {usePaletteMotion} from "./usePaletteMotion";
+import type {PaletteName,ThemeTokens} from "./palette-motion";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
 import { selectVisibleRange } from "./library-selection";
@@ -46,16 +48,13 @@ type View = "catalog" | "lists" | "settings" | "sources" | "extensions" | "downl
 type GroupBy = "none" | "folder" | "format" | "author";
 type Layout = "grid" | "list";
 type Entry = { key: string; type: "file" | "work"; title: string; author: string; format: string; folder: string; present: boolean; file?: BookFile; work?: CatalogWork };
-type PaletteName = "noctalia" | "jade" | "indigo" | "rose" | "amber";
+
 type VisualStyle = "glass" | "material" | "workspace";
 type SortBy = "title" | "author" | "format" | "size";
-type ThemeTokens = Record<"primary" | "on_primary" | "surface" | "on_surface" | "surface_container" | "outline_variant", string> & { mode?: "light" | "dark" };
+
 type MenuState = { x: number; y: number; kind: "folder" | "file" | "background"; path: string };
 type OrganizationPreview = { items: { source: string; destination: string; target: string; bytes: number }[]; totalBytes: number };
 
-const accentPresets: Record<Exclude<PaletteName, "noctalia">, string> = {
-  jade: "#8ddbb8", indigo: "#a6b7ff", rose: "#f8a9c7", amber: "#f2c27c",
-};
 const formatOptions = ["Todos", "EPUB", "PDF", "MOBI", "AZW3", "DJVU"];
 const languageOptions = [{ label: "Todos os idiomas", value: "" }, { label: "Português", value: "pt" }, { label: "Inglês", value: "en" }, { label: "Espanhol", value: "es" }];
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -240,37 +239,29 @@ function App() {
     window.addEventListener("keydown", onKeyboard);
     return () => window.removeEventListener("keydown", onKeyboard);
   }, []);
-  useEffect(() => {
-    let cancelled = false;
-    const read = async () => {
-      try {
-        const tokens = await invoke<ThemeTokens | null>("read_noctalia_colors");
-        if (!cancelled) setTheme(previous => JSON.stringify(previous) === JSON.stringify(tokens) ? previous : tokens);
-      } catch { if (!cancelled) setTheme(null); }
+  useEffect(()=>{
+    let cancelled=false,pending=false,misses=0;
+    const read=async()=>{
+      if(pending||cancelled)return;
+      pending=true;
+      try{
+        const tokens=await invoke<ThemeTokens|null>("read_noctalia_colors");
+        if(cancelled)return;
+        if(tokens){misses=0;setTheme(previous=>JSON.stringify(previous)===JSON.stringify(tokens)?previous:tokens);}
+        else if(++misses>=3)setTheme(null);
+      }catch{if(!cancelled&&++misses>=3)setTheme(null);}
+      finally{pending=false;}
     };
-    void read(); const timer = window.setInterval(read, 4000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, []);
-  useEffect(() => {
-    localStorage.setItem("acervo-workspace-style", visualStyle);
-    document.documentElement.dataset.visualStyle = visualStyle;
-  }, [visualStyle]);
-  useEffect(() => {
-    localStorage.setItem("acervo-palette", palette);
-    const element = document.documentElement;
-    element.dataset.colorMode = palette === "noctalia" && theme?.mode === "light" ? "light" : "dark";
-    const main = palette === "noctalia" && theme ? theme.primary : accentPresets[palette === "noctalia" ? "jade" : palette];
-    element.style.setProperty("--accent", main);
-    element.style.setProperty("--accent-ink", palette === "noctalia" && theme ? theme.on_primary : "#142b2c");
-    if (palette === "noctalia" && theme) {
-      element.style.setProperty("--glass-base", theme.surface);
-      element.style.setProperty("--text", theme.on_surface);
-      element.style.setProperty("--glass-strong", theme.surface_container);
-      element.style.setProperty("--outline", theme.outline_variant);
-    } else {
-      for (const key of ["--glass-base", "--text", "--glass-strong", "--outline"]) element.style.removeProperty(key);
-    }
-  }, [palette, theme]);
+    void read();
+    const timer=window.setInterval(read,1000);
+    return()=>{cancelled=true;window.clearInterval(timer);};
+  },[]);
+  useEffect(()=>{
+    localStorage.setItem("acervo-workspace-style",visualStyle);
+    document.documentElement.dataset.visualStyle=visualStyle;
+  },[visualStyle]);
+  useEffect(()=>{localStorage.setItem("acervo-palette",palette);},[palette]);
+  usePaletteMotion(palette,theme);
 
   const entries = useMemo(() => collection ? getEntries(collection) : [], [collection]);
   const editionIndex = useMemo(() => indexEditions(collection?.files || []), [collection]);
@@ -742,7 +733,7 @@ ${JSON.stringify(sample, null, 2)}`;
                 <div className="style-choices" role="group" aria-label="Estilo da interface">
                   <button className={"style-choice " + (visualStyle === "workspace" ? "chosen" : "")} onClick={() => setVisualStyle("workspace")} aria-pressed={visualStyle === "workspace"}><span className="style-preview" data-preview="workspace" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Acervo</strong><small>Superfícies sólidas, capas em destaque</small></button>
                   <button className={"style-choice " + (visualStyle === "glass" ? "chosen" : "")} onClick={() => setVisualStyle("glass")} aria-pressed={visualStyle === "glass"}><span className="style-preview" data-preview="glass" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Liquid Glass</strong><small>Transparência, brilho e profundidade</small></button>
-                  <button className={"style-choice " + (visualStyle === "material" ? "chosen" : "")} onClick={() => setVisualStyle("material")} aria-pressed={visualStyle === "material"}><span className="style-preview" data-preview="material" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Material 3</strong><small>Superfícies sólidas e tonais</small></button>
+                  <button className={"style-choice " + (visualStyle === "material" ? "chosen" : "")} onClick={() => setVisualStyle("material")} aria-pressed={visualStyle === "material"}><span className="style-preview" data-preview="material" aria-hidden="true"><i/><b><em/><em/><em/></b></span><strong>Material 3</strong><small>Superfícies tonais · Niri + Noctalia</small></button>
                 </div>
                 <label className="settings-field">Paleta de cores
                   <select aria-label="Paleta de cores" value={palette} onChange={(event) => setPalette(event.target.value as PaletteName)}><option value="noctalia">Automática · Noctalia</option><option value="jade">Jade</option><option value="indigo">Índigo</option><option value="rose">Rosé</option><option value="amber">Âmbar</option></select>

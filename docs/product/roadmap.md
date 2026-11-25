@@ -23,3 +23,9 @@ Tratar design e usabilidade como parte da qualidade do produto, sem concentrar t
 - [ ] Validação de usabilidade: verificar fluxos representativos no desktop, janelas estreitas e navegação por teclado, corrigindo regressões antes de mesclar.
 
 Não tratar alterações cosméticas isoladas como conclusão de uma etapa. Preservar funcionalidades existentes, evitar ações destrutivas implícitas e não trocar correção, desempenho ou manutenibilidade por velocidade de entrega.
+
+### Direções de aparência
+
+- Liquid Glass: inspiração na linguagem visual do macOS/iOS, com navegação e barras flutuantes, reflexos de borda, transparência localizada, superfícies de conteúdo legíveis e movimento suave. Não simular refração cara em cada cartão; manter distinção entre vidro decorativo e conteúdo.
+- Material 3: integração visual com Niri + Noctalia (paleta dinâmica, superfícies tonais, indicadores de seleção e contêineres arredondados). Preservar o tema ativo e evitar cores fixas decorativas.
+- Sincronização: animar alterações de paleta provenientes do Noctalia entre esquemas do mesmo modo, respeitando redução de movimento; alternar claro/escuro atomicamente para preservar contraste. Validar com mudanças repetidas, diálogos abertos e controles de diferentes telas.
