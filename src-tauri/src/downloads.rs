@@ -1274,7 +1274,7 @@ fn protected_folder(name: &str) -> bool {
 }
 
 /// Validate the entire path before creating anything; reject symlink traversal.
-fn destination_parts(relative: &str) -> Result<Vec<&str>, String> {
+pub(crate) fn destination_parts(relative: &str) -> Result<Vec<&str>, String> {
     if relative.is_empty() {
         return Ok(vec![]);
     }
