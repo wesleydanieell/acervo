@@ -42,6 +42,13 @@ impl CustomRule {
             return false;
         }
         let edition = file.edition.as_ref().map(|entry| &entry.metadata);
+        let embedded = file
+            .embedded
+            .as_ref()
+            .and_then(|entry| entry.metadata.as_ref());
+        fn prefer<'a>(first: Option<&'a str>, second: Option<&'a str>) -> Option<&'a str> {
+            first.filter(|value| !value.trim().is_empty()).or(second)
+        }
         let matches_value = |wanted: &str, actual: Option<&str>| {
             wanted.is_empty()
                 || actual.is_some_and(|value| {
@@ -49,11 +56,26 @@ impl CustomRule {
                 })
         };
         matches_value(&self.format, Some(&file.format))
-            && matches_value(&self.author, edition.map(|entry| entry.author.as_str()))
-            && matches_value(&self.language, edition.map(|entry| entry.language.as_str()))
+            && matches_value(
+                &self.author,
+                prefer(
+                    edition.map(|entry| entry.author.as_str()),
+                    embedded.map(|entry| entry.author.as_str()),
+                ),
+            )
+            && matches_value(
+                &self.language,
+                prefer(
+                    edition.map(|entry| entry.language.as_str()),
+                    embedded.map(|entry| entry.language.as_str()),
+                ),
+            )
             && matches_value(
                 &self.publisher,
-                edition.map(|entry| entry.publisher.as_str()),
+                prefer(
+                    edition.map(|entry| entry.publisher.as_str()),
+                    embedded.map(|entry| entry.publisher.as_str()),
+                ),
             )
     }
 }
@@ -254,7 +276,10 @@ fn preview(collection: &Collection, rules: &Rules) -> Result<Preview, String> {
     let mut items = Vec::new();
     let mut warnings = collection.warnings.clone();
     // If a catalog could not be read, never classify its files as unassociated.
-    if !warnings.is_empty() {
+    if warnings
+        .iter()
+        .any(|warning| !warning.starts_with("Cache de metadados:"))
+    {
         return Err(format!(
             "Revise os avisos da biblioteca antes de organizar: {}",
             warnings
@@ -511,6 +536,53 @@ mod tests {
         rules.catalog = false;
         assert!(preview(&collection, &rules).unwrap().items.is_empty());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn embedded_metadata_fills_missing_fields_without_overriding_acquired_metadata() {
+        let mut file = BookFile {
+            id: "test".into(),
+            title: "File".into(),
+            path: "File.epub".into(),
+            folder: String::new(),
+            format: "EPUB".into(),
+            bytes: 4,
+            edition: None,
+            embedded: Some(crate::metadata_cache::CachedMetadata {
+                metadata: Some(crate::embedded_metadata::EmbeddedMetadata {
+                    author: "Writer".into(),
+                    language: "pt".into(),
+                    publisher: "Press".into(),
+                    ..Default::default()
+                }),
+                error: None,
+            }),
+        };
+        let rule = CustomRule {
+            name: "Rule".into(),
+            enabled: true,
+            format: "EPUB".into(),
+            author: "writer".into(),
+            language: "PT".into(),
+            publisher: "press".into(),
+            destination: "Books".into(),
+        };
+        assert!(rule.matches(&file));
+        file.edition = Some(crate::library_editions::EditionRecord {
+            path: file.path.clone(),
+            source_name: "Source".into(),
+            metadata: crate::downloads::DownloadEdition {
+                author: "Other".into(),
+                ..Default::default()
+            },
+            fingerprint: crate::import_fingerprint::FileFingerprint {
+                bytes: 4,
+                sha256: "a".repeat(64),
+            },
+        });
+        assert!(!rule.matches(&file));
+        file.edition.as_mut().unwrap().metadata.author.clear();
+        assert!(rule.matches(&file));
     }
 
     #[test]
