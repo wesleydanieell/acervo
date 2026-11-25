@@ -15,6 +15,7 @@ import "./catalog.css";
 import "./context-menu.css";
 import "./organization.css";
 import "./workspace.css";
+import { nextMonitorGeneration } from "./library-monitor-state";
 import { MetadataCenter, type CachedMetadata } from "./MetadataCenter";
 import { SmartOrganization } from "./SmartOrganization";
 import { CatalogCenter } from "./CatalogCenter";
@@ -133,26 +134,55 @@ function App() {
 
   const refreshGeneration = useRef(0);
   const requestedRoot = useRef(root);
+  const manualRefresh = useRef(false);
+  const [monitorEnabled,setMonitorEnabled]=useState(()=>localStorage.getItem("acervo-folder-monitor")!=="off");
+  const [monitorError,setMonitorError]=useState("");
+  const monitorEnabledRef=useRef(monitorEnabled);
+  monitorEnabledRef.current=monitorEnabled;
+  const monitoredRoot=collection?.root??"";
+  useEffect(()=>{
+    localStorage.setItem("acervo-folder-monitor",monitorEnabled?"on":"off");
+    setMonitorError("");
+    let active=true;
+    void invoke("set_library_monitor",{root:monitorEnabled&&monitoredRoot?monitoredRoot:null,generation:nextMonitorGeneration()}).catch(failure=>{if(active)setMonitorError(String(failure));});
+    return()=>{active=false;};
+  },[monitorEnabled,monitoredRoot]);
   useEffect(() => {
-    let disposed = false;
-    const subscription = listen<string>("acervo-library-changed", async ({payload}) => {
-      if (disposed || payload !== currentCollectionRoot.current || payload !== requestedRoot.current) return;
-      const generation = ++refreshGeneration.current;
-      try {
-        const data = await invoke<Collection>("load_collection", { root: payload });
-        if (!disposed && generation === refreshGeneration.current && payload === currentCollectionRoot.current) {
-          setCollection(data);
-          setSelection(null);
+    let disposed=false;
+    let pending="";
+    let running=false;
+    let timer:number|undefined;
+    const schedule=()=>{
+      if(disposed||timer!==undefined||running||!pending)return;
+      timer=window.setTimeout(()=>{timer=undefined;void drain();},500);
+    };
+    const drain=async()=>{
+      if(disposed||running||!pending)return;
+      if(manualRefresh.current){schedule();return;}
+      const payload=pending;pending="";
+      if(payload!==currentCollectionRoot.current||payload!==requestedRoot.current)return;
+      running=true;
+      const generation=refreshGeneration.current;
+      try{
+        const data=await invoke<Collection>("load_collection",{root:payload});
+        if(!disposed&&generation===refreshGeneration.current&&payload===requestedRoot.current&&payload===currentCollectionRoot.current){
+          setCollection(data);setSelection(null);
         }
-      } catch (failure) { if (!disposed && generation === refreshGeneration.current) setError(String(failure)); }
-      finally { if (!disposed && generation === refreshGeneration.current) setLoading(false); }
-    });
-    return () => { disposed = true; void subscription.then(unlisten => unlisten()); };
+      }catch(failure){if(!disposed&&generation===refreshGeneration.current)setError(String(failure));}
+      finally{running=false;schedule();}
+    };
+    const changed=({payload}:{payload:string})=>{
+      if(disposed||payload!==currentCollectionRoot.current||payload!==requestedRoot.current)return;
+      pending=payload;schedule();
+    };
+    const subscriptions=[listen<string>("acervo-library-changed",changed),listen<string>("acervo-library-fs-changed",event=>{if(monitorEnabledRef.current)changed(event);})];
+    return()=>{disposed=true;if(timer!==undefined)window.clearTimeout(timer);for(const subscription of subscriptions)void subscription.then(unlisten=>unlisten()).catch(()=>{});};
   }, []);
 
   const refresh = async (location = root) => {
     if (!location.trim()) { setModal("root"); return; }
     const generation = ++refreshGeneration.current;
+    manualRefresh.current=true;
     requestedRoot.current = location.trim();
     setLoading(true); setError("");
     try {
@@ -163,7 +193,7 @@ function App() {
       setStatus(data.files.length + " arquivos encontrados; nenhuma alteração feita nos livros.");
       setModal(null);
     } catch (failure) { if (generation === refreshGeneration.current) { requestedRoot.current = currentCollectionRoot.current; setError(String(failure)); } }
-    finally { if (generation === refreshGeneration.current) setLoading(false); }
+    finally { if (generation === refreshGeneration.current) {manualRefresh.current=false;setLoading(false);} }
   };
 
   const chooseRoot = async () => {
@@ -677,7 +707,7 @@ ${JSON.stringify(sample, null, 2)}`;
                 <div className="theme-sync"><span className={"status-dot " + (theme ? "" : "muted")}/><div><strong>{theme ? "Noctalia conectado" : "Aguardando paleta do Noctalia"}</strong><small>{theme ? "As cores acompanham as alterações do wallpaper automaticamente." : "Para sincronizar, habilite o template do Acervo no Noctalia."}</small></div></div>
               </article>
               <article className="settings-card glass-panel">
-                <div className="settings-card-heading"><HardDrive size={22}/><div><h2>Biblioteca</h2><p>Escolha a pasta raiz pelo explorador do sistema.</p></div></div>
+                <div className="settings-card-heading"><HardDrive size={22}/><div><h2>Biblioteca</h2><p>Escolha a pasta raiz pelo explorador do sistema.</p></div></div><label className="organization-approval"><input type="checkbox" checked={monitorEnabled} onChange={event=>setMonitorEnabled(event.target.checked)}/> Atualizar ao detectar alterações nas pastas</label>{monitorError&&<small className="download-error" role="alert">{monitorError}</small>}
                 <div className="current-root"><FolderOpen size={20}/><span>{collection?.root || "Nenhuma biblioteca selecionada"}</span></div>
                 <div className="settings-actions"><button className="button primary" onClick={() => void chooseRoot()}><FolderOpen size={17}/> Procurar pasta</button><button className="button secondary" onClick={() => setModal("root")}>Informar caminho</button></div>
                 <p className="settings-footnote">Abrir uma biblioteca não altera arquivos. Movimentações exigem confirmação e não substituem arquivos existentes.</p>
