@@ -1,0 +1,42 @@
+/* One captured settings scene, with individual persistent surfaces.
+   No view-transition names are attached to book cards or arbitrary lists. */
+:root[data-style-transition]{
+  --appearance-duration:460ms;
+  --appearance-ease:cubic-bezier(.22,.78,.18,1);
+}
+:root[data-style-transition=glass]{--appearance-duration:520ms;--appearance-ease:cubic-bezier(.19,.85,.19,1)}
+:root[data-style-transition=material]{--appearance-duration:440ms;--appearance-ease:cubic-bezier(.2,0,0,1)}
+:root[data-style-transition=workspace]{--appearance-duration:380ms}
+:root[data-style-transition] .sidebar{view-transition-name:appearance-sidebar}
+:root[data-style-transition] .topbar{view-transition-name:appearance-topbar}
+:root[data-style-transition] .settings-page .page-intro{view-transition-name:appearance-title}
+:root[data-style-transition] .settings-grid>.settings-card:nth-child(1){view-transition-name:appearance-style}
+:root[data-style-transition] .settings-grid>.settings-card:nth-child(2){view-transition-name:appearance-library}
+:root[data-style-transition] .settings-grid>.settings-card:nth-child(3){view-transition-name:appearance-acquisition}
+:root[data-style-transition] .settings-grid>.settings-card:nth-child(4){view-transition-name:appearance-extra}
+/* Snapshot geometry is controlled by the engine. Suppress nested CSS motion
+   during capture so the final frame represents the actual new style. */
+:root[data-style-transition] .sidebar,:root[data-style-transition] .topbar,
+:root[data-style-transition] .settings-page,:root[data-style-transition] .settings-card,
+:root[data-style-transition] .style-choice,:root[data-style-transition] .style-preview,
+:root[data-style-transition] .style-preview>i,:root[data-style-transition] .style-preview em{transition:none!important;animation:none!important}
+:root[data-style-transition]::view-transition{pointer-events:none}
+:root[data-style-transition]::view-transition-group(*){animation-duration:var(--appearance-duration);animation-timing-function:var(--appearance-ease)}
+:root[data-style-transition]::view-transition-old(*),:root[data-style-transition]::view-transition-new(*){animation-duration:var(--appearance-duration);animation-timing-function:var(--appearance-ease);pointer-events:none}
+:root[data-style-transition]::view-transition-old(root){animation-name:appearance-old;mix-blend-mode:normal}
+:root[data-style-transition]::view-transition-new(root){animation-name:appearance-new;mix-blend-mode:normal}
+:root[data-style-transition=glass]::view-transition-new(appearance-style),
+:root[data-style-transition=glass]::view-transition-new(appearance-library),
+:root[data-style-transition=glass]::view-transition-new(appearance-acquisition){animation-name:appearance-glass-in}
+:root[data-style-transition=material]::view-transition-new(appearance-style),
+:root[data-style-transition=material]::view-transition-new(appearance-library),
+:root[data-style-transition=material]::view-transition-new(appearance-acquisition){animation-name:appearance-tonal-in}
+@keyframes appearance-old{from{opacity:1}to{opacity:0}}
+@keyframes appearance-new{from{opacity:0}to{opacity:1}}
+@keyframes appearance-glass-in{from{opacity:0;filter:brightness(1.13);transform:scale(.985)}to{opacity:1;filter:brightness(1);transform:none}}
+@keyframes appearance-tonal-in{from{opacity:0;transform:translateY(5px) scale(.99)}to{opacity:1;transform:none}}
+/* A hidden/off-canvas sidebar must not appear in the captured scene. */
+@media(max-width:860px){:root[data-style-transition] .sidebar{view-transition-name:none}}
+@media(prefers-reduced-motion:reduce){
+ :root[data-style-transition]::view-transition-group(*),:root[data-style-transition]::view-transition-old(*),:root[data-style-transition]::view-transition-new(*){animation-duration:.01ms!important}
+}

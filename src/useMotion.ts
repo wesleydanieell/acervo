@@ -8,7 +8,7 @@ export function useAppearanceMotion(style:string){
     const old=previous.current;
     previous.current=style;
     localStorage.setItem("acervo-workspace-style",style);
-    if(old===null||old===style||reducedMotion()||document.hidden){root.dataset.visualStyle=style;return;}
+    if(old===null||old===style||reducedMotion()||document.hidden||root.dataset.styleTransition){root.dataset.visualStyle=style;return;}
     // Only the two chrome surfaces morph. Avoid snapshots of a large book grid,
     // avoid animating layout properties and never change the hit target.
     const elements=Array.from(document.querySelectorAll<HTMLElement>(".sidebar,.topbar")).filter(e=>e.getBoundingClientRect().width>0);
@@ -59,7 +59,7 @@ export function useSelectionMotion(selector:string,key:string){
     const radius=getComputedStyle(target).borderRadius;
     const before=previous.current;
     previous.current={rect,radius};
-    if(!before||reducedMotion()||document.hidden||rect.width<=0||rect.height<=0)return;
+    if(!before||document.documentElement.dataset.styleTransition||reducedMotion()||document.hidden||rect.width<=0||rect.height<=0)return;
     const transform=morphTransform(before.rect,rect);
     if(!transform||rect.bottom<0||rect.top>window.innerHeight||rect.right<0||rect.left>window.innerWidth)return;
     if(Math.abs(before.rect.top-rect.top)>window.innerHeight*.7)return;
