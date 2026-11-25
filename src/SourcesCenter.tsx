@@ -1,5 +1,6 @@
 import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome } from "./discovery-pagination";
 import { groupDiscoveryWorks } from "./discovery-works";
+import { SourceFeed } from "./SourceFeed";
 import { ExtensionRepositories } from "./ExtensionRepositories";
 import { DownloadCatalogPicker } from "./DownloadCatalogPicker";
 import type { CatalogItem } from "./CatalogCenter";
@@ -8,13 +9,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, CircleHelp, ClipboardCopy, Download, ExternalLink, FileJson2, Globe2, Plus, RefreshCw, Search, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, CircleHelp, ClipboardCopy, Download, ExternalLink, FileJson2, Globe2, Plus, RefreshCw, Search, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
 import "./sources.css";
 import "./source-search.css";
 
 export type SourceManifest = {
   schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html"; id: string; name: string; description: string;
-  websiteUrl?: string | null;
+  websiteUrl?: string | null; feedPath?: string | null; localSearch?: boolean;
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
@@ -53,6 +54,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   const [language, setLanguage] = useState(initialSearch?.language ?? "");
   const [format, setFormat] = useState(initialSearch?.format ?? "");
   const [sourceId, setSourceId] = useState("");
+  const [sourceDetail,setSourceDetail]=useState("");
+  const [visibleFeeds,setVisibleFeeds]=useState(4);
   const [searching, setSearching] = useState(false);
   const [loadingPage, setLoadingPage] = useState("");
   const pageLock = useRef(false);
@@ -65,19 +68,32 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   const searchGeneration = useRef(0);
   const activeSources = sources.filter(item => item.enabled);
   const discover = mode === "discover";
+  const detailSource=sources.find(item=>item.manifest.id===sourceDetail);
+  const feedSources=sourceId ? activeSources.filter(item=>item.manifest.id===sourceId) : activeSources;
+  const openDetail=(id:string)=>{
+    setSourceDetail(id);setSourceId(id);setQuery("");setLanguage("");setFormat("");invalidateSearch();onClearRequest();onShowDiscover();
+  };
+  const leaveDetail=()=>{
+    setSourceDetail("");setSourceId("");setQuery("");setLanguage("");setFormat("");invalidateSearch();onClearRequest();
+  };
+  const chooseEdition=(item:SourceResult)=>{setQueueError("");setDownloadChoice(item);};
   const resultKey = (item: SourceResult) => JSON.stringify([resultIdentity(item), initialSearch?.destination ?? "", initialSearch?.catalogTarget ?? null]);
   const invalidateSearch = () => { searchGeneration.current++; setSearching(false); setLoadingPage(""); pageLock.current = false; setSearchOutcome(null); setExpandedWorks(new Set()); setQueued(new Set()); };
   useEffect(() => {
-    if (sourceId && !sources.some(item => item.enabled && item.manifest.id === sourceId)) {
+    if (sourceId && !sourceDetail && !sources.some(item => item.enabled && item.manifest.id === sourceId)) {
       setSourceId(""); invalidateSearch();
     }
-  }, [sources, sourceId]);
+  }, [sources, sourceId, sourceDetail]);
   useEffect(() => {
     if (!initialSearch) return;
+    setSourceDetail("");
     setQuery(initialSearch.query); setLanguage(initialSearch.language); setFormat(initialSearch.format);
     setSourceId(""); invalidateSearch();
   }, [initialSearch]);
 
+  useEffect(()=>{
+    if(sourceDetail && !sources.some(item=>item.manifest.id===sourceDetail)){setSourceDetail("");setSourceId("");invalidateSearch();}
+  },[sources,sourceDetail]);
   const reload = async () => {
     try { setSources(await invoke<InstalledSource[]>("list_sources")); setError(""); }
     catch (failure) { setError(String(failure)); }
@@ -155,11 +171,12 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   };
 
   const search = async () => {
+    if (detailSource && !detailSource.enabled) return;
     const generation = ++searchGeneration.current;
     setSearching(true); setLoadingPage(""); pageLock.current = false; setError(""); setSearchOutcome(null); setExpandedWorks(new Set()); setQueued(new Set());
     try {
       const outcome = await invoke<SearchOutcome>("search_sources", {
-        query: query.trim(), language, format, sourceIds: sourceId ? [sourceId] : [], cursor: null,
+        query: query.trim(), language, format, sourceIds: sourceDetail ? [sourceDetail] : sourceId ? [sourceId] : [], cursor: null,
       });
       if (generation === searchGeneration.current) setSearchOutcome(outcome);
     } catch (failure) { if (generation === searchGeneration.current) setError(String(failure)); }
@@ -180,11 +197,11 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
 
   return <section className="sources-center">
     <div className="page-intro">
-      <div><h1>{discover ? "Descobrir" : "Extensões"}</h1>
+      <div><h1>{discover ? detailSource?.manifest.name ?? "Descobrir" : "Extensões"}</h1>
         <p>{discover ? activeSources.length + " fontes ativas" : sources.length + " fontes instaladas"}</p></div>
       <div className="sources-top-actions">
-        {discover ? <><button className="button secondary" onClick={onShowExtensions}><Globe2 size={16}/> Extensões</button><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Downloads</button></> :
-          <><button className="button secondary" onClick={onShowDiscover}><Search size={16}/> Descobrir</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
+        {discover ? <>{detailSource&&<button className="button secondary" onClick={leaveDetail}><ArrowLeft size={16}/> Todas as fontes</button>}<button className="button secondary" onClick={onShowExtensions}><Globe2 size={16}/> Extensões</button><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Downloads</button></> :
+          <><button className="button secondary" onClick={()=>{leaveDetail();onShowDiscover();}}><Search size={16}/> Descobrir</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
           <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "open-library")} onClick={() => void installDemo()}><Globe2 size={16}/> Open Library</button>
           <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "gutenberg-curated")} onClick={() => void installExample("gutenberg-curated")}><Plus size={16}/> Gutenberg</button>
           <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "acervo-test-source")} onClick={() => void installExample("acervo-test-source")}><Plus size={16}/> Fonte de teste</button>
@@ -194,16 +211,16 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button className="icon-button" onClick={() => setError("")} aria-label="Fechar alerta"><X size={16}/></button></div>}
     {notice && <div className="inline-status" role="status"><Check size={16}/>{notice}</div>}
     {discover ? <>
-    {!activeSources.length && <div className="source-no-active glass-panel"><Globe2 size={20}/><span>Nenhuma fonte ativa</span><button className="button primary" onClick={onShowExtensions}>Gerenciar extensões</button></div>}
+    {!activeSources.length && !detailSource && <div className="source-no-active glass-panel"><Globe2 size={20}/><span>Nenhuma fonte ativa</span><button className="button primary" onClick={onShowExtensions}>Gerenciar extensões</button></div>}
     <section className="source-search glass-panel">
       <div className="source-search-heading"><h2>Pesquisar livros</h2></div>
       {initialSearch && <div className="source-search-from-catalog"><span>{initialSearch.catalogTarget ? <>Obra: <strong>{initialSearch.catalogTarget.title}</strong> · </> : null}Destino: <strong>{initialSearch.destination || "Raiz"}</strong></span><button className="icon-button small" aria-label="Desvincular destino planejado" title="Desvincular destino planejado" onClick={onClearRequest}><X size={15}/></button></div>}
       <form className="source-search-form" onSubmit={(event) => { event.preventDefault(); void search(); }}>
         <label className="source-query"><span>Título ou autor</span><input value={query} onChange={(event) => { setQuery(event.target.value); invalidateSearch(); if (initialSearch) onClearRequest(); }} minLength={2} maxLength={200} placeholder="Ex.: Machado de Assis" aria-label="Buscar obras nas fontes" required/></label>
-        <label><span>Fonte</span><select aria-label="Filtrar fonte" value={sourceId} onChange={(event) => { setSourceId(event.target.value); invalidateSearch(); }}><option value="">Todas as ativas</option>{sources.filter((item) => item.enabled).map((item) => <option key={item.manifest.id} value={item.manifest.id}>{item.manifest.name}</option>)}</select></label>
+        <label><span>Fonte</span><select aria-label="Filtrar fonte" value={sourceDetail || sourceId} disabled={!!detailSource} onChange={(event) => { setSourceId(event.target.value); invalidateSearch(); }}><option value="">Todas as ativas</option>{sources.filter((item) => item.enabled || item.manifest.id===sourceDetail).map((item) => <option key={item.manifest.id} value={item.manifest.id}>{item.manifest.name}</option>)}</select></label>
         <label><span>Idioma</span><select aria-label="Filtrar idioma" value={language} onChange={(event) => { setLanguage(event.target.value); invalidateSearch(); }}><option value="">Todos</option><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="fr">Francês</option></select></label>
         <label><span>Formato</span><select aria-label="Filtrar formato" value={format} onChange={(event) => { setFormat(event.target.value); invalidateSearch(); }}><option value="">Todos</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option><option value="azw3">AZW3</option><option value="djvu">DJVU</option></select></label>
-        <button className="button primary" type="submit" disabled={searching || !!loadingPage || query.trim().length < 2 || !sources.some((item) => item.enabled)}>{searching ? <RefreshCw className="spinning" size={17}/> : <Search size={17}/>} Buscar</button>
+        <button className="button primary" type="submit" disabled={searching || !!loadingPage || query.trim().length < 2 || (!detailSource ? !sources.some((item) => item.enabled) : !detailSource.enabled)}>{searching ? <RefreshCw className="spinning" size={17}/> : <Search size={17}/>} Buscar</button>
       </form>
       {searchOutcome && <div className="source-results"><div className="source-results-heading"><strong>{groupedWorks.length} obra(s)</strong><small>{groupedWorks.reduce((sum,work)=>sum+work.editions.length,0)} opções de download</small></div>
         {searchOutcome.errors.length > 0 && <div className="source-errors" role="status">{searchOutcome.errors.map((text, index) => <p key={index}>{text}</p>)}</div>}
@@ -229,11 +246,18 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
           </button>)}</div>}
       </div>}
     </section>
+    {!query.trim() && !searchOutcome && !initialSearch && !searching && <div className="source-feed-stack">
+      {detailSource ? <SourceFeed key={detailSource.manifest.id} source={detailSource} full onOpen={()=>{}} onWeb={()=>void openSourceWebview(detailSource.manifest.id)} onDownload={chooseEdition}/>
+        : <><div className="source-feed-heading"><h2>Feeds das extensões</h2></div>
+          {feedSources.slice(0,visibleFeeds).map(item=><SourceFeed key={item.manifest.id} source={item} onOpen={()=>openDetail(item.manifest.id)} onWeb={()=>void openSourceWebview(item.manifest.id)} onDownload={chooseEdition}/>)}
+          {feedSources.length>visibleFeeds&&<button className="button secondary feed-more" onClick={()=>setVisibleFeeds(n=>n+4)}>Mostrar mais fontes</button>}
+        </>}
+    </div>}
     </> : <>
     <ExtensionRepositories sources={sources} disabled={busy} onInstalled={items => { setSources(items); invalidateSearch(); }}/>
     {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled, repository }) => <article className="source-card glass-panel" key={manifest.id}>
       <div className="source-card-main"><div className="source-icon"><Globe2 size={24}/></div><div className="source-info">
-        <strong>{manifest.name}</strong><small>{manifest.description || manifest.baseUrl}</small><small>v{manifest.version ?? "1.0.0"} · API {manifest.apiVersion ?? 1}</small>
+        <button className="source-info-button" onClick={()=>openDetail(manifest.id)}><strong>{manifest.name}</strong></button><small>{manifest.description || manifest.baseUrl}</small><small>v{manifest.version ?? "1.0.0"} · API {manifest.apiVersion ?? 1}</small>
         <code title={manifest.baseUrl}>{manifest.baseUrl}</code>
         {repository && <small title={repository}>Instalada via repositório</small>}
       </div><span className={"source-state " + (enabled ? "enabled" : "")}>{enabled ? "Ativa" : "Pausada"}</span></div>
@@ -244,9 +268,11 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && (manifest.downloadDomains == null || manifest.downloadDomains.length > 0) && <span><Download size={13}/> Link de download</span>}
         {(manifest.adapter === "opds" || manifest.pagination || manifest.html?.nextSelector) && <span>Paginação</span>}
         {manifest.editions && <span>Múltiplas edições</span>}
+        {(manifest.feedPath || manifest.localSearch) && <span>Feed</span>}
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
       <div className="source-actions">
+        <button className="button primary" onClick={()=>openDetail(manifest.id)}><Search size={16}/> Abrir fonte</button>
         <button className="button secondary" onClick={() => void openSourceWebview(manifest.id)} title={manifest.websiteUrl || manifest.baseUrl}><Globe2 size={16}/> WebView</button>
         <button className="button secondary" disabled={busy} onClick={() => void toggle(manifest.id, !enabled)}>
           {enabled ? <ToggleRight size={17}/> : <ToggleLeft size={17}/>} {enabled ? "Desativar" : "Ativar"}</button>
