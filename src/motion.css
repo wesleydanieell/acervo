@@ -1,0 +1,39 @@
+/* Shared motion vocabulary. Large result sets never receive staggered
+   entry animations: interaction feedback is local and compositor-friendly. */
+:root{--motion-fast:140ms;--motion-standard:220ms;--motion-emphasized:340ms;--motion-exit:180ms;--motion-ease:cubic-bezier(.2,.7,.18,1)}
+:root .settings-page{animation:none}
+:root .sidebar,:root .topbar{transition:background-color var(--motion-standard),border-color var(--motion-standard),box-shadow var(--motion-emphasized)}
+:root .style-choice{transition:background-color var(--motion-standard),border-color var(--motion-standard),border-radius var(--motion-emphasized),box-shadow var(--motion-standard),transform var(--motion-fast) var(--motion-ease)}
+:root .style-choice:active:not(:disabled){transform:scale(.98)}
+:root .style-preview,:root .style-preview>i,:root .style-preview em{transition:background-color var(--motion-standard),border-radius var(--motion-emphasized),border-color var(--motion-standard)}
+:root .nav-item,:root .folder-row{transition:background var(--motion-standard),color var(--motion-fast),border-color var(--motion-standard),border-radius var(--motion-standard)}
+:root .folder-expander svg{transition:transform var(--motion-standard) var(--motion-ease)}
+:root .folder-row[aria-expanded=true] .folder-expander svg{transform:rotate(90deg)}
+:root .action-menu>button[aria-expanded=true]>svg:last-child{transform:rotate(180deg)}
+:root .action-menu>button>svg:last-child{transition:transform var(--motion-standard) var(--motion-ease)}
+:root .view-switch{position:relative;isolation:isolate;overflow:hidden}
+:root .view-switch::before{content:"";position:absolute;z-index:-1;pointer-events:none;inset:3px auto 3px 3px;width:calc((100% - 9px)/2);border-radius:var(--ds-control-radius);background:color-mix(in srgb,var(--accent) 18%,transparent);transition:transform var(--motion-emphasized) var(--motion-ease),border-radius var(--motion-standard)}
+:root .view-switch[data-layout=list]::before{transform:translateX(calc(100% + 3px))}
+:root .view-switch button.chosen{background:transparent}
+:root .view-switch button{transition:color var(--motion-fast)}
+:root .selection-toggle,:root .icon-button,:root .folder-tile{transition:background var(--motion-fast),border-color var(--motion-fast),transform var(--motion-fast) var(--motion-ease)}
+:root .icon-button:active:not(:disabled),:root .selection-toggle:active:not(:disabled){transform:scale(.94)}
+:root .book-card.selected,:root .book-card.bulk-selected{animation:motion-select var(--motion-fast) var(--motion-ease)}
+:root .virtual-book-row .book-card{animation:none}
+@keyframes motion-select{from{opacity:.78}to{opacity:1}}
+.motion-selection-trace{position:fixed;z-index:6;pointer-events:none;border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);transform-origin:top left}
+:root .search-suggestions,:root .bulk-toolbar,:root .organization-review,:root .duplicate-group-body{animation:motion-reveal var(--motion-standard) var(--motion-ease)}
+@keyframes motion-reveal{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+:root .drawer-backdrop,:root .modal-backdrop{animation:motion-scrim var(--motion-standard) ease-out}
+@keyframes motion-scrim{from{opacity:0}to{opacity:1}}
+:root .details-drawer{animation:motion-drawer var(--motion-emphasized) var(--motion-ease)}
+@keyframes motion-drawer{from{transform:translateX(24px);opacity:.5}to{transform:none;opacity:1}}
+:root .modal,:root dialog.download-picker[open]{animation:motion-dialog var(--motion-emphasized) var(--motion-ease)}
+@keyframes motion-dialog{from{opacity:0;transform:translateY(12px) scale(.965)}to{opacity:1;transform:none}}
+:root dialog.download-picker[open]::backdrop{animation:motion-scrim var(--motion-standard) ease-out}
+:root .motion-exiting{pointer-events:none!important;animation:motion-scrim var(--motion-exit) ease-in reverse both}
+:root .motion-exiting .details-drawer{animation:motion-drawer var(--motion-exit) ease-in reverse both}
+:root .motion-exiting .modal{animation:motion-dialog var(--motion-exit) ease-in reverse both}
+:root .action-menu-panel.motion-exiting{animation:motion-reveal var(--motion-exit) ease-in reverse both}
+@media(max-width:860px){:root .sidebar{transition:transform var(--motion-emphasized) var(--motion-ease),background-color var(--motion-standard),border-color var(--motion-standard),border-radius var(--motion-standard)}}
+@media(prefers-reduced-motion:reduce){:root *,:root *::before,:root *::after{animation-duration:.01ms!important;transition-duration:.01ms!important}.motion-selection-trace{display:none}}

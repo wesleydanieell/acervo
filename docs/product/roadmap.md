@@ -29,3 +29,13 @@ Não tratar alterações cosméticas isoladas como conclusão de uma etapa. Pres
 - Liquid Glass: inspiração na linguagem visual do macOS/iOS, com navegação e barras flutuantes, reflexos de borda, transparência localizada, superfícies de conteúdo legíveis e movimento suave. Não simular refração cara em cada cartão; manter distinção entre vidro decorativo e conteúdo.
 - Material 3: integração visual com Niri + Noctalia (paleta dinâmica, superfícies tonais, indicadores de seleção e contêineres arredondados). Preservar o tema ativo e evitar cores fixas decorativas.
 - Sincronização: animar alterações de paleta provenientes do Noctalia entre esquemas do mesmo modo, respeitando redução de movimento; alternar claro/escuro atomicamente para preservar contraste. Validar com mudanças repetidas, diálogos abertos e controles de diferentes telas.
+
+### Sistema de movimento (incremental)
+
+- [ ] Trocas de aparência e paleta: continuidade de geometria, superfícies e seleções; suportar mudanças consecutivas.
+- [ ] Navegação: transições direcionadas, destaque móvel e continuidade da seleção, sem bloquear atalhos.
+- [ ] Painéis, menus e diálogos: abertura e fechamento, estados de foco corretos e expansão/recolhimento.
+- [ ] Biblioteca: transições entre grade/lista, filtros, capa/detalhes e arraste; limitar efeitos aos elementos visíveis.
+- [ ] Aquisição: animações de estados de download, progresso, feed, erros, confirmações e recuperação.
+- [ ] Interações: microfeedback de botões, switches, rádio, checkboxes, seletores e estados vazios.
+- [ ] Ajustes de qualidade: consistência nos três estilos, validação em WebKitGTK, janelas pequenas, mudanças rápidas e preferência de movimento reduzido. Priorizar composição GPU; evitar animações ilimitadas em listas grandes e elementos que não estejam visíveis.
