@@ -14,6 +14,7 @@ import "./source-search.css";
 
 export type SourceManifest = {
   schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html"; id: string; name: string; description: string;
+  websiteUrl?: string | null;
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
@@ -123,6 +124,10 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       setNotice("Fonte removida. Nenhum livro ou arquivo baixado foi apagado.");
     } catch (failure) { setError(String(failure)); }
     finally { setBusy(false); }
+  };
+  const openSourceWebview = async (id: string) => {
+    try { await invoke("open_source_webview", {id}); }
+    catch (failure) { setError(String(failure)); }
   };
   const copyExample = async () => {
     try { await navigator.clipboard.writeText(sampleManifest); setNotice("Manifesto de exemplo copiado."); }
@@ -242,6 +247,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
       <div className="source-actions">
+        <button className="button secondary" onClick={() => void openSourceWebview(manifest.id)} title={manifest.websiteUrl || manifest.baseUrl}><Globe2 size={16}/> WebView</button>
         <button className="button secondary" disabled={busy} onClick={() => void toggle(manifest.id, !enabled)}>
           {enabled ? <ToggleRight size={17}/> : <ToggleLeft size={17}/>} {enabled ? "Desativar" : "Ativar"}</button>
         {pendingRemoval === manifest.id ? <div className="source-remove-confirm"><span>Remover esta fonte?</span>

@@ -15,6 +15,7 @@ mod opds_parser;
 mod opds_source;
 mod organization;
 mod repository_index;
+mod source_browser;
 mod source_search;
 mod sources;
 
@@ -591,6 +592,43 @@ fn read_noctalia_colors() -> Option<serde_json::Value> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+        load_collection,
+        catalog_lists::import_catalog_json,
+        catalog_lists::link_catalog_file,
+        catalog_lists::save_catalog_csv,
+        covers::get_book_cover,
+        create_folder,
+        move_book,
+        move_books,
+        organization::preview_organization,
+        organization::apply_organization,
+        sources::list_sources,
+        source_browser::open_source_webview,
+        extension_repositories::list_repositories,
+        extension_repositories::add_repository,
+        extension_repositories::remove_repository,
+        extension_repositories::browse_repository,
+        extension_repositories::preview_repository_extension,
+        extension_repositories::install_repository_extension,
+        sources::install_source,
+        sources::install_demo_source,
+        sources::install_example_source,
+        sources::set_source_enabled,
+        sources::remove_source,
+        extension_host::search_sources,
+        extension_host::list_source_descriptors,
+        downloads::list_downloads,
+        downloads::queue_download,
+        downloads::pause_download,
+        downloads::cancel_download,
+        downloads::retry_download,
+        downloads::dismiss_download,
+        downloads::save_download,
+        downloads::rename_ready_download,
+        downloads::recover_download_import,
+        read_noctalia_colors
+    ];
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -598,42 +636,15 @@ pub fn run() {
             app.manage(downloads::DownloadManager::restore(app.handle()));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            load_collection,
-            catalog_lists::import_catalog_json,
-            catalog_lists::link_catalog_file,
-            catalog_lists::save_catalog_csv,
-            covers::get_book_cover,
-            create_folder,
-            move_book,
-            move_books,
-            organization::preview_organization,
-            organization::apply_organization,
-            sources::list_sources,
-            extension_repositories::list_repositories,
-            extension_repositories::add_repository,
-            extension_repositories::remove_repository,
-            extension_repositories::browse_repository,
-            extension_repositories::preview_repository_extension,
-            extension_repositories::install_repository_extension,
-            sources::install_source,
-            sources::install_demo_source,
-            sources::install_example_source,
-            sources::set_source_enabled,
-            sources::remove_source,
-            extension_host::search_sources,
-            extension_host::list_source_descriptors,
-            downloads::list_downloads,
-            downloads::queue_download,
-            downloads::pause_download,
-            downloads::cancel_download,
-            downloads::retry_download,
-            downloads::dismiss_download,
-            downloads::save_download,
-            downloads::rename_ready_download,
-            downloads::recover_download_import,
-            read_noctalia_colors
-        ])
+        .invoke_handler(move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+            if invoke.message.webview_ref().label() != "main" {
+                invoke
+                    .resolver
+                    .reject("Esta janela não tem acesso aos comandos do Acervo.");
+                return true;
+            }
+            handler(invoke)
+        })
         .run(tauri::generate_context!())
         .expect("Falha ao iniciar o Acervo");
 }
