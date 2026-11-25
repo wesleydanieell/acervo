@@ -44,6 +44,7 @@ import acervoIcon from "../branding/acervo-icon.svg";
 import { ActionMenu } from "./ActionMenu";
 import { ToolbarSelect } from "./ToolbarSelect";
 import { useLayoutMotion } from "./useLayoutMotion";
+import { useBookCoverMotion } from "./useBookCoverMotion";
 import { ContextMenu, type ContextAction } from "./ContextMenu";
 
 type LibraryEdition = {path:string;sourceName:string;metadata:{title:string;author:string;language:string;publisher:string;editionLabel:string;remoteId?:string|null;sourceId:string};fingerprint:{bytes:number;sha256:string}};
@@ -117,6 +118,7 @@ function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const mainRef=useRef<HTMLElement>(null);
   const prepareLayoutMotion=useLayoutMotion(layout,mainRef);
+  const prepareBookCover=useBookCoverMotion(selection?.key,collection?.root??"");
   usePageMotion(mainRef,view);
   useSelectionMotion(".sidebar .nav-item.active",view);
   useSelectionMotion(".style-choice.chosen",view+":"+visualStyle);
@@ -604,10 +606,10 @@ ${JSON.stringify(sample, null, 2)}`;
               aria-pressed={selectionMode && entry.file ? bulkSelected.has(entry.file.path) : undefined}
               onContextMenu={(event) => { if (entry.file) openContextMenu(event, "file", entry.file.path); }}
               onClick={(event) => {
-                if (!entry.file) { setSelection(entry); return; }
+                if (!entry.file) { prepareBookCover(entry.key,event.currentTarget); setSelection(entry); return; }
                 if (event.shiftKey) selectBookRange(entry.file.path, event.ctrlKey || event.metaKey);
                 else if (selectionMode || event.ctrlKey || event.metaKey) toggleBookSelection(entry.file.path);
-                else { selectionAnchor.current = entry.file.path; setSelection(entry); }
+                else { selectionAnchor.current = entry.file.path; prepareBookCover(entry.key,event.currentTarget); setSelection(entry); }
               }} draggable={Boolean(entry.file)}
               onDragStart={(event) => { if (!entry.file) return; const paths = bulkSelected.has(entry.file.path) ? [...bulkSelected] : [entry.file.path]; event.dataTransfer.setData("text/acervo-book", entry.file.path); event.dataTransfer.setData("text/acervo-books", JSON.stringify(paths)); event.dataTransfer.effectAllowed = "move"; }}>
               {selectionMode && entry.file && <span className="book-check">{bulkSelected.has(entry.file.path) && <Check size={12}/>}</span>}
