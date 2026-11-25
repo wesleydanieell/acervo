@@ -37,3 +37,13 @@
 :root .action-menu-panel.motion-exiting{animation:motion-reveal var(--motion-exit) ease-in reverse both}
 @media(max-width:860px){:root .sidebar{transition:transform var(--motion-emphasized) var(--motion-ease),background-color var(--motion-standard),border-color var(--motion-standard),border-radius var(--motion-standard)}}
 @media(prefers-reduced-motion:reduce){:root *,:root *::before,:root *::after{animation-duration:.01ms!important;transition-duration:.01ms!important}.motion-selection-trace{display:none}}
+
+/* Only one visible cover flies above the original React tree. */
+:root .shared-cover-flight{
+ position:fixed;z-index:90;margin:0;max-width:none;max-height:none;aspect-ratio:auto;
+ pointer-events:none!important;transform-origin:top left;animation:none;
+}
+:root .shared-cover-flight .book-cover-image{animation:none}
+:root .shared-cover-target{opacity:0!important}
+:root .drawer-backdrop[data-shared-cover=true]:not(.motion-exiting) .details-drawer{animation:motion-scrim var(--motion-standard) var(--motion-ease)}
+@media(prefers-reduced-motion:reduce){:root .shared-cover-flight{display:none}:root .shared-cover-target{opacity:1!important}}
