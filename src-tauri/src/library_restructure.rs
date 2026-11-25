@@ -33,6 +33,7 @@ pub struct StructuralPreview {
     created_folders: Vec<String>,
     moved_folders: Vec<FolderImpact>,
     execution_supported: bool,
+    reference_impact: crate::library_reference_impact::ReferenceImpact,
 }
 
 fn relative(value: &str) -> Result<PathBuf, String> {
@@ -132,6 +133,7 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
         created_folders: vec![],
         moved_folders: vec![],
         execution_supported: false,
+        reference_impact: Default::default(),
     };
     let mut remaining = MAX_ENTRIES;
     for operation in operations {
@@ -176,6 +178,14 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
             created.insert(target);
         }
     }
+    let remap = crate::library_reference_impact::PathRemap::new(
+        preview
+            .moved_folders
+            .iter()
+            .map(|m| (m.source.as_str(), m.target.as_str()))
+            .collect(),
+    );
+    preview.reference_impact = crate::library_reference_impact::preview(&root, &remap)?;
     Ok(preview)
 }
 
@@ -241,6 +251,81 @@ mod tests {
         assert!(f.0.join("A/Vazia").is_dir());
         assert!(!f.0.join("Assuntos").exists());
     }
+    #[test]
+    fn previews_catalog_and_index_references_including_missing_works_without_writes() {
+        let f = Fixture::new();
+        let root = fs::canonicalize(&f.0).unwrap();
+        let service = root.join("99 - Catálogo");
+        let list = service.join("Acervo_Listas.json");
+        fs::write(&list, r#"{"versao":1,"obras":[{"titulo":"Present","local_indicado":"AB","arquivos_encontrados":["A/livro.epub","AB/other.pdf"]},{"titulo":"Future","local_indicado":"A/Future"},{"titulo":"Unchanged","local_indicado":"AB"}]}"#).unwrap();
+        let db = service.join("Catalogo_Conhecimento.db");
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        connection.execute_batch(r#"CREATE TABLE livros (id INTEGER PRIMARY KEY,titulo TEXT,autor TEXT,editoras_indicadas TEXT,local_indicado TEXT,arquivos_encontrados TEXT,prioridade_alta INTEGER);
+            INSERT INTO livros VALUES(42,'Legacy future','','','A/Not yet',NULL,1);"#).unwrap();
+        drop(connection);
+        let manual = service.join("Acervo_Metadados_Manuais.json");
+        fs::write(&manual, r#"{"version":1,"revision":1,"entries":{"A/livro.epub":{"metadata":{"title":"Manual"},"identity":{"bytes":"4","modifiedNs":"1","createdNs":"1","device":"1","inode":"1"}}}}"#).unwrap();
+        crate::library_editions::record(
+            &root,
+            crate::library_editions::EditionRecord {
+                path: "A/livro.epub".into(),
+                source_name: "Fixture".into(),
+                metadata: crate::downloads::DownloadEdition {
+                    title: "Book".into(),
+                    ..Default::default()
+                },
+                fingerprint: crate::import_fingerprint::fingerprint(&root.join("A/livro.epub"))
+                    .unwrap(),
+            },
+        )
+        .unwrap();
+        let edition = service.join("Acervo_Edicoes.json");
+        let paths = [&list, &db, &manual, &edition];
+        let before: Vec<_> = paths.iter().map(|p| fs::read(p).unwrap()).collect();
+        let p = plan(&root, vec![mv("A", "New")]).unwrap();
+        let impact = p.reference_impact;
+        assert_eq!(impact.works.len(), 3);
+        let present = impact.works.iter().find(|w| w.work_id == -1).unwrap();
+        assert_eq!(present.associated_files[0].after, "New/livro.epub");
+        assert_eq!(present.associated_files.len(), 1);
+        assert!(present.planned_destination.is_none());
+        let future = impact.works.iter().find(|w| w.work_id == -2).unwrap();
+        assert_eq!(
+            future.planned_destination.as_ref().unwrap().after,
+            "New/Future"
+        );
+        let legacy = impact.works.iter().find(|w| w.work_id == 42).unwrap();
+        assert_eq!(
+            legacy.planned_destination.as_ref().unwrap().after,
+            "New/Not yet"
+        );
+        assert_eq!(impact.manual_metadata[0].after, "New/livro.epub");
+        assert_eq!(impact.editions[0].after, "New/livro.epub");
+        for (path, expected) in paths.iter().zip(before) {
+            assert_eq!(fs::read(path).unwrap(), expected);
+        }
+        assert!(root.join("A/livro.epub").exists());
+        assert!(!root.join("New").exists());
+    }
+
+    #[test]
+    fn rejects_ambiguous_catalog_identity_and_malformed_associations() {
+        let f = Fixture::new();
+        let list = f.0.join("99 - Catálogo/Acervo_Listas.json");
+        fs::write(
+            &list,
+            r#"[{"titulo":"Same","local_indicado":"A"},{"titulo":"Same","local_indicado":"New"}]"#,
+        )
+        .unwrap();
+        assert!(plan(&f.0, vec![mv("A", "New")]).is_err());
+        fs::write(
+            &list,
+            r#"[{"titulo":"Malformed","arquivos_encontrados":[5]}]"#,
+        )
+        .unwrap();
+        assert!(plan(&f.0, vec![mv("A", "New")]).is_err());
+    }
+
     #[test]
     fn rejects_conflicts_cycles_protected_paths_and_missing_parents() {
         let f = Fixture::new();

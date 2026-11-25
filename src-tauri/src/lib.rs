@@ -23,6 +23,7 @@ mod noctalia;
 mod opds_parser;
 mod opds_source;
 mod organization;
+mod library_reference_impact;
 mod library_restructure;
 mod repository_index;
 mod smart_organization;

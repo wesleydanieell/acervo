@@ -138,7 +138,7 @@ fn read_entries<'de, D: serde::Deserializer<'de>>(
     }
     d.deserialize_map(Entries)
 }
-fn valid_path(relative: &str) -> Result<(), String> {
+pub(crate) fn valid_path(relative: &str) -> Result<(), String> {
     if relative.is_empty()
         || relative.len() > 855
         || relative.split('/').count() > 81

@@ -28,7 +28,7 @@ Aceite: 500+ itens, seleção atravessa paginação, filtros e virtualização; 
 
 **Iniciada, somente leitura; liberação depende da etapa 1 estabilizada.**
 
-Primeiro incremento: comando interno `preview_library_restructure` com operações tipadas `createFolder` e `moveFolder` (renomear é mover para um novo caminho). A prévia contabiliza livros, arquivos auxiliares e pastas, incluindo vazias; aceita destinos em pastas propostas anteriormente. Rejeita links simbólicos, caminhos protegidos, destinos existentes, ciclos e subárvores sobrepostas. Limites iniciais: 100 operações e 50.000 entradas no inventário. Não há executor, integração visual, token de aprovação ou remapeamento de referências neste incremento. Movimentos encadeados e consolidação permanecem fora do contrato inicial.
+Primeiro incremento: comando interno `preview_library_restructure` com operações tipadas `createFolder` e `moveFolder` (renomear é mover para um novo caminho). A prévia contabiliza livros, arquivos auxiliares e pastas, incluindo vazias; aceita destinos em pastas propostas anteriormente. Rejeita links simbólicos, caminhos protegidos, destinos existentes, ciclos e subárvores sobrepostas. Limites iniciais: 100 operações e 50.000 entradas no inventário. Não há executor, integração visual ou token de aprovação neste incremento; a etapa 3 já adiciona análise de referências em leitura. Movimentos encadeados e consolidação permanecem fora do contrato inicial.
 
 - Criar representação tipada, versionada, imutável de plano, raiz canônica, identidade de origem, caminho final, operações, dependências, impacto, avisos e conflitos. A IA e a UI produzem propostas, nunca instruções de shell.
 - Suportar criar pastas, mover/renomear livros preservando formato, mover/renomear subárvores inteiras, e preparar consolidação de pastas. Operações de união não devem sobrescrever arquivos. Pastas vazias e arquivos auxiliares são parte do inventário.
@@ -40,7 +40,11 @@ Aceite: testes de planos sem efeitos colaterais, colisões, ciclos, subárvores,
 
 ## Etapa 3 — Integridade do catálogo e remapeamento de caminhos
 
-**Planejada; desenvolvida junto ao núcleo antes de liberar mutações estruturais.**
+**Iniciada, somente leitura; execução ainda bloqueada.**
+
+O módulo `library_reference_impact.rs` fornece o mapa de prefixos por componentes e a análise de impacto integrada a `preview_library_restructure`. A prévia apresenta ID da obra, título, associações físicas e destinos planejados alterados separadamente, além de chaves de metadados manuais e edições. Inclui destinos inexistentes. Não encadeia substituições, não modifica dados e rejeita colisões de índices, novas ambiguidades de identidade nas listas, associações inválidas e caminhos não canônicos. A identidade dos arquivos referenciados, a consistência entre snapshots e a escrita ainda precisam ser verificadas pelo executor futuro.
+
+A fila de downloads referencia a obra por raiz, título, autor e destino (e ID legado quando aplicável); IDs negativos das listas são posicionais, não UUIDs. Alterar destinos exige atualizar as referências de aquisição de forma coordenada ou bloquear a operação. Regras e cache ainda não estão cobertos pela análise.
 
 - Gerar mapa de caminho anterior → novo, com remapeamento de prefixos por componentes (A não afeta AB), incluindo descendentes e destinos planejados ainda inexistentes.
 - Atualizar referências do catálogo legado SQLite (arquivos encontrados, destino/local indicado), listas JSON (vínculos, destinos), identidade de obras e edições, metadados manuais, cache, regras e destinos de organização.

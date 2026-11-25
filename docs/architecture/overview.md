@@ -23,3 +23,10 @@ A fila registra a raiz e a identidade exata da ficha JSON. A identidade é reval
 ## Host de extensões
 
 Consulte [Acervo Extension API e Host v1](extension-api.md). Os adaptadores implementam o contrato comum; catálogo, downloads e segurança de rede são serviços do aplicativo.
+
+
+## Planejamento estrutural da biblioteca
+
+O contrato de prévia em `library_restructure.rs` recebe operações tipadas e valida o inventário de subárvores. `library_reference_impact.rs` calcula o impacto de prefixos relativos em catálogo SQLite, listas JSON, índices manuais e edições. Não há comando de aplicação estrutural. O mapa é simultâneo, sem cascata e sem substituição textual parcial. A UI e a IA devem consumir o mesmo contrato, sem replicar validação no frontend.
+
+O caminho planejado de uma obra é independente de suas associações físicas. Identidades de aquisição incluem o destino planejado, por isso o executor não pode modificar apenas as fichas. O próximo incremento deve definir a política de downloads/regras, snapshots exatos, identidade física e recuperação durável; cache é derivado e deve ser invalidado/reconciliado, não tratado como identidade primária. Consulte [especificação](../product/library-workspace.md) e [registro de continuidade](../development/handoff.md).
