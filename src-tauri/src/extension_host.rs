@@ -264,6 +264,7 @@ mod tests {
                         download_url: String::new(),
                         remote_id: None,
                         cover_url: None,
+                        acquisition_page: None,
                         publisher: String::new(),
                         edition_label: String::new(),
                     }],

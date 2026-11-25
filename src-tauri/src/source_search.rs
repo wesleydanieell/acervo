@@ -34,7 +34,8 @@ impl BookSource for JsonSource {
             capabilities: SourceCapabilities {
                 search: true,
                 download: !self.manifest.download_url_field.is_empty()
-                    || self.manifest.editions.is_some(),
+                    || self.manifest.editions.is_some()
+                    || self.manifest.download_resolver.is_some(),
                 pagination: self.manifest.pagination.is_some(),
                 details: false,
                 editions: false,
@@ -200,6 +201,8 @@ async fn search_one(
         &source.formats,
         if let Some(editions) = &source.editions {
             &editions.format_field
+        } else if let Some(resolver) = &source.download_resolver {
+            &resolver.page_field
         } else if fixed_format(&source).is_some() {
             &source.download_url_field
         } else {
@@ -396,6 +399,7 @@ fn extract_nested_editions(
                 download_url: link.into(),
                 remote_id: Some(remote_id.clone()),
                 cover_url: cover_url(source, record),
+                acquisition_page: None,
                 publisher: read_string(edition, &mapping.publisher_field),
                 edition_label: read_string(edition, &mapping.label_field),
             });
@@ -415,6 +419,7 @@ fn extract_nested_editions(
             download_url: String::new(),
             remote_id: Some(remote_id),
             cover_url: cover_url(source, record),
+            acquisition_page: None,
             publisher: String::new(),
             edition_label: String::new(),
         });
@@ -471,6 +476,15 @@ fn extract_matching_results(
             }
             continue;
         }
+        let acquisition_page = source.download_resolver.as_ref().and_then(|resolver| {
+            let base = url::Url::parse(&source.base_url).ok()?;
+            crate::download_resolver::page_url(
+                source,
+                &base,
+                field(record, &resolver.page_field)?.as_str()?,
+            )
+            .map(|url| url.to_string())
+        });
         let candidate_url = field(record, &source.download_url_field)
             .and_then(Value::as_str)
             .unwrap_or("")
@@ -480,7 +494,7 @@ fn extract_matching_results(
         } else {
             String::new()
         };
-        let item_format = if !download_url.is_empty() {
+        let mut item_format = if !download_url.is_empty() {
             fixed_format(source)
                 .map(str::to_owned)
                 .unwrap_or_else(|| read_string(record, &source.format_field))
@@ -495,6 +509,13 @@ fn extract_matching_results(
         } else {
             read_string(record, &source.language_field).to_ascii_lowercase()
         };
+        if !format.is_empty()
+            && acquisition_page.is_some()
+            && download_url.is_empty()
+            && item_format.is_empty()
+        {
+            item_format = format.to_ascii_lowercase();
+        }
         if !format.is_empty()
             && !item_format.eq_ignore_ascii_case(format)
             && (fixed_format(source).is_some()
@@ -517,6 +538,7 @@ fn extract_matching_results(
             format: item_format,
             language: item_language,
             download_url,
+            acquisition_page,
             remote_id: cursor_value(record, &source.remote_id_field),
             cover_url: cover_url(source, record),
             publisher: String::new(),
@@ -532,6 +554,24 @@ fn extract_matching_results(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resolver_pages_remain_separate_from_direct_downloads() {
+        let manifest:SourceManifest=serde_json::from_value(serde_json::json!({"schemaVersion":1,"id":"generic-resolver","name":"Resolver","baseUrl":"https://example.org","searchPath":"/search?q={query}","itemsPath":"items","titleField":"title","downloadDomains":["example.org"],"downloadResolver":{"pageField":"page","linkSelector":"a.file"}})).unwrap();
+        sources::validate(&manifest).unwrap();
+        let data = serde_json::json!({"items":[{"title":"Book","page":"/item/1"},{"title":"Other","page":"https://other.org/item/2"}]});
+        let result = extract_results(&manifest, &data, "", "").unwrap();
+        assert_eq!(
+            result[0].acquisition_page.as_deref(),
+            Some("https://example.org/item/1")
+        );
+        assert!(result[0].download_url.is_empty());
+        assert!(result[1].acquisition_page.is_none());
+        let result = extract_results(&manifest, &data, "", "PDF").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].format, "pdf");
+        assert!(result[0].download_url.is_empty());
+    }
+
     #[test]
     fn nested_editions_keep_work_identity_and_filter_each_acquisition() {
         let source: SourceManifest=serde_json::from_value(serde_json::json!({

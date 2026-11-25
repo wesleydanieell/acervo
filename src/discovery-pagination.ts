@@ -9,6 +9,7 @@ export type SourceResult = {
   remoteId?: string;
   publisher?: string;
   coverUrl?: string;
+  acquisitionPage?: string;
   editionLabel?: string;
 };
 
@@ -20,8 +21,8 @@ export type SearchOutcome = {
 
 export function resultIdentity(result: SourceResult): string {
   return JSON.stringify(result.remoteId
-    ? [result.sourceId, result.remoteId, result.title, result.author, result.language, result.format, result.downloadUrl, result.publisher ?? "", result.editionLabel ?? ""]
-    : [result.sourceId, result.title, result.author, result.language, result.format, result.downloadUrl, result.publisher ?? "", result.editionLabel ?? ""]);
+    ? [result.sourceId, result.remoteId, result.title, result.author, result.language, result.format, result.downloadUrl, result.acquisitionPage ?? "", result.publisher ?? "", result.editionLabel ?? ""]
+    : [result.sourceId, result.title, result.author, result.language, result.format, result.downloadUrl, result.acquisitionPage ?? "", result.publisher ?? "", result.editionLabel ?? ""]);
 }
 
 export function mergeSourcePage(

@@ -52,6 +52,8 @@ pub struct SourceManifest {
     pub feed_categories: Vec<FeedCategory>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub cover_url_field: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_resolver: Option<DownloadResolver>,
     #[serde(default)]
     pub items_path: String,
     #[serde(default)]
@@ -80,6 +82,16 @@ pub struct SourceManifest {
     pub html: Option<HtmlMapping>,
     #[serde(default)]
     pub editions: Option<JsonEditions>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DownloadResolver {
+    #[serde(default)]
+    pub page_field: String,
+    #[serde(default)]
+    pub page_selector: String,
+    pub link_selector: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -344,6 +356,29 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
             return Err("Feed deve apontar para uma página da mesma origem, sem pesquisa, e usar {cursor} apenas com paginação JSON.".into());
         }
     }
+    if let Some(resolver) = &manifest.download_resolver {
+        let valid_mapping = match manifest.adapter {
+            AdapterKind::Json => {
+                validate_field(&resolver.page_field, true)
+                    && resolver.page_selector.is_empty()
+                    && manifest.editions.is_none()
+            }
+            AdapterKind::Html => {
+                resolver.page_field.is_empty()
+                    && crate::html_parser::selector(&resolver.page_selector, true).is_ok()
+            }
+            AdapterKind::Opds => false,
+        };
+        if !valid_mapping
+            || manifest.download_domains.as_ref().is_none_or(Vec::is_empty)
+            || crate::html_parser::selector(&resolver.link_selector, true).is_err()
+        {
+            return Err(
+                "Resolução exige mapeamento JSON ou HTML válido e domínios de download explícitos."
+                    .into(),
+            );
+        }
+    }
     if !manifest.cover_url_field.is_empty()
         && (manifest.adapter != AdapterKind::Json
             || !validate_field(&manifest.cover_url_field, false))
@@ -468,14 +503,15 @@ pub(crate) fn valid_cursor(cursor: &str) -> bool {
 }
 
 pub(crate) fn permits_download(manifest: &SourceManifest, link: &str) -> bool {
-    if (manifest.adapter == AdapterKind::Json
-        && manifest.download_url_field.is_empty()
-        && manifest.editions.is_none())
-        || (manifest.adapter == AdapterKind::Html
-            && manifest
-                .html
-                .as_ref()
-                .is_none_or(|html| html.download_selector.is_empty()))
+    if (manifest.download_resolver.is_none()
+        && ((manifest.adapter == AdapterKind::Json
+            && manifest.download_url_field.is_empty()
+            && manifest.editions.is_none())
+            || (manifest.adapter == AdapterKind::Html
+                && manifest
+                    .html
+                    .as_ref()
+                    .is_none_or(|html| html.download_selector.is_empty()))))
         || !super::extension_network::safe_url(link)
     {
         return false;
@@ -714,6 +750,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             feed_path: None,
             feed_categories: vec![],
             cover_url_field: String::new(),
+            download_resolver: None,
         },
     )
 }
@@ -801,6 +838,7 @@ mod tests {
             feed_path: None,
             feed_categories: vec![],
             cover_url_field: String::new(),
+            download_resolver: None,
         }
     }
 

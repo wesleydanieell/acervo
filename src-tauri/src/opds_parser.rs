@@ -108,6 +108,7 @@ fn emit(
         language: bounded(language),
         download_url: url.into(),
         cover_url: entry.cover_url.clone(),
+        acquisition_page: None,
         publisher: String::new(),
         edition_label: String::new(),
         // IDs are opaque: reject oversized values rather than truncate their identity.

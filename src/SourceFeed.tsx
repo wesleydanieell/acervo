@@ -13,8 +13,9 @@ type Props = {
   onOpen: () => void;
   onWeb: () => void;
   onDownload: (item: SourceResult) => void;
+  onResolve: (item:SourceResult)=>void;
 };
-export function SourceFeed({source,full=false,onOpen,onWeb,onDownload}:Props) {
+export function SourceFeed({source,full=false,onOpen,onWeb,onDownload,onResolve}:Props) {
   const {manifest,enabled}=source;
   const hasDefault=!!manifest.feedPath || (manifest.adapter !== "opds" && manifest.adapter !== "html" && !!manifest.localSearch);
   const categories=useMemo(()=>[...(hasDefault?[{id:"",label:"Catálogo"}]:[]),...(manifest.feedCategories??[])],[hasDefault,manifest.feedCategories]);
@@ -78,6 +79,7 @@ export function SourceFeed({source,full=false,onOpen,onWeb,onDownload}:Props) {
       {!!shown.length&&<div className="feed-books">{shown.map(work=><article key={work.key} className="feed-book">
         <div className="feed-book-main"><SourceCover sourceId={work.sourceId} url={[...work.editions,...work.metadata].find(item=>item.coverUrl)?.coverUrl} title={work.title}/><div className="feed-book-text"><strong title={work.title}>{work.title}</strong><small title={work.author}>{work.author||"Autor não informado"}</small><small>{[...new Set(work.editions.map(item=>item.format.toUpperCase()))].join(" · ")||"Metadados"}</small></div></div>
         {work.editions.length===1?<button className="button secondary" onClick={()=>onDownload(work.editions[0])}><Download size={14}/> Baixar</button>:work.editions.length>1?<button className="button secondary" aria-expanded={expanded===work.key} onClick={()=>setExpanded(old=>old===work.key?null:work.key)}>{work.editions.length} opções <ChevronRight size={14}/></button>:null}
+        {work.metadata.filter(item=>item.acquisitionPage).slice(0,1).map(item=><button key={resultIdentity(item)} className="button secondary" onClick={()=>onResolve(item)}><Download size={14}/> Ver arquivos</button>)}
         {expanded===work.key&&<div className="feed-editions">{work.editions.map(item=><button key={resultIdentity(item)} className="button secondary" onClick={()=>onDownload(item)}><Download size={14}/><span>{[item.format.toUpperCase(),item.language,item.publisher,item.editionLabel].filter(Boolean).join(" · ")}</span></button>)}</div>}
       </article>)}</div>}
       {full&&grouped.length>visible&&<button className="button secondary feed-more" onClick={()=>setVisible(n=>n+24)}>Mostrar mais</button>}
