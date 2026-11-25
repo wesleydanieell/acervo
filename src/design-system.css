@@ -1,0 +1,155 @@
+/* Shared desktop primitives: visual modes change the hierarchy of surfaces,
+   not the information architecture or the meaning of an interaction. */
+:root{
+  --ds-control:38px;--ds-space:16px;--ds-section:24px;
+  --ds-control-radius:9px;--ds-card-radius:12px;--ds-dialog-radius:18px;
+  --ds-surface:var(--glass-strong);--ds-field:color-mix(in srgb,var(--glass-base) 80%,var(--glass-strong));
+  --ds-hover:color-mix(in srgb,var(--text) 7%,transparent);
+  --ds-selected:color-mix(in srgb,var(--accent) 15%,var(--glass-strong));
+  --ds-duration:150ms;--ds-ease:cubic-bezier(.2,0,0,1);
+}
+:root[data-visual-style="material"]{
+  --ds-control:44px;--ds-control-radius:14px;--ds-card-radius:20px;--ds-dialog-radius:28px;
+  --ds-surface:color-mix(in srgb,var(--glass-strong) 94%,var(--accent));
+  --ds-field:color-mix(in srgb,var(--glass-base) 86%,var(--accent));
+  --ds-selected:color-mix(in srgb,var(--accent) 20%,var(--glass-strong));
+  --ds-duration:200ms;
+}
+:root[data-visual-style="glass"]{
+  --ds-control:40px;--ds-control-radius:13px;--ds-card-radius:18px;--ds-dialog-radius:24px;
+  --ds-field:color-mix(in srgb,var(--glass-base) 64%,var(--glass-strong));
+  --ds-duration:190ms;
+}
+:root .main-area{padding:24px clamp(16px,3vw,40px) 42px}
+:root .topbar{height:60px;padding-inline:clamp(14px,3vw,34px)}
+:root .topbar-search{height:var(--ds-control);max-width:560px;padding-inline:12px;border-radius:var(--ds-control-radius);background:var(--ds-field);border:1px solid var(--stroke)}
+:root .topbar-search:focus-within{border-color:var(--accent)}
+:root .page-intro{align-items:flex-start;gap:20px;margin-bottom:var(--ds-section);flex-wrap:wrap}
+:root .page-intro h1{font:700 clamp(25px,2.5vw,32px)/1.2 system-ui,sans-serif;letter-spacing:-.035em;margin:0 0 6px}
+:root .page-intro p{max-width:64ch;font-size:13px;line-height:1.5}
+:root .page-actions,.sources-top-actions,.download-actions,.catalog-actions{gap:8px;align-items:center;flex-wrap:wrap}
+:root .button{min-height:var(--ds-control);padding:8px 13px;border-radius:var(--ds-control-radius);font-size:12px;font-weight:650;transition:background var(--ds-duration),border-color var(--ds-duration),transform var(--ds-duration) var(--ds-ease)}
+:root .button.secondary{background:color-mix(in srgb,var(--glass-strong) 55%,transparent)}
+:root .button.secondary:hover:not(:disabled){background:var(--ds-hover);border-color:color-mix(in srgb,var(--accent) 40%,var(--stroke))}
+:root .button:hover:not(:disabled){transform:none}
+:root .button:active:not(:disabled){transform:scale(.98)}
+:root .icon-button{border-radius:var(--ds-control-radius);transition:background var(--ds-duration),color var(--ds-duration)}
+:root .pill-control,:root .view-switch,:root .selection-toggle{min-height:var(--ds-control);border-radius:var(--ds-control-radius)}
+:root .collection-controls{gap:6px;flex-wrap:wrap}
+:root .content-top{align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+:root .content-top h2{font-size:17px;letter-spacing:-.02em;margin:0}
+:root .settings-grid{gap:16px;grid-template-columns:repeat(2,minmax(0,1fr))}
+:root .settings-card{min-height:0;padding:20px;border-radius:var(--ds-card-radius)}
+:root .settings-card-heading{margin-bottom:18px;align-items:center}
+:root .settings-card-heading h2{font-size:17px;letter-spacing:-.025em;margin:0 0 3px}
+:root .settings-field{margin-top:18px;font-size:12px}
+:root .settings-field select{padding:10px 12px;border-radius:var(--ds-control-radius)}
+:root .style-choices{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+:root .style-choice{min-height:0;gap:6px;padding:9px;border-radius:var(--ds-card-radius)}
+:root .style-choice:hover{transform:none}
+:root .style-choice small{font-size:11px;line-height:1.4}
+.style-preview{width:100%;aspect-ratio:1.65;display:flex;gap:4px;padding:6px;border:1px solid var(--stroke);border-radius:7px;background:var(--glass-base);overflow:hidden}
+.style-preview>i{flex:0 0 26%;background:var(--glass-strong);border-radius:3px;position:relative}
+.style-preview>i:after{content:"";position:absolute;top:20%;left:10%;right:10%;height:16%;background:var(--accent);opacity:.8;border-radius:2px}
+.style-preview>b{flex:1;display:grid;grid-template-columns:repeat(3,1fr);align-items:end;gap:4px}
+.style-preview em{display:block;height:76%;background:color-mix(in srgb,var(--accent) 18%,var(--glass-strong));border:1px solid var(--stroke);border-radius:3px}
+.style-preview[data-preview="glass"]{background:linear-gradient(135deg,var(--glass-base),color-mix(in srgb,var(--accent) 34%,var(--glass-strong)))}
+.style-preview[data-preview="glass"]>i,.style-preview[data-preview="glass"] em{background:color-mix(in srgb,var(--glass-strong) 45%,transparent);border:1px solid color-mix(in srgb,var(--text) 25%,transparent);border-radius:6px;box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 24%,transparent)}
+.style-preview[data-preview="material"]>i,.style-preview[data-preview="material"] em{border-radius:8px;border:0;background:color-mix(in srgb,var(--accent) 22%,var(--glass-strong))}
+.style-preview[data-preview="material"]>i:after{border-radius:20px}
+:root .settings-toggle{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;margin-top:16px;border-top:1px solid var(--stroke)}
+.settings-toggle>span{display:grid;gap:4px}
+.settings-toggle strong{font-size:13px}.settings-toggle small{font-size:12px;color:var(--text-muted)}
+.settings-toggle input{appearance:none;width:42px;height:25px;flex:none;background:var(--glass-base);border:1px solid var(--stroke);border-radius:18px;position:relative;cursor:pointer;transition:background var(--ds-duration)}
+.settings-toggle input:before{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:var(--text-muted);transition:transform var(--ds-duration) var(--ds-ease)}
+.settings-toggle input:checked{background:var(--accent);border-color:var(--accent)}
+.settings-toggle input:checked:before{transform:translateX(17px);background:var(--accent-ink)}
+.action-menu{position:relative;flex:none}
+.action-menu-panel{position:absolute!important;z-index:8;top:calc(100% + 6px);right:0;display:grid;gap:2px;padding:5px;min-width:218px;max-width:min(300px,calc(100vw - 24px));border-radius:var(--ds-card-radius);background:var(--ds-surface)!important;box-shadow:0 12px 36px #0003!important;animation:ds-menu-in var(--ds-duration) var(--ds-ease)}
+.catalog-actions .action-menu-panel{left:0;right:auto}
+.action-menu-panel button{display:flex;align-items:center;gap:10px;min-height:var(--ds-control);padding:8px 11px;border:0;text-align:left;border-radius:var(--ds-control-radius);background:transparent;color:var(--text);font-size:12px}
+.action-menu-panel button:hover:not(:disabled){background:var(--ds-hover)}
+.action-menu-panel button svg{color:var(--text-muted)}
+@keyframes ds-menu-in{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes ds-dialog-in{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes ds-drawer-in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
+/* Native dialog stays centered; scroll the body, keep its actions reachable. */
+:root dialog.download-picker{position:fixed;inset:0;margin:auto;max-height:min(90vh,840px);border-radius:var(--ds-dialog-radius);overflow:hidden;background:var(--ds-surface)}
+:root dialog.download-picker[open]{display:flex;flex-direction:column;animation:ds-dialog-in var(--ds-duration) var(--ds-ease)}
+:root dialog.download-picker>form{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+:root .download-picker-header,:root .download-picker-footer{flex:none;padding:14px 18px;gap:10px}
+:root .download-picker-header>div{min-width:0}
+:root .download-picker-header h2{font-size:18px;line-height:1.25;letter-spacing:-.02em}
+:root .download-picker-header p{font-size:12px}
+:root .download-picker-body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:18px;gap:14px;scrollbar-width:thin}
+:root .download-picker-footer{flex-wrap:wrap}
+:root .download-picker-body label,:root .source-search-form label>span{font-size:12px;line-height:1.4}
+:root .download-picker-body input:not([type=checkbox]):not([type=radio]):not([type=file]),:root .download-picker-body textarea,:root .download-picker-body select,:root .source-search-form input,:root .source-search-form select,:root .download-search{color:var(--text);background:var(--ds-field);border:1px solid var(--stroke);border-radius:var(--ds-control-radius);min-height:var(--ds-control);padding:8px 11px;font:inherit;font-size:13px;max-width:100%}
+:root .download-picker-body textarea{min-height:88px}
+:root .download-picker-body .download-picker-search input,:root .download-picker-body .duplicate-search input{background:transparent;border:0;padding-inline:0;min-width:0;flex:1}
+:root .download-picker-body input:focus-visible,:root .download-picker-body textarea:focus-visible,:root .download-picker-body select:focus-visible,:root .source-search-form input:focus-visible,:root .source-search-form select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+:root .details-drawer{animation:ds-drawer-in var(--ds-duration) var(--ds-ease);padding:20px;scrollbar-width:thin}
+:root .details-drawer .detail-list{gap:10px;padding:14px 0;border-bottom:0}
+:root .details-drawer .detail-list>div{display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,1.5fr);gap:10px}
+:root .details-drawer .detail-list strong{font-size:12px;overflow-wrap:anywhere}
+:root .edition-options{padding:16px 0}
+:root .modal{animation:ds-dialog-in var(--ds-duration) var(--ds-ease);border-radius:var(--ds-dialog-radius)}
+:root .catalog-summary-card,:root .catalog-work,:root .source-card,:root .source-search,:root .download-card,:root .folder-tile,:root .empty-state{border-radius:var(--ds-card-radius)}
+:root .source-search{padding:18px;gap:15px}
+:root .catalog-work-info strong,:root .download-title strong,:root .source-work strong{font-size:13px;line-height:1.4}
+:root .catalog-summary-card{min-height:0;padding:16px}
+:root .metadata-summary strong{font-variant-numeric:tabular-nums;letter-spacing:-.025em}
+/* Material: tonal hierarchy and strong state layers, without translucent blur. */
+:root[data-visual-style="material"] .button.primary{border-radius:999px;box-shadow:none}
+:root[data-visual-style="material"] .button.secondary{border-radius:999px;background:transparent}
+:root[data-visual-style="material"] .nav-item.active,:root[data-visual-style="material"] .folder-row.active{background:var(--ds-selected)}
+:root[data-visual-style="material"] .book-card.selected,:root[data-visual-style="material"] .book-card.bulk-selected{border-color:var(--accent);background:var(--ds-selected)}
+:root[data-visual-style="material"] .catalog-summary-card,:root[data-visual-style="material"] .source-search,:root[data-visual-style="material"] .settings-card{background:var(--ds-surface)}
+:root[data-visual-style="material"] .book-card,:root[data-visual-style="material"] .catalog-work,:root[data-visual-style="material"] .download-card{box-shadow:none;border:1px solid var(--stroke)}
+/* Glass: reserve expensive blur for chrome and overlays, not every book. */
+:root[data-visual-style="glass"] .main-area .glass-panel:not(dialog){backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 10%,transparent);background:color-mix(in srgb,var(--glass-strong) 65%,transparent)}
+:root[data-visual-style="glass"] .topbar,:root[data-visual-style="glass"] .sidebar,:root[data-visual-style="glass"] dialog.download-picker{backdrop-filter:blur(24px) saturate(145%);-webkit-backdrop-filter:blur(24px) saturate(145%);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 15%,transparent)}
+:root[data-visual-style="glass"] dialog.download-picker{background:color-mix(in srgb,var(--glass-strong) 90%,transparent)}
+:root[data-visual-style="glass"] .main-area .book-card:hover,:root[data-visual-style="glass"] .main-area .folder-tile:hover{background:color-mix(in srgb,var(--glass-strong) 90%,transparent)}
+:root[data-visual-style="glass"] .main-area .book-card.selected,:root[data-visual-style="glass"] .main-area .book-card.bulk-selected{border-color:var(--accent);background:var(--ds-selected)}
+:root[data-visual-style="glass"] .action-menu-panel{backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%)}
+@media(max-width:1020px){:root .settings-grid{grid-template-columns:1fr}}
+@media(max-width:600px){:root .main-area{padding:16px 12px 32px}:root .topbar{gap:8px;padding-inline:10px}:root .page-intro{gap:12px}:root .page-actions{justify-content:flex-start}:root .page-actions .add-button{width:auto}:root .style-choices{grid-template-columns:repeat(3,minmax(0,1fr))}:root .download-picker-header,:root .download-picker-footer,:root .download-picker-body{padding:12px}:root .action-menu-panel{left:0;right:auto}}
+@media(max-width:400px){:root .style-choices{grid-template-columns:1fr}:root .style-preview{max-width:120px}}
+@media(prefers-reduced-motion:reduce){:root *,:root *::before,:root *::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* Keep document text outside native radio labels. Status is a separate,
+   readable column; long paths wrap rather than pushing row actions away. */
+:root .duplicate-file-choice{align-items:center;cursor:default}
+:root .duplicate-file-choice input{width:16px;height:16px;margin:0;flex:none}
+.duplicate-file-text{display:grid;gap:4px;min-width:0;flex:1}
+.duplicate-file-name{display:block;text-align:left;border:0;background:none;color:var(--text);padding:0;min-width:0;font-size:13px;font-weight:650;line-height:1.35;overflow-wrap:anywhere}
+.duplicate-location{line-height:1.4;overflow-wrap:anywhere}
+.duplicate-protection{display:flex;align-items:flex-start;gap:4px;min-width:0}
+.duplicate-protection span{overflow-wrap:anywhere;min-width:0}
+.duplicate-protection svg{margin-top:2px}
+.duplicate-row-status{display:block!important;flex:0 0 78px!important;text-align:center;font-size:11px;color:var(--text-muted);white-space:nowrap}
+.duplicate-row-status.duplicate-keep-label{color:var(--accent);font-weight:700}
+:root .duplicate-file .icon-button{flex:none;width:32px;height:32px}
+:root .duplicate-group-header>small{flex:none;white-space:normal;text-align:right}
+:root .metadata-summary{grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr))}
+:root .metadata-summary>div{min-width:0}
+:root .metadata-summary small{line-height:1.35;overflow-wrap:anywhere}
+:root .download-picker-body>label,:root .smart-rule-fields>label,:root .duplicate-scan-bar>label{min-width:0}
+:root .download-picker-body label select,:root .download-picker-body label textarea{min-width:0;width:100%}
+@media(max-width:520px){.duplicate-group .duplicate-file{flex-wrap:wrap}.duplicate-file-choice{flex-basis:100%}.duplicate-row-status{margin-left:25px;text-align:left;flex:1!important}.duplicate-group-header>small{max-width:86px}}
+
+:root .book-info>strong{overflow-wrap:anywhere;line-height:1.4}
+:root .book-info>span{line-height:1.4}
+:root .duplicate-group-header>span{min-width:0}
+:root .duplicate-group-header strong{white-space:normal;overflow-wrap:anywhere}
+:root .duplicate-file-name{white-space:normal;max-width:100%}
+:root .duplicate-file .duplicate-row-status{min-width:0}
+:root .action-menu-panel button span{white-space:normal;overflow-wrap:anywhere}
+
+:root dialog.duplicates-center{width:min(920px,calc(100vw - 32px))}
+:root .duplicate-group-header{min-width:0}
+:root .duplicate-group-header>small{max-width:116px}
+:root .duplicate-filter-bar{align-items:center}
+:root .duplicate-filter-bar>select{min-width:0}
+:root .duplicate-group-header strong{font-size:14px;line-height:1.4}

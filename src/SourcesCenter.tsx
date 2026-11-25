@@ -1,3 +1,4 @@
+import { ActionMenu } from "./ActionMenu";
 import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome } from "./discovery-pagination";
 import { groupDiscoveryWorks } from "./discovery-works";
 import { AcquisitionPicker } from "./AcquisitionPicker";
@@ -238,9 +239,11 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       <div className="sources-top-actions">
         {discover ? <>{detailSource&&<button className="button secondary" onClick={leaveDetail}><ArrowLeft size={16}/> Todas as fontes</button>}<button className="button secondary" onClick={onShowExtensions}><Globe2 size={16}/> Extensões</button><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Downloads</button></> :
           <><button className="button secondary" onClick={()=>{leaveDetail();onShowDiscover();}}><Search size={16}/> Descobrir</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
-          <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "open-library")} onClick={() => void installDemo()}><Globe2 size={16}/> Open Library</button>
-          <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "gutenberg-curated")} onClick={() => void installExample("gutenberg-curated")}><Plus size={16}/> Gutenberg</button>
-          <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "acervo-test-source")} onClick={() => void installExample("acervo-test-source")}><Plus size={16}/> Fonte de teste</button>
+          <ActionMenu label="Exemplos" actions={[
+            {label:"Open Library",icon:<Globe2 size={16}/>,disabled:busy||sources.some(item=>item.manifest.id==="open-library"),run:()=>void installDemo()},
+            {label:"Gutenberg",icon:<Plus size={16}/>,disabled:busy||sources.some(item=>item.manifest.id==="gutenberg-curated"),run:()=>void installExample("gutenberg-curated")},
+            {label:"Fonte de teste",icon:<Plus size={16}/>,disabled:busy||sources.some(item=>item.manifest.id==="acervo-test-source"),run:()=>void installExample("acervo-test-source")},
+          ]}/>
           <button className="button primary" disabled={busy} onClick={() => void install()}><Plus size={17}/> Instalar JSON</button></>}
       </div>
     </div>

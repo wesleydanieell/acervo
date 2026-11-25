@@ -1,0 +1,68 @@
+/* Native semantics, app-owned appearance. Keep theme tokens as the only
+   source of color and dimensions, including WebKitGTK's form controls. */
+:root{
+  --control-bg:var(--ds-field);
+  --control-border:color-mix(in srgb,var(--text) 18%,transparent);
+  --control-mark:var(--accent);
+  --control-mark-ink:var(--accent-ink);
+}
+:root select{
+  -webkit-appearance:none;appearance:none;color:var(--text);
+  border:1px solid var(--control-border);
+  border-radius:var(--ds-control-radius);
+  background-color:var(--control-bg);
+  background-image:linear-gradient(45deg,transparent 50%,var(--text-muted) 50%),linear-gradient(135deg,var(--text-muted) 50%,transparent 50%);
+  background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+  background-size:5px 5px,5px 5px;
+  background-repeat:no-repeat;
+  padding:8px 30px 8px 11px;
+  min-height:var(--ds-control);min-width:0;font-size:12px;line-height:1.35;
+  text-overflow:ellipsis;cursor:pointer;
+}
+:root select option,:root select optgroup{background-color:var(--glass-strong);color:var(--text)}
+:root .download-picker-body select,:root .source-search-form select,:root .settings-field select,:root .modal-body select,:root .download-destination select{
+  -webkit-appearance:none;appearance:none;
+  background-color:var(--control-bg);
+  background-image:linear-gradient(45deg,transparent 50%,var(--text-muted) 50%),linear-gradient(135deg,var(--text-muted) 50%,transparent 50%);
+  background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+  padding:8px 30px 8px 11px;
+}
+:root .pill-control select,:root .theme-dropdown select,:root .catalog-destination select{
+  border:0;border-radius:0;background:transparent;min-height:0;padding:0 2px;width:auto;
+}
+/* These composite controls already supply their own indicator. */
+:root .pill-control select,:root .theme-dropdown select,:root .catalog-destination select{background-image:none}
+:root .sort-control select{max-width:95px}
+:root .group-control select{max-width:108px}
+:root .availability-control select{max-width:123px}
+:root input:not([type]),:root input[type=text],:root input[type=search],:root input[type=number],:root input[type=url],:root textarea{
+  -webkit-appearance:none;appearance:none;color:var(--text);caret-color:var(--accent);
+}
+:root input::placeholder,:root textarea::placeholder{color:var(--text-muted);opacity:1}
+:root .duplicate-search{min-height:var(--ds-control);background:var(--control-bg);border-color:var(--control-border)}
+:root .download-picker-body .duplicate-search input,:root .download-picker-body .download-picker-search input{background:none!important;box-shadow:none;border:0!important;outline:none;padding:0;min-height:0}
+:root .duplicate-search:focus-within,:root .download-picker-search:focus-within,:root .topbar-search:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+:root input[type=checkbox]:not([role=switch]),:root input[type=radio]{
+  -webkit-appearance:none;appearance:none;display:inline-grid;place-content:center;
+  flex:none;width:17px;height:17px;min-width:17px;min-height:17px;padding:0;
+  border:1px solid var(--control-border);background:var(--glass-base);
+  border-radius:4px;color:var(--control-mark-ink);vertical-align:middle;
+  cursor:pointer;position:relative;
+}
+:root input[type=radio]{border-radius:50%}
+:root input[type=checkbox]:not([role=switch]):checked,:root input[type=checkbox]:not([role=switch]):indeterminate{
+  border-color:var(--control-mark);background:var(--control-mark);
+}
+:root input[type=checkbox]:not([role=switch]):checked::after{content:"";width:8px;height:5px;border-left:2px solid var(--control-mark-ink);border-bottom:2px solid var(--control-mark-ink);transform:translateY(-1px) rotate(-45deg)}
+:root input[type=checkbox]:not([role=switch]):indeterminate::after{content:"";width:8px;height:2px;background:var(--control-mark-ink);transform:none;border:0}
+:root input[type=radio]:checked{border-color:var(--control-mark)}
+:root input[type=radio]:checked::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--control-mark)}
+:root input[type=checkbox]:disabled,:root input[type=radio]:disabled,:root select:disabled,:root textarea:disabled{opacity:.5;cursor:not-allowed}
+:root input[type=checkbox]:focus-visible,:root input[type=radio]:focus-visible,:root select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+:root progress{-webkit-appearance:none;appearance:none;border:0;height:7px;background:var(--glass-base);border-radius:999px;overflow:hidden}
+:root progress::-webkit-progress-bar{background:var(--glass-base);border-radius:999px}
+:root progress::-webkit-progress-value{background:var(--accent);border-radius:999px}
+:root[data-visual-style=material] input[type=checkbox]:not([role=switch]){border-radius:3px}
+:root[data-visual-style=glass] input[type=checkbox]:not([role=switch]),:root[data-visual-style=glass] input[type=radio]{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 12%,transparent)}
+@media(forced-colors:active){:root select,:root input[type=checkbox]:not([role=switch]),:root input[type=radio]{appearance:auto;-webkit-appearance:auto;background-image:none}}
