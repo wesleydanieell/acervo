@@ -26,3 +26,13 @@ test("custom destinations require explicit creation mode and safe relative paths
   assert.deepEqual(planDownloadDestination("Missing", undefined, "Missing/History", ["Books"]), { path: "Missing/History", createMissing: true });
   assert.deepEqual(planDownloadDestination("Missing", "", undefined, ["Books"]), { path: "", createMissing: false });
 });
+
+
+test("catalog-linked downloads require the original library", async () => {
+  const { canImportDownload } = await import("../src/download-workspace.ts");
+  const target = { root: "/books", title: "Book", author: "", destination: "History" };
+  assert.equal(canImportDownload("/books", target), true);
+  assert.equal(canImportDownload("/other", target), false);
+  assert.equal(canImportDownload("", null), false);
+  assert.equal(canImportDownload("/other", null), true);
+});

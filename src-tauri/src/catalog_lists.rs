@@ -1,14 +1,16 @@
 //! App-owned wishlists live beside the legacy SQLite catalog, never inside it.
 use super::{BookFile, CatalogWork};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const LIST_FILE: &str = "Acervo_Listas.json";
+static LIST_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +149,9 @@ fn save_values(root: &Path, works: Vec<Value>) -> Result<(), String> {
 
 /// Keep app-owned work associations in sync with file operations.
 pub(super) fn sync_move_refs(root: &Path, old: &str, new: &str) -> Result<(), String> {
+    let _guard = LIST_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Catálogo indisponível.")?;
     let destination = list_path(root);
     let mut values = load_values(&destination)?;
     let mut changed = false;
@@ -229,6 +234,9 @@ pub fn load(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> Vec<
 
 #[tauri::command]
 pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportReport, String> {
+    let _guard = LIST_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Catálogo indisponível.")?;
     let root = fs::canonicalize(root).map_err(|e| format!("Biblioteca inválida: {e}"))?;
     if !root.is_dir() {
         return Err("A raiz deve ser uma pasta.".into());
@@ -273,9 +281,92 @@ pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportRepo
     })
 }
 
+/// A conservative persistent reference: a canonical library root and exact, unique work identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CatalogTarget {
+    pub root: String,
+    pub title: String,
+    pub author: String,
+    pub destination: String,
+}
+
+impl CatalogTarget {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.root.len() > 4096
+            || self.title.trim().is_empty()
+            || self.title.len() > 500
+            || self.author.len() > 500
+            || !valid_relative_folder(&self.destination)
+        {
+            return Err("Referência de catálogo inválida.".into());
+        }
+        let root = fs::canonicalize(&self.root).map_err(|error| error.to_string())?;
+        if root.to_str() != Some(self.root.as_str()) || !root.is_dir() {
+            return Err("Biblioteca de origem inválida.".into());
+        }
+        self.resolve_id(&root).map(|_| ())
+    }
+
+    fn resolve_id(&self, root: &Path) -> Result<i64, String> {
+        let catalog_dir = root.join("99 - Catálogo");
+        if fs::canonicalize(&catalog_dir).map_err(|error| error.to_string())? != catalog_dir {
+            return Err("Diretório de catálogo inválido ou simbólico.".into());
+        }
+        let works = load_values(&list_path(root))?;
+        let matches: Vec<_> = works
+            .iter()
+            .enumerate()
+            .filter(|(_, work)| {
+                field(work, "titulo") == self.title
+                    && field(work, "autor") == self.author
+                    && field(work, "local_indicado") == self.destination
+            })
+            .collect();
+        if matches.len() != 1 {
+            return Err(
+                "A ficha foi alterada, removida ou não é única; associe manualmente.".into(),
+            );
+        }
+        Ok(-(matches[0].0 as i64) - 1)
+    }
+
+    pub fn link(&self, root: &Path, relative: &str) -> Result<(), String> {
+        if root.to_str() != Some(self.root.as_str()) {
+            return Err("O download pertence a outra biblioteca.".into());
+        }
+        let _guard = LIST_WRITE_LOCK
+            .lock()
+            .map_err(|_| "Catálogo indisponível.")?;
+        let id = self.resolve_id(root)?;
+        link_catalog_file_locked(
+            self.root.clone(),
+            id,
+            self.title.clone(),
+            self.author.clone(),
+            self.destination.clone(),
+            relative.into(),
+        )
+    }
+}
+
 /// Associate an existing physical book with an explicitly selected app-owned work.
 #[tauri::command]
 pub fn link_catalog_file(
+    root: String,
+    work_id: i64,
+    title: String,
+    author: String,
+    destination: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let _guard = LIST_WRITE_LOCK
+        .lock()
+        .map_err(|_| "Catálogo indisponível.")?;
+    link_catalog_file_locked(root, work_id, title, author, destination, relative_path)
+}
+
+fn link_catalog_file_locked(
     root: String,
     work_id: i64,
     title: String,
@@ -450,6 +541,41 @@ mod tests {
         );
         assert!(parse_list(r#"{"obras":[{"titulo":"Perigo","local_indicado":"/tmp"}]}"#).is_err());
         assert!(parse_list(r#"{"obras":[{"titulo":""}]}"#).is_err());
+    }
+
+    #[test]
+    fn download_reference_survives_reordering_but_not_identity_changes() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("acervo-target-{}-{unique}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let target = CatalogTarget {
+            root: root.to_str().unwrap().into(),
+            title: "Book".into(),
+            author: "Author".into(),
+            destination: "Planned".into(),
+        };
+        let first = json!({"titulo":"Book","autor":"Author","local_indicado":"Planned"});
+        let other = json!({"titulo":"Other"});
+        save_values(&root, vec![first.clone(), other.clone()]).unwrap();
+        target.validate().unwrap();
+        save_values(&root, vec![other.clone(), first.clone()]).unwrap();
+        fs::write(root.join("Book.epub"), b"test").unwrap();
+        target.link(&root, "Book.epub").unwrap();
+        assert_eq!(
+            load_values(&list_path(&root)).unwrap()[1]["arquivos_encontrados"],
+            json!(["Book.epub"])
+        );
+        save_values(&root, vec![first.clone(), first]).unwrap();
+        assert!(target.validate().is_err());
+        save_values(&root, vec![other]).unwrap();
+        assert!(target.link(&root, "Book.epub").is_err());
+        assert!(root.join("Book.epub").is_file());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

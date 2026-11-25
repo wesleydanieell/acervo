@@ -1,3 +1,4 @@
+import type { DiscoveryRequest } from "./download-workspace";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -26,7 +27,7 @@ const sampleManifest = JSON.stringify({
 
 export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExtensions, onShowDiscover, onShowDownloads }: {
   mode: "discover" | "extensions";
-  initialSearch?: { query: string; language: string; format: string; destination: string } | null;
+  initialSearch?: DiscoveryRequest | null;
   onClearRequest: () => void;
   onShowExtensions: () => void;
   onShowDiscover: () => void;
@@ -50,7 +51,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   const searchGeneration = useRef(0);
   const activeSources = sources.filter(item => item.enabled);
   const discover = mode === "discover";
-  const resultKey = (item: SourceResult) => JSON.stringify([item.sourceId, item.downloadUrl, item.format, initialSearch?.destination ?? ""]);
+  const resultKey = (item: SourceResult) => JSON.stringify([item.sourceId, item.downloadUrl, item.format, initialSearch?.destination ?? "", initialSearch?.catalogTarget ?? null]);
   const invalidateSearch = () => { searchGeneration.current++; setSearching(false); setSearchOutcome(null); setQueued(new Set()); };
   useEffect(() => {
     if (sourceId && !sources.some(item => item.enabled && item.manifest.id === sourceId)) {
@@ -118,7 +119,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     try {
       await invoke("queue_download", {
         url: item.downloadUrl, title: item.title, sourceName: item.sourceName,
-        format: item.format, plannedDestination: initialSearch?.destination ?? "",
+        format: item.format, plannedDestination: initialSearch?.destination ?? "", catalogTarget: initialSearch?.catalogTarget ?? null,
       });
       setQueued(previous => new Set(previous).add(key));
       setNotice("Livro adicionado à fila.");
@@ -155,7 +156,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     {!activeSources.length && <div className="source-no-active glass-panel"><Globe2 size={20}/><span>Nenhuma fonte ativa</span><button className="button primary" onClick={onShowExtensions}>Gerenciar extensões</button></div>}
     <section className="source-search glass-panel">
       <div className="source-search-heading"><h2>Pesquisar livros</h2></div>
-      {initialSearch && <div className="source-search-from-catalog"><span>Destino do catálogo: <strong>{initialSearch.destination || "Raiz"}</strong></span><button className="icon-button small" aria-label="Desvincular destino planejado" title="Desvincular destino planejado" onClick={onClearRequest}><X size={15}/></button></div>}
+      {initialSearch && <div className="source-search-from-catalog"><span>{initialSearch.catalogTarget ? <>Obra: <strong>{initialSearch.catalogTarget.title}</strong> · </> : null}Destino: <strong>{initialSearch.destination || "Raiz"}</strong></span><button className="icon-button small" aria-label="Desvincular destino planejado" title="Desvincular destino planejado" onClick={onClearRequest}><X size={15}/></button></div>}
       <form className="source-search-form" onSubmit={(event) => { event.preventDefault(); void search(); }}>
         <label className="source-query"><span>Título ou autor</span><input value={query} onChange={(event) => { setQuery(event.target.value); invalidateSearch(); if (initialSearch) onClearRequest(); }} minLength={2} maxLength={200} placeholder="Ex.: Machado de Assis" aria-label="Buscar obras nas fontes" required/></label>
         <label><span>Fonte</span><select aria-label="Filtrar fonte" value={sourceId} onChange={(event) => { setSourceId(event.target.value); invalidateSearch(); }}><option value="">Todas as ativas</option>{sources.filter((item) => item.enabled).map((item) => <option key={item.manifest.id} value={item.manifest.id}>{item.manifest.name}</option>)}</select></label>

@@ -14,3 +14,8 @@ Tauri 2 / Rust, React 19 / TypeScript. App.tsx coordena navegação; CatalogCent
 ## Associação de arquivos (incremento)
 
 Fichas JSON podem associar arquivos físicos existentes por seleção e confirmação explícita. Rust valida o ID e os campos de identidade, arquivo dentro da raiz, conflitos com fichas JSON e referências legadas. A pasta planejada permanece intacta e o arquivo não é movido; gravação atômica com backup. O ID negativo atual depende da posição da ficha, portanto a comparação de identidade é obrigatória. Próximo passo: identidade estável persistente e vínculo de download à raiz/ficha de origem, com recuperação caso a gravação da associação falhe depois do download. SQLite legado não é alterado por este comando.
+
+
+## Referência de aquisição persistente
+
+A fila registra a raiz e a identidade exata da ficha JSON. A identidade é revalidada durante a associação e tolera reordenação da lista, mas não edição dos campos identificadores. As operações de escrita do catálogo JSON são serializadas no processo. O salvamento físico e a associação têm resultados distintos; falha de metadados não apaga o livro importado. UUIDs persistentes e recuperação transacional entre arquivo, ficha e histórico continuam no roadmap.

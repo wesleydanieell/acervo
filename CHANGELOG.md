@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Downloads iniciados no catálogo JSON preservam a obra de origem e podem associar a edição após a confirmação de importação.
 - Fichas JSON podem vincular edições existentes por seleção e confirmação, sem mover os arquivos ou alterar o SQLite legado.
 - Downloads podem criar destinos aninhados personalizados após confirmação, sem sobrescrever arquivos.
 - Extensões JSON aceitam JSON Pointer, links MIME aninhados, idiomas em arrays e URLs completas de download.

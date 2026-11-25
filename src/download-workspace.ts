@@ -34,3 +34,11 @@ export function planDownloadDestination(
   const path = downloadDestination(planned, selected, folders);
   return path === null ? null : { path, createMissing: false };
 }
+
+
+export type CatalogTarget = { root: string; title: string; author: string; destination: string };
+export type DiscoveryRequest = { query: string; language: string; format: string; destination: string; catalogTarget?: CatalogTarget };
+
+export function canImportDownload(root: string, target?: CatalogTarget | null): boolean {
+  return Boolean(root) && (!target || target.root === root);
+}

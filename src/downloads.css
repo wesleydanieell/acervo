@@ -37,3 +37,5 @@
 .download-custom-path{height:40px;width:100%;min-width:0;border:1px solid var(--stroke);border-radius:8px;padding:0 12px;background:var(--glass-base);color:var(--text);font-size:12px}
 .download-custom-path[aria-invalid=true]{border-color:#c97e70}
 .download-path-actions{display:flex;justify-content:flex-start}
+
+.download-destination label.download-link-option{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500}.download-link-option input{accent-color:var(--accent)}

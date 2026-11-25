@@ -17,6 +17,7 @@ import "./workspace.css";
 import { CatalogCenter } from "./CatalogCenter";
 import { SourcesCenter } from "./SourcesCenter";
 import { DownloadsCenter } from "./DownloadsCenter";
+import type { DiscoveryRequest } from "./download-workspace";
 import { BookCover } from "./BookCover";
 import { alternateEditions, indexEditions } from "./edition-matches";
 import { buildCatalogPrompt } from "./ai-catalog-prompt";
@@ -103,7 +104,7 @@ function App() {
   const [promptDraft, setPromptDraft] = useState<string | null>(null);
   const [sourceFormat, setSourceFormat] = useState("");
   const [sourceLanguage, setSourceLanguage] = useState("");
-  const [sourceRequest, setSourceRequest] = useState<{ query: string; language: string; format: string; destination: string } | null>(null);
+  const [sourceRequest, setSourceRequest] = useState<DiscoveryRequest | null>(null);
   const [newFolder, setNewFolder] = useState("");
   const [folderParent, setFolderParent] = useState("");
   const [contextMenu, setContextMenu] = useState<MenuState | null>(null);
@@ -407,6 +408,9 @@ ${JSON.stringify(sample, null, 2)}`;
       format: sourceFormat,
       language: sourceLanguage,
       destination: entry.folder === "." ? "" : entry.folder,
+      catalogTarget: entry.work && entry.work.id < 0 && collection ? {
+        root: collection.root, title: entry.work.title, author: entry.work.author, destination: entry.work.destination,
+      } : undefined,
     });
     setSelection(null);
     setView("sources");
