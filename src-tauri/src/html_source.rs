@@ -74,7 +74,8 @@ impl BookSource for HtmlSource {
             api_version: API_VERSION,
             capabilities: SourceCapabilities {
                 search: true,
-                download: mapping.is_some_and(|m| !m.download_selector.is_empty())
+                download: (mapping.is_some_and(|m| !m.download_selector.is_empty())
+                    || self.manifest.download_resolver.is_some())
                     && self
                         .manifest
                         .download_domains

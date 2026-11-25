@@ -1,6 +1,7 @@
 mod catalog_lists;
 mod covers;
 mod download_naming;
+mod download_resolver;
 mod download_validation;
 mod downloads;
 mod extension_api;
@@ -607,6 +608,7 @@ pub fn run() {
         sources::list_sources,
         source_browser::open_source_webview,
         source_covers::get_source_cover,
+        download_resolver::resolve_source_downloads,
         extension_repositories::list_repositories,
         extension_repositories::add_repository,
         extension_repositories::remove_repository,

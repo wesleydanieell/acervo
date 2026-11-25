@@ -1,5 +1,6 @@
 import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome } from "./discovery-pagination";
 import { groupDiscoveryWorks } from "./discovery-works";
+import { AcquisitionPicker } from "./AcquisitionPicker";
 import { SourceCover } from "./SourceCover";
 import { SourceFeed } from "./SourceFeed";
 import { ExtensionRepositories } from "./ExtensionRepositories";
@@ -17,6 +18,7 @@ import "./source-search.css";
 export type SourceManifest = {
   schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html"; id: string; name: string; description: string;
   coverUrlField?: string;
+  downloadResolver?: {pageField?:string;pageSelector?:string;linkSelector:string}|null;
   websiteUrl?: string | null; feedPath?: string | null; localSearch?: boolean; feedCategories?: {id:string;label:string;path:string}[];
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
@@ -44,6 +46,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
   onShowDiscover: () => void;
   onShowDownloads: () => void;
 }) {
+  const [acquisitionChoice,setAcquisitionChoice]=useState<SourceResult|null>(null);
   const [downloadChoice, setDownloadChoice] = useState<SourceResult | null>(null);
   const [queueError, setQueueError] = useState("");
   const [sources, setSources] = useState<InstalledSource[]>([]);
@@ -234,7 +237,8 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
             <div className="source-result source-work-heading"><div className="source-result-book"><SourceCover sourceId={work.sourceId} url={[...work.editions,...work.metadata].find(item=>item.coverUrl)?.coverUrl} title={work.title}/><div><strong>{work.title}</strong><small>{work.author || "Autor não informado"} · {work.sourceName}</small></div></div>
               <div className="source-result-actions">{[...new Set(work.editions.map(item=>item.format.toUpperCase()))].map(fmt=><span key={fmt}>{fmt}</span>)}
                 {multiple && <button className="button secondary" aria-expanded={expanded} onClick={()=>setExpandedWorks(previous=>{const next=new Set(previous);if(next.has(work.key))next.delete(work.key);else next.add(work.key);return next;})}>{expanded?"Ocultar opções":work.editions.length+" edições / formatos"}</button>}
-                {!work.editions.length && <small>Somente metadados</small>}
+                {!work.editions.length && !work.metadata.some(item=>item.acquisitionPage) && <small>Somente metadados</small>}
+                {work.metadata.filter(item=>item.acquisitionPage).slice(0,1).map(item=><button key={resultIdentity(item)} className="button secondary" onClick={()=>setAcquisitionChoice(item)}><Download size={15}/> Ver arquivos</button>)}
                 {work.metadata.filter(item=>item.downloadUrl).slice(0,1).map(item=><button key={resultIdentity(item)} className="button secondary" type="button" onClick={()=>void openUrl(item.downloadUrl).catch(failure=>setError(String(failure)))}><ExternalLink size={15}/> Link</button>)}
               </div></div>
             {shown.map((item,index)=><div className="source-edition" key={resultIdentity(item)+":"+index}><div><strong>{item.editionLabel || item.format.toUpperCase()}</strong><small>{[item.editionLabel && item.format.toUpperCase(),item.language,item.publisher].filter(Boolean).join(" · ") || "Idioma não informado"}</small></div>
@@ -249,9 +253,9 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       </div>}
     </section>
     {!query.trim() && !searchOutcome && !initialSearch && !searching && <div className="source-feed-stack">
-      {detailSource ? <SourceFeed key={detailSource.manifest.id} source={detailSource} full onOpen={()=>{}} onWeb={()=>void openSourceWebview(detailSource.manifest.id)} onDownload={chooseEdition}/>
+      {detailSource ? <SourceFeed key={detailSource.manifest.id} source={detailSource} full onOpen={()=>{}} onWeb={()=>void openSourceWebview(detailSource.manifest.id)} onDownload={chooseEdition} onResolve={setAcquisitionChoice}/>
         : <><div className="source-feed-heading"><h2>Feeds das extensões</h2></div>
-          {feedSources.slice(0,visibleFeeds).map(item=><SourceFeed key={item.manifest.id} source={item} onOpen={()=>openDetail(item.manifest.id)} onWeb={()=>void openSourceWebview(item.manifest.id)} onDownload={chooseEdition}/>)}
+          {feedSources.slice(0,visibleFeeds).map(item=><SourceFeed key={item.manifest.id} source={item} onOpen={()=>openDetail(item.manifest.id)} onWeb={()=>void openSourceWebview(item.manifest.id)} onDownload={chooseEdition} onResolve={setAcquisitionChoice}/>)}
           {feedSources.length>visibleFeeds&&<button className="button secondary feed-more" onClick={()=>setVisibleFeeds(n=>n+4)}>Mostrar mais fontes</button>}
         </>}
     </div>}
@@ -270,6 +274,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && (manifest.downloadDomains == null || manifest.downloadDomains.length > 0) && <span><Download size={13}/> Link de download</span>}
         {(manifest.adapter === "opds" || manifest.pagination || manifest.html?.nextSelector) && <span>Paginação</span>}
         {manifest.editions && <span>Múltiplas edições</span>}
+        {manifest.downloadResolver && <span>Resolução de arquivos</span>}
         {(manifest.feedPath || manifest.localSearch || !!manifest.feedCategories?.length) && <span>Feed</span>}
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
@@ -301,6 +306,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
       <p className="source-disclaimer"><ExternalLink size={14}/> Instale apenas fontes de confiança e respeite as condições de distribuição dos arquivos.</p>
     </details>
     </>}
+    {acquisitionChoice && <AcquisitionPicker key={resultIdentity(acquisitionChoice)} book={acquisitionChoice} onClose={()=>setAcquisitionChoice(null)} onChoose={item=>{setAcquisitionChoice(null);chooseEdition(item);}}/>}
     {downloadChoice && <DownloadCatalogPicker book={downloadChoice} root={root} works={works} initial={initialSearch?.catalogTarget}
       busy={pending.has(resultKey(downloadChoice))} error={queueError} onClose={() => setDownloadChoice(null)}
       onSubmit={(target, autoImport, filenameSuffix) => void queue(downloadChoice, target, autoImport, filenameSuffix)}/>}

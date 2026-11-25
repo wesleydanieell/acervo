@@ -17,7 +17,7 @@ fn invalid(message: impl Into<String>) -> SourceError {
     }
 }
 
-fn selector(value: &str, required: bool) -> Result<Option<Selector>, String> {
+pub(crate) fn selector(value: &str, required: bool) -> Result<Option<Selector>, String> {
     if value.is_empty() && !required {
         return Ok(None);
     }
@@ -97,7 +97,7 @@ fn text(item: ElementRef<'_>, selector: Option<&Selector>) -> String {
     output
 }
 
-fn link(base: &Url, element: ElementRef<'_>) -> Option<Url> {
+pub(crate) fn link(base: &Url, element: ElementRef<'_>) -> Option<Url> {
     if element.value().name() != "a" {
         return None;
     }
@@ -116,7 +116,7 @@ fn link(base: &Url, element: ElementRef<'_>) -> Option<Url> {
     Some(resolved)
 }
 
-fn format(url: &Url) -> Option<String> {
+pub(crate) fn format(url: &Url) -> Option<String> {
     let extension = url
         .path()
         .rsplit('/')
@@ -160,6 +160,13 @@ pub(crate) fn parse_html(
     let download = selector(&mapping.download_selector, false).map_err(invalid)?;
     let next = selector(&mapping.next_selector, false).map_err(invalid)?;
     let cover = selector(&mapping.cover_selector, false).map_err(invalid)?;
+    let page_selector = manifest
+        .download_resolver
+        .as_ref()
+        .map(|r| selector(&r.page_selector, true))
+        .transpose()
+        .map_err(invalid)?
+        .flatten();
     let document = Html::parse_document(body);
     if document.tree.nodes().take(MAX_NODES + 1).count() > MAX_NODES {
         return Err(invalid("Resposta HTML contém nós demais."));
@@ -202,6 +209,17 @@ pub(crate) fn parse_html(
             language,
             format,
             download_url,
+            acquisition_page: page_selector
+                .as_ref()
+                .and_then(|selector| {
+                    row.select(selector)
+                        .take(MAX_SCAN)
+                        .filter_map(|e| link(url, e))
+                        .find_map(|candidate| {
+                            crate::download_resolver::page_url(manifest, url, candidate.as_str())
+                        })
+                })
+                .map(|u| u.to_string()),
             cover_url: cover.as_ref().and_then(|selector| {
                 row.select(selector).find_map(|element| {
                     if element.value().name() != "img" {
@@ -279,6 +297,27 @@ mod tests {
         )
         .unwrap()
     }
+    #[test]
+    fn html_resolver_maps_only_same_origin_page_links() {
+        let mut m = manifest();
+        m.download_domains = Some(vec!["example.org".into()]);
+        m.download_resolver = Some(crate::sources::DownloadResolver {
+            page_field: String::new(),
+            page_selector: "a.detail".into(),
+            link_selector: "a.file".into(),
+        });
+        crate::sources::validate(&m).unwrap();
+        let base = Url::parse("https://example.org/catalog").unwrap();
+        let body = r#"<article><h2 class=title>Book</h2><a class=detail href="/item">Details</a></article><article><h2 class=title>Other</h2><a class=detail href="https://other.org/item">Details</a></article>"#;
+        let page = parse_html(&m, body, &base, &request()).unwrap();
+        assert_eq!(
+            page.results[0].acquisition_page.as_deref(),
+            Some("https://example.org/item")
+        );
+        assert!(page.results[0].download_url.is_empty());
+        assert!(page.results[1].acquisition_page.is_none());
+    }
+
     #[test]
     fn declared_feed_accepts_empty_query_and_extracts_only_same_origin_covers() {
         let mut m = manifest();
