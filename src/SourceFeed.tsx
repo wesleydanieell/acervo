@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { BookOpen, ChevronRight, Download, Globe2, RefreshCw, Search } from "lucide-react";
+import { ChevronRight, Download, Globe2, RefreshCw, Search } from "lucide-react";
+import { SourceCover } from "./SourceCover";
 import { groupDiscoveryWorks } from "./discovery-works";
 import { mergeSourcePage, resultIdentity, type SearchOutcome, type SourceResult } from "./discovery-pagination";
 import type { InstalledSource } from "./SourcesCenter";
@@ -66,7 +67,7 @@ export function SourceFeed({source,full=false,onOpen,onWeb,onDownload}:Props) {
       {loading&&!outcome&&<div className="feed-empty" role="status"><RefreshCw size={16} className="spinning"/> Carregando livros…</div>}
       {outcome&&!grouped.length&&<p className="feed-empty">Nenhum livro disponível neste feed.</p>}
       {!!shown.length&&<div className="feed-books">{shown.map(work=><article key={work.key} className="feed-book">
-        <div className="feed-book-main"><div className="feed-book-icon"><BookOpen size={23}/></div><div className="feed-book-text"><strong title={work.title}>{work.title}</strong><small title={work.author}>{work.author||"Autor não informado"}</small><small>{[...new Set(work.editions.map(item=>item.format.toUpperCase()))].join(" · ")||"Metadados"}</small></div></div>
+        <div className="feed-book-main"><SourceCover sourceId={work.sourceId} url={[...work.editions,...work.metadata].find(item=>item.coverUrl)?.coverUrl} title={work.title}/><div className="feed-book-text"><strong title={work.title}>{work.title}</strong><small title={work.author}>{work.author||"Autor não informado"}</small><small>{[...new Set(work.editions.map(item=>item.format.toUpperCase()))].join(" · ")||"Metadados"}</small></div></div>
         {work.editions.length===1?<button className="button secondary" onClick={()=>onDownload(work.editions[0])}><Download size={14}/> Baixar</button>:work.editions.length>1?<button className="button secondary" aria-expanded={expanded===work.key} onClick={()=>setExpanded(old=>old===work.key?null:work.key)}>{work.editions.length} opções <ChevronRight size={14}/></button>:null}
         {expanded===work.key&&<div className="feed-editions">{work.editions.map(item=><button key={resultIdentity(item)} className="button secondary" onClick={()=>onDownload(item)}><Download size={14}/><span>{[item.format.toUpperCase(),item.language,item.publisher,item.editionLabel].filter(Boolean).join(" · ")}</span></button>)}</div>}
       </article>)}</div>}

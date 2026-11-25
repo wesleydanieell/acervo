@@ -60,6 +60,7 @@ struct Edition<'a> {
     author: String,
     languages: Vec<&'a str>,
     id: Option<&'a str>,
+    cover_url: Option<String>,
 }
 fn emit(
     page: &mut SearchPage,
@@ -106,6 +107,7 @@ fn emit(
         format: fmt.into(),
         language: bounded(language),
         download_url: url.into(),
+        cover_url: entry.cover_url.clone(),
         publisher: String::new(),
         edition_label: String::new(),
         // IDs are opaque: reject oversized values rather than truncate their identity.
@@ -177,6 +179,25 @@ pub(crate) fn parse_feed(
                 continue;
             }
             let entry = Edition {
+                cover_url: node
+                    .children()
+                    .filter(|n| {
+                        atom(*n, "link")
+                            && matches!(
+                                n.attribute("rel"),
+                                Some(
+                                    "http://opds-spec.org/image/thumbnail"
+                                        | "http://opds-spec.org/image"
+                                )
+                            )
+                    })
+                    .find_map(|n| {
+                        crate::source_covers::resolve_cover(
+                            manifest,
+                            feed_url,
+                            n.attribute("href")?,
+                        )
+                    }),
                 title: text(node, "title"),
                 author: node
                     .children()
@@ -242,6 +263,18 @@ pub(crate) fn parse_feed(
                 None => vec![],
             };
             let entry = Edition {
+                cover_url: publication
+                    .get("images")
+                    .and_then(Value::as_array)
+                    .and_then(|images| {
+                        images.iter().find_map(|image| {
+                            crate::source_covers::resolve_cover(
+                                manifest,
+                                feed_url,
+                                string(image, "href"),
+                            )
+                        })
+                    }),
                 title: string(meta, "title"),
                 languages,
                 author: authors

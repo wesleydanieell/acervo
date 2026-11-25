@@ -1,5 +1,6 @@
 import { mergeSourcePage, resultIdentity, type SourceResult, type SearchOutcome } from "./discovery-pagination";
 import { groupDiscoveryWorks } from "./discovery-works";
+import { SourceCover } from "./SourceCover";
 import { SourceFeed } from "./SourceFeed";
 import { ExtensionRepositories } from "./ExtensionRepositories";
 import { DownloadCatalogPicker } from "./DownloadCatalogPicker";
@@ -15,11 +16,12 @@ import "./source-search.css";
 
 export type SourceManifest = {
   schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html"; id: string; name: string; description: string;
+  coverUrlField?: string;
   websiteUrl?: string | null; feedPath?: string | null; localSearch?: boolean;
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
-  html?: { itemSelector: string; titleSelector: string; downloadSelector?: string; nextSelector?: string } | null;
+  html?: { itemSelector: string; titleSelector: string; downloadSelector?: string; nextSelector?: string; coverSelector?: string } | null;
   editions?: {itemsField:string;formatField:string;downloadUrlField:string;languageField?:string;publisherField?:string;labelField?:string} | null;
   remoteIdField?: string; pagination?: { initialCursor: string; nextCursorField: string } | null; downloadDomains?: string[] | null;
 };
@@ -229,7 +231,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
           const multiple = work.editions.length > 1;
           const shown = multiple && !expanded ? [] : work.editions;
           return <article key={work.key} className="source-work">
-            <div className="source-result source-work-heading"><div><strong>{work.title}</strong><small>{work.author || "Autor não informado"} · {work.sourceName}</small></div>
+            <div className="source-result source-work-heading"><div className="source-result-book"><SourceCover sourceId={work.sourceId} url={[...work.editions,...work.metadata].find(item=>item.coverUrl)?.coverUrl} title={work.title}/><div><strong>{work.title}</strong><small>{work.author || "Autor não informado"} · {work.sourceName}</small></div></div>
               <div className="source-result-actions">{[...new Set(work.editions.map(item=>item.format.toUpperCase()))].map(fmt=><span key={fmt}>{fmt}</span>)}
                 {multiple && <button className="button secondary" aria-expanded={expanded} onClick={()=>setExpandedWorks(previous=>{const next=new Set(previous);if(next.has(work.key))next.delete(work.key);else next.add(work.key);return next;})}>{expanded?"Ocultar opções":work.editions.length+" edições / formatos"}</button>}
                 {!work.editions.length && <small>Somente metadados</small>}

@@ -220,6 +220,7 @@ mod tests {
                         language: request.language,
                         download_url: String::new(),
                         remote_id: None,
+                        cover_url: None,
                         publisher: String::new(),
                         edition_label: String::new(),
                     }],
