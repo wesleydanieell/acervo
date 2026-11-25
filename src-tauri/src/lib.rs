@@ -13,6 +13,7 @@ mod html_parser;
 mod html_source;
 mod import_fingerprint;
 mod library_editions;
+mod library_monitor;
 mod metadata_cache;
 mod opds_parser;
 mod opds_source;
@@ -718,6 +719,7 @@ fn read_noctalia_colors() -> Option<serde_json::Value> {
 pub fn run() {
     let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
         load_collection,
+        library_monitor::set_library_monitor,
         metadata_cache::extract_book_metadata,
         metadata_cache::reset_invalid_metadata_cache,
         catalog_lists::import_catalog_json,
@@ -769,6 +771,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(downloads::DownloadManager::restore(app.handle()));
+            app.manage(library_monitor::LibraryMonitor::default());
             #[cfg(target_os = "macos")]
             source_browser::setup_macos_menu(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
