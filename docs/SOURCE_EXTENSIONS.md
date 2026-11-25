@@ -147,3 +147,8 @@ Use editions com itemsField, formatField, downloadUrlField e seletores opcionais
 ## Dados de edição na fila
 
 O seletor de download exibe a edição e permite um complemento de nome opcional, inclusive uma sugestão derivada de descrição, editora e idioma. O histórico guarda os metadados recebidos da extensão e a referência à ficha selecionada separadamente. Na fila A importar, Alterar nome permite corrigir o complemento, inclusive após conflito de nome, sem baixar novamente. O título da ficha permanece como base do nome e a extensão não é editável. Os metadados remotos não substituem a ficha local.
+
+
+## Recuperar importação interrompida
+
+Na central Downloads, o filtro A importar inclui registros com Recuperar importação. Selecione a biblioteca original e confirme a verificação. O Acervo compara tamanho e SHA-256 com os dados registrados antes de salvar. Se o arquivo final for idêntico, tenta completar a associação autorizada; caso apenas o cache esteja íntegro, permite confirmar a importação novamente. Arquivos divergentes não são sobrescritos. Se nenhuma cópia íntegra for localizada, a fila permite refazer o download. Arquivos temporários órfãos no destino podem exigir limpeza manual.
