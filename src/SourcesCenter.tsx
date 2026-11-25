@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, CircleHelp, ClipboardCopy, Download, ExternalLink, FileJson2, Globe2, Plus, RefreshCw, Search, ShieldCheck, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
+import { Check, CircleHelp, ClipboardCopy, Download, ExternalLink, FileJson2, Globe2, Plus, RefreshCw, Search, ToggleLeft, ToggleRight, Trash2, X } from "lucide-react";
 import "./sources.css";
 import "./source-search.css";
 
@@ -24,7 +24,14 @@ const sampleManifest = JSON.stringify({
   formats: ["epub", "pdf"], languages: ["pt", "en"],
 }, null, 2);
 
-export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearch?: { query: string; language: string; format: string; destination: string } | null; onShowDownloads: () => void }) {
+export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExtensions, onShowDiscover, onShowDownloads }: {
+  mode: "discover" | "extensions";
+  initialSearch?: { query: string; language: string; format: string; destination: string } | null;
+  onClearRequest: () => void;
+  onShowExtensions: () => void;
+  onShowDiscover: () => void;
+  onShowDownloads: () => void;
+}) {
   const [sources, setSources] = useState<InstalledSource[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -37,6 +44,24 @@ export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearc
   const [sourceId, setSourceId] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchOutcome, setSearchOutcome] = useState<SearchOutcome | null>(null);
+  const [queued, setQueued] = useState<Set<string>>(new Set());
+  const queuePending = useRef(new Set<string>());
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const searchGeneration = useRef(0);
+  const activeSources = sources.filter(item => item.enabled);
+  const discover = mode === "discover";
+  const resultKey = (item: SourceResult) => JSON.stringify([item.sourceId, item.downloadUrl, item.format, initialSearch?.destination ?? ""]);
+  const invalidateSearch = () => { searchGeneration.current++; setSearching(false); setSearchOutcome(null); setQueued(new Set()); };
+  useEffect(() => {
+    if (sourceId && !sources.some(item => item.enabled && item.manifest.id === sourceId)) {
+      setSourceId(""); invalidateSearch();
+    }
+  }, [sources, sourceId]);
+  useEffect(() => {
+    if (!initialSearch) return;
+    setQuery(initialSearch.query); setLanguage(initialSearch.language); setFormat(initialSearch.format);
+    setSourceId(""); invalidateSearch();
+  }, [initialSearch]);
 
   const reload = async () => {
     try { setSources(await invoke<InstalledSource[]>("list_sources")); setError(""); }
@@ -66,14 +91,14 @@ export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearc
   };
   const toggle = async (id: string, enabled: boolean) => {
     setBusy(true); setError("");
-    try { setSources(await invoke<InstalledSource[]>("set_source_enabled", { id, enabled })); }
+    try { setSources(await invoke<InstalledSource[]>("set_source_enabled", { id, enabled })); invalidateSearch(); }
     catch (failure) { setError(String(failure)); }
     finally { setBusy(false); }
   };
   const remove = async (id: string) => {
     setBusy(true); setError("");
     try {
-      setSources(await invoke<InstalledSource[]>("remove_source", { id }));
+      setSources(await invoke<InstalledSource[]>("remove_source", { id })); invalidateSearch();
       setPendingRemoval("");
       setNotice("Fonte removida. Nenhum livro ou arquivo baixado foi apagado.");
     } catch (failure) { setError(String(failure)); }
@@ -85,60 +110,67 @@ export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearc
   };
 
   const queue = async (item: SourceResult) => {
+    const key = resultKey(item);
+    if (queuePending.current.has(key) || queued.has(key)) return;
+    queuePending.current.add(key);
+    setPending(new Set(queuePending.current));
     setError(""); setNotice("");
     try {
       await invoke("queue_download", {
         url: item.downloadUrl, title: item.title, sourceName: item.sourceName,
         format: item.format, plannedDestination: initialSearch?.destination ?? "",
       });
-      setNotice("Livro adicionado à fila. Abra Downloads para acompanhar e salvar quando concluir.");
+      setQueued(previous => new Set(previous).add(key));
+      setNotice("Livro adicionado à fila.");
     } catch (failure) { setError(String(failure)); }
+    finally { queuePending.current.delete(key); setPending(new Set(queuePending.current)); }
   };
 
   const search = async () => {
-    setSearching(true); setError(""); setSearchOutcome(null);
+    const generation = ++searchGeneration.current;
+    setSearching(true); setError(""); setSearchOutcome(null); setQueued(new Set());
     try {
       const outcome = await invoke<SearchOutcome>("search_sources", {
         query: query.trim(), language, format, sourceIds: sourceId ? [sourceId] : [],
       });
-      setSearchOutcome(outcome);
-    } catch (failure) { setError(String(failure)); }
-    finally { setSearching(false); }
+      if (generation === searchGeneration.current) setSearchOutcome(outcome);
+    } catch (failure) { if (generation === searchGeneration.current) setError(String(failure)); }
+    finally { if (generation === searchGeneration.current) setSearching(false); }
   };
 
   return <section className="sources-center">
     <div className="page-intro">
-      <div><div className="eyebrow">FONTES E EXTENSÕES</div><h1>Fontes da biblioteca</h1>
-        <p>Instale manifestos JSON e escolha quais fontes serão usadas na pesquisa de livros.</p></div>
-      <div className="sources-top-actions"><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Ver downloads</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
-        <button className="button secondary" disabled={busy || sources.some((item) => item.manifest.id === "open-library")} onClick={() => void installDemo()}><Globe2 size={16}/> Fonte de exemplo</button>
-        <button className="button primary" disabled={busy} onClick={() => void install()}><Plus size={17}/> Instalar fonte</button></div>
+      <div><h1>{discover ? "Descobrir" : "Extensões"}</h1>
+        <p>{discover ? activeSources.length + " fontes ativas" : sources.length + " fontes instaladas"}</p></div>
+      <div className="sources-top-actions">
+        {discover ? <><button className="button secondary" onClick={onShowExtensions}><Globe2 size={16}/> Extensões</button><button className="button secondary" onClick={onShowDownloads}><Download size={16}/> Downloads</button></> :
+          <><button className="button secondary" onClick={onShowDiscover}><Search size={16}/> Descobrir</button><button className="button secondary" disabled={busy} onClick={() => void reload()}><RefreshCw size={17}/> Atualizar</button>
+          <button className="button secondary" disabled={busy || sources.some(item => item.manifest.id === "open-library")} onClick={() => void installDemo()}><Globe2 size={16}/> Open Library</button>
+          <button className="button primary" disabled={busy} onClick={() => void install()}><Plus size={17}/> Instalar JSON</button></>}
+      </div>
     </div>
     {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button className="icon-button" onClick={() => setError("")} aria-label="Fechar alerta"><X size={16}/></button></div>}
     {notice && <div className="inline-status" role="status"><Check size={16}/>{notice}</div>}
-    <div className="sources-summary glass-panel">
-      <div className="sources-summary-icon"><ShieldCheck size={25}/></div>
-      <div><strong>Extensões declarativas e isoladas</strong>
-        <p>Arquivos de configuração, não programas executáveis. Cada fonte declara seu domínio HTTPS e como ler respostas JSON. Nenhuma fonte recebe acesso direto à sua biblioteca.</p></div>
-      <span>{sources.filter((source) => source.enabled).length} ativa(s)</span>
-    </div>
+    {discover ? <>
+    {!activeSources.length && <div className="source-no-active glass-panel"><Globe2 size={20}/><span>Nenhuma fonte ativa</span><button className="button primary" onClick={onShowExtensions}>Gerenciar extensões</button></div>}
     <section className="source-search glass-panel">
-      <div className="source-search-heading"><div><h2>Pesquisar em todas as fontes</h2><p>Busca agregada nas extensões ativas, com seleção de fonte, idioma e formato.</p></div><Search size={23}/></div>
-      {initialSearch?.query && <p className="source-search-from-catalog">Busca preparada para a obra selecionada no Catálogo. Revise os filtros e pressione Buscar.</p>}
+      <div className="source-search-heading"><h2>Pesquisar livros</h2></div>
+      {initialSearch && <div className="source-search-from-catalog"><span>Destino do catálogo: <strong>{initialSearch.destination || "Raiz"}</strong></span><button className="icon-button small" aria-label="Desvincular destino planejado" title="Desvincular destino planejado" onClick={onClearRequest}><X size={15}/></button></div>}
       <form className="source-search-form" onSubmit={(event) => { event.preventDefault(); void search(); }}>
-        <label className="source-query"><span>Título ou autor</span><input value={query} onChange={(event) => setQuery(event.target.value)} minLength={2} maxLength={200} placeholder="Ex.: Machado de Assis" aria-label="Buscar obras nas fontes" required/></label>
-        <label><span>Fonte</span><select aria-label="Filtrar fonte" value={sourceId} onChange={(event) => setSourceId(event.target.value)}><option value="">Todas as ativas</option>{sources.filter((item) => item.enabled).map((item) => <option key={item.manifest.id} value={item.manifest.id}>{item.manifest.name}</option>)}</select></label>
-        <label><span>Idioma</span><select aria-label="Filtrar idioma" value={language} onChange={(event) => setLanguage(event.target.value)}><option value="">Todos</option><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="fr">Francês</option></select></label>
-        <label><span>Formato</span><select aria-label="Filtrar formato" value={format} onChange={(event) => setFormat(event.target.value)}><option value="">Todos</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option><option value="azw3">AZW3</option></select></label>
+        <label className="source-query"><span>Título ou autor</span><input value={query} onChange={(event) => { setQuery(event.target.value); invalidateSearch(); if (initialSearch) onClearRequest(); }} minLength={2} maxLength={200} placeholder="Ex.: Machado de Assis" aria-label="Buscar obras nas fontes" required/></label>
+        <label><span>Fonte</span><select aria-label="Filtrar fonte" value={sourceId} onChange={(event) => { setSourceId(event.target.value); invalidateSearch(); }}><option value="">Todas as ativas</option>{sources.filter((item) => item.enabled).map((item) => <option key={item.manifest.id} value={item.manifest.id}>{item.manifest.name}</option>)}</select></label>
+        <label><span>Idioma</span><select aria-label="Filtrar idioma" value={language} onChange={(event) => { setLanguage(event.target.value); invalidateSearch(); }}><option value="">Todos</option><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="fr">Francês</option></select></label>
+        <label><span>Formato</span><select aria-label="Filtrar formato" value={format} onChange={(event) => { setFormat(event.target.value); invalidateSearch(); }}><option value="">Todos</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option><option value="azw3">AZW3</option></select></label>
         <button className="button primary" type="submit" disabled={searching || query.trim().length < 2 || !sources.some((item) => item.enabled)}>{searching ? <RefreshCw className="spinning" size={17}/> : <Search size={17}/>} Buscar</button>
       </form>
       {searchOutcome && <div className="source-results"><div className="source-results-heading"><strong>{searchOutcome.results.length} resultado(s)</strong><small>Resultados por fonte · links externos abrem no navegador</small></div>
         {searchOutcome.errors.length > 0 && <div className="source-errors" role="status">{searchOutcome.errors.map((text, index) => <p key={index}>{text}</p>)}</div>}
         {searchOutcome.results.length ? <div className="source-results-list">{searchOutcome.results.map((item, index) => <article key={item.sourceId + index} className="source-result"><div><strong>{item.title}</strong><small>{item.author || "Autor não informado"} · {item.sourceName}</small></div><div className="source-result-actions">{item.format && <span>{item.format.toUpperCase()}</span>}{item.language && <span>{item.language}</span>}{item.downloadUrl && ["pdf", "epub", "mobi", "azw3", "djvu"].includes(item.format.toLowerCase()) &&
-            <button className="button primary" type="button" title="Baixar primeiro para área temporária" onClick={() => void queue(item)}><Download size={15}/> Baixar</button>}
+            <button className="button primary" type="button" title="Baixar primeiro para área temporária" disabled={queued.has(resultKey(item)) || pending.has(resultKey(item))} onClick={() => void queue(item)}>{queued.has(resultKey(item)) ? <Check size={15}/> : <Download size={15}/>} {queued.has(resultKey(item)) ? "Na fila" : pending.has(resultKey(item)) ? "Adicionando…" : "Baixar"}</button>}
           {item.downloadUrl && <button className="button secondary" type="button" title="Abrir link externo informado pela fonte" onClick={() => void openUrl(item.downloadUrl).catch((failure) => setError(String(failure)))}><ExternalLink size={15}/> Link</button>}</div></article>)}</div> : <p className="source-no-results">Nenhuma obra encontrada. Experimente outro termo, idioma ou fonte.</p>}
       </div>}
     </section>
+    </> : <>
     {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled }) => <article className="source-card glass-panel" key={manifest.id}>
       <div className="source-card-main"><div className="source-icon"><Globe2 size={24}/></div><div className="source-info">
         <strong>{manifest.name}</strong><small>{manifest.description || manifest.baseUrl}</small>
@@ -164,7 +196,8 @@ export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearc
         <p>Instale um manifesto JSON ou experimente a fonte opcional Open Library (metadados). Não executamos scripts de terceiros.</p>
         <button className="button primary" onClick={() => void install()}><Plus size={17}/> Selecionar arquivo JSON</button>
       </div>}
-    <section className="source-help glass-panel">
+    <details className="source-help glass-panel">
+      <summary>Manifesto de extensão e documentação</summary>
       <div><h2>Formato de extensão v1</h2>
         <p>Uma fonte descreve um endpoint HTTPS e os campos JSON para títulos e autores. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. Antes de entrar na biblioteca, cada arquivo precisa ser conferido e salvo por você.</p></div>
       <div className="source-help-actions">
@@ -173,6 +206,7 @@ export function SourcesCenter({ initialSearch, onShowDownloads }: { initialSearc
       </div>
       {showExample && <pre className="source-example">{sampleManifest}</pre>}
       <p className="source-disclaimer"><ExternalLink size={14}/> Instale apenas fontes de confiança e respeite as condições de distribuição dos arquivos.</p>
-    </section>
+    </details>
+    </>}
   </section>;
 }

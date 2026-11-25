@@ -3,7 +3,7 @@ import {
   Archive, ArrowDownToLine, ArrowRight, ArrowUpDown, Book, Check, ChevronDown, ChevronRight,
   CircleHelp, ClipboardCopy, Filter, Folder, FolderOpen,
   FolderPlus, FolderTree, Globe2, Grid2X2, HardDrive, Home, Layers3, List, LoaderCircle, Menu,
-  Palette, Plus, RefreshCw, Search, Settings2, X,
+  Palette, Plug, Plus, RefreshCw, Search, Settings2, X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -29,7 +29,7 @@ import { ContextMenu, type ContextAction } from "./ContextMenu";
 type BookFile = { id: string; title: string; path: string; folder: string; format: string; bytes: number };
 type CatalogWork = { id: number; title: string; author: string; publishers: string; destination: string; present: boolean; priority: boolean; associatedFiles: string[] };
 type Collection = { root: string; files: BookFile[]; folders: string[]; works: CatalogWork[]; warnings: string[] };
-type View = "catalog" | "lists" | "settings" | "sources" | "downloads";
+type View = "catalog" | "lists" | "settings" | "sources" | "extensions" | "downloads";
 type GroupBy = "none" | "folder" | "format" | "author";
 type Layout = "grid" | "list";
 type Entry = { key: string; type: "file" | "work"; title: string; author: string; format: string; folder: string; present: boolean; file?: BookFile; work?: CatalogWork };
@@ -123,7 +123,7 @@ function App() {
     try {
       const data = await invoke<Collection>("load_collection", { root: location.trim() });
       if (generation !== refreshGeneration.current) return;
-      if (data.root !== root) { setPromptFolders(null); setPromptDraft(null); }
+      if (data.root !== root) { setPromptFolders(null); setPromptDraft(null); setSourceRequest(null); }
       setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
       setStatus(data.files.length + " arquivos encontrados; nenhuma alteração feita nos livros.");
       setModal(null);
@@ -510,8 +510,12 @@ ${JSON.stringify(sample, null, 2)}`;
         <nav className="nav-group acquisition-nav" aria-label="Aquisição">
           <span className="nav-caption">Aquisição</span>
           <button aria-current={view === "sources" ? "page" : undefined} className={"nav-item" + (view === "sources" ? " active" : "")}
-            onClick={() => { setSourceRequest(null); setView("sources"); setSelectedFolder(""); setSideOpen(false); }}>
-            <Globe2 size={18} strokeWidth={1.9}/> Descobrir e fontes
+            onClick={() => { setView("sources"); setSelectedFolder(""); setSideOpen(false); }}>
+            <Globe2 size={18} strokeWidth={1.9}/> Descobrir
+          </button>
+          <button aria-current={view === "extensions" ? "page" : undefined} className={"nav-item" + (view === "extensions" ? " active" : "")}
+            onClick={() => { setView("extensions"); setSelectedFolder(""); setSideOpen(false); }}>
+            <Plug size={18} strokeWidth={1.9}/> Extensões
           </button>
           <button aria-current={view === "downloads" ? "page" : undefined} className={"nav-item" + (view === "downloads" ? " active" : "")}
             onClick={() => { setView("downloads"); setSelectedFolder(""); setSideOpen(false); }}>
@@ -563,7 +567,7 @@ ${JSON.stringify(sample, null, 2)}`;
       <div className="workspace">
         <header className="topbar glass-panel">
           <button className="icon-button mobile-menu" onClick={() => setSideOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
-          <div className="topbar-search"><Search size={18} /><input ref={searchRef} value={search} onChange={(event) => { setSearch(event.target.value); setActiveSuggestion(-1); }} onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
+          <div className="topbar-search"><Search size={18} /><input ref={searchRef} value={search} onChange={(event) => { setSearch(event.target.value); setActiveSuggestion(-1); }} onFocus={() => { if (view !== "catalog" && view !== "lists") { setView("catalog"); setSelectedFolder(""); } setSearchFocused(true); }} onBlur={() => setSearchFocused(false)}
             onKeyDown={(event) => {
               if (event.key === "ArrowDown" && suggestions.length) { event.preventDefault(); setActiveSuggestion((i) => (i + 1) % suggestions.length); }
               if (event.key === "ArrowUp" && suggestions.length) { event.preventDefault(); setActiveSuggestion((i) => i <= 0 ? suggestions.length - 1 : i - 1); }
@@ -613,7 +617,7 @@ ${JSON.stringify(sample, null, 2)}`;
               </article>
             </div>
             <div className="settings-version">Acervo 0.1.0-alpha.2 · dados locais · <span>atualizações experimentais</span></div>
-          </section> : view === "sources" ? <SourcesCenter initialSearch={sourceRequest} onShowDownloads={() => { setView("downloads"); setSelectedFolder(""); }}/> : view === "downloads" ? <DownloadsCenter root={collection?.root || ""} folders={collection?.folders || []} onSaved={async () => { await refresh(); }}/> : view === "lists" ? <>
+          </section> : (view === "sources" || view === "extensions") ? <SourcesCenter mode={view === "sources" ? "discover" : "extensions"} initialSearch={sourceRequest} onClearRequest={() => setSourceRequest(null)} onShowExtensions={() => setView("extensions")} onShowDiscover={() => setView("sources")} onShowDownloads={() => { setView("downloads"); setSelectedFolder(""); }}/> : view === "downloads" ? <DownloadsCenter root={collection?.root || ""} folders={collection?.folders || []} onSaved={async () => { await refresh(); }}/> : view === "lists" ? <>
             {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
             {status && <div className="inline-status" role="status"><Check size={16}/>{status}</div>}
             <CatalogCenter works={collection?.works || []} files={collection?.files || []} query={search}
