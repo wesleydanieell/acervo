@@ -11,6 +11,7 @@ mod html_parser;
 mod html_source;
 mod import_fingerprint;
 mod library_editions;
+mod local_source;
 mod opds_parser;
 mod opds_source;
 mod organization;

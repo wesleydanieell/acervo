@@ -1,0 +1,2 @@
+# Local metadata fixture
+In Acervo, open Extensões → Instalar JSON and select manifest.json. Search Machado de Assis in Descobrir. Two example records should appear without download actions. This is synthetic bibliographic metadata; no Anna's Archive data was retrieved. Use the same format for small authorized exports of metadata. Do not include file download links, credentials or executable code.

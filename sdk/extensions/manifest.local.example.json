@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "version": "1.0.0",
+  "adapter": "local",
+  "id": "local-metadata-example",
+  "name": "Catálogo bibliográfico local (exemplo)",
+  "description": "Registros sintéticos para testar a pesquisa offline. Não são dados do Anna’s Archive.",
+  "downloadDomains": [],
+  "localRecords": [
+    {
+      "id": "fixture-1",
+      "title": "Memórias Póstumas de Brás Cubas",
+      "author": "Machado de Assis",
+      "language": "pt"
+    },
+    {
+      "id": "fixture-2",
+      "title": "Dom Casmurro",
+      "author": "Machado de Assis",
+      "language": "pt"
+    }
+  ]
+}

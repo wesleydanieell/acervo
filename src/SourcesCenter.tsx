@@ -13,7 +13,7 @@ import "./sources.css";
 import "./source-search.css";
 
 export type SourceManifest = {
-  schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html"; id: string; name: string; description: string;
+  schemaVersion: number; apiVersion?: number; version?: string; adapter?: "json" | "opds" | "html" | "local"; id: string; name: string; description: string;
   baseUrl: string; searchPath: string; itemsPath: string; titleField: string;
   authorField: string; formatField: string; languageField: string; downloadUrlField: string;
   formats: string[]; languages: string[];
@@ -213,6 +213,10 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
                 {!work.editions.length && <small>Somente metadados</small>}
                 {work.metadata.filter(item=>item.downloadUrl).slice(0,1).map(item=><button key={resultIdentity(item)} className="button secondary" type="button" onClick={()=>void openUrl(item.downloadUrl).catch(failure=>setError(String(failure)))}><ExternalLink size={15}/> Link</button>)}
               </div></div>
+            {!work.editions.length && work.metadata.map((item,index)=> {
+              const details=[item.editionLabel,item.format.toUpperCase(),item.language,item.publisher].filter(Boolean).join(" · ");
+              return details ? <div className="source-edition" key={resultIdentity(item)+":"+index}><small>{details}</small></div> : null;
+            })}
             {shown.map((item,index)=><div className="source-edition" key={resultIdentity(item)+":"+index}><div><strong>{item.editionLabel || item.format.toUpperCase()}</strong><small>{[item.editionLabel && item.format.toUpperCase(),item.language,item.publisher].filter(Boolean).join(" · ") || "Idioma não informado"}</small></div>
               <div className="source-result-actions"><button className="button primary" type="button" disabled={pending.has(resultKey(item))} onClick={()=>{setQueueError("");setDownloadChoice(item);}}>{queued.has(resultKey(item))?<Check size={15}/>:<Download size={15}/>} {pending.has(resultKey(item))?"Adicionando…":queued.has(resultKey(item))?"Baixar novamente":"Baixar"}</button>
                 <button className="button secondary" type="button" title="Abrir link externo informado pela fonte" onClick={()=>void openUrl(item.downloadUrl).catch(failure=>setError(String(failure)))}><ExternalLink size={15}/> Link</button></div></div>)}
@@ -229,15 +233,15 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     {sources.length ? <div className="source-list">{sources.map(({ manifest, enabled, repository }) => <article className="source-card glass-panel" key={manifest.id}>
       <div className="source-card-main"><div className="source-icon"><Globe2 size={24}/></div><div className="source-info">
         <strong>{manifest.name}</strong><small>{manifest.description || manifest.baseUrl}</small><small>v{manifest.version ?? "1.0.0"} · API {manifest.apiVersion ?? 1}</small>
-        <code title={manifest.baseUrl}>{manifest.baseUrl}</code>
+        <code title={manifest.baseUrl}>{manifest.adapter === "local" ? "Catálogo offline" : manifest.baseUrl}</code>
         {repository && <small title={repository}>Instalada via repositório</small>}
       </div><span className={"source-state " + (enabled ? "enabled" : "")}>{enabled ? "Ativa" : "Pausada"}</span></div>
       <div className="source-capabilities">
         {manifest.formats.map((format) => <span key={"f:"+format}>{format.toUpperCase()}</span>)}
         {manifest.languages.map((language) => <span key={"l:"+language}>{language}</span>)}
-        <span><Search size={13}/> Busca {manifest.adapter === "opds" ? "OPDS" : manifest.adapter === "html" ? "HTML" : "JSON"}</span>
+        <span><Search size={13}/> Busca {manifest.adapter === "opds" ? "OPDS" : manifest.adapter === "html" ? "HTML" : manifest.adapter === "local" ? "local" : "JSON"}</span>
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && (manifest.downloadDomains == null || manifest.downloadDomains.length > 0) && <span><Download size={13}/> Link de download</span>}
-        {(manifest.adapter === "opds" || manifest.pagination || manifest.html?.nextSelector) && <span>Paginação</span>}
+        {(manifest.adapter === "opds" || manifest.adapter === "local" || manifest.pagination || manifest.html?.nextSelector) && <span>Paginação</span>}
         {manifest.editions && <span>Múltiplas edições</span>}
         {(manifest.adapter === "opds" || manifest.downloadUrlField || manifest.editions || manifest.html?.downloadSelector) && <span title={manifest.downloadDomains?.join(", ") || "Política de HTTPS público"}>{manifest.downloadDomains == null ? "Domínios: legado" : manifest.downloadDomains.length ? "Domínios: " + manifest.downloadDomains.join(", ") : "Downloads bloqueados"}</span>}
       </div>
@@ -258,7 +262,7 @@ export function SourcesCenter({ mode, initialSearch, onClearRequest, onShowExten
     <details className="source-help glass-panel">
       <summary>Manifesto de extensão e documentação</summary>
       <div><h2>Formato de extensão v1</h2>
-        <p>Uma fonte descreve um endpoint HTTPS com um adaptador JSON, OPDS ou HTML declarativo. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. A importação é validada e pode ser automática quando autorizada.</p></div>
+        <p>Uma fonte descreve um endpoint HTTPS com um adaptador JSON, OPDS ou HTML declarativo, ou um pequeno catálogo bibliográfico offline. Pesquisas e downloads em fila já funcionam quando a fonte oferece links diretos compatíveis. A importação é validada e pode ser automática quando autorizada.</p></div>
       <div className="source-help-actions">
         <button className="button secondary" onClick={() => setShowExample((current) => !current)}><FileJson2 size={16}/> {showExample ? "Ocultar exemplo" : "Ver exemplo"}</button>
         <button className="button secondary" onClick={() => void copyExample()}><ClipboardCopy size={16}/> Copiar JSON</button>

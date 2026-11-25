@@ -26,6 +26,7 @@ pub(crate) fn create_source(manifest: SourceManifest) -> Result<Box<dyn BookSour
         AdapterKind::Json => Ok(Box::new(JsonSource::new(manifest))),
         AdapterKind::Opds => Ok(Box::new(OpdsSource::new(manifest))),
         AdapterKind::Html => Ok(Box::new(HtmlSource::new(manifest))),
+        AdapterKind::Local => Ok(Box::new(crate::local_source::LocalSource::new(manifest))),
     }
 }
 
