@@ -187,14 +187,14 @@ function App() {
     return()=>{disposed=true;if(timer!==undefined)window.clearTimeout(timer);for(const subscription of subscriptions)void subscription.then(unlisten=>unlisten()).catch(()=>{});};
   }, []);
 
-  const refresh = async (location = root) => {
+  const refresh = async (location = root, initial = false) => {
     if (!location.trim()) { setModal("root"); return; }
     const generation = ++refreshGeneration.current;
     manualRefresh.current=true;
     requestedRoot.current = location.trim();
     setLoading(true); setError("");
     try {
-      const data = await invoke<Collection>("load_collection", { root: location.trim() });
+      const data = await invoke<Collection>(initial ? "load_initial_collection" : "load_collection", { root: location.trim() });
       if (generation !== refreshGeneration.current) return;
       if (data.root !== root) { setPromptFolders(null); setPromptDraft(null); setSourceRequest(null); }
       requestedRoot.current = data.root; setCollection(data); setRoot(data.root); localStorage.setItem("acervo-root", data.root);
@@ -211,7 +211,7 @@ function App() {
     } catch (failure) { setError("Não foi possível abrir o explorador: " + String(failure)); }
   };
 
-  useEffect(() => { if (root) void refresh(root); }, []); // Load the last library once.
+  useEffect(() => { if (root) void refresh(root, true); }, []); // Validate the persistent index on startup.
   useEffect(() => {
     const onKeyboard = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {

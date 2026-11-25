@@ -28,6 +28,66 @@ pub(super) fn refresh(root: String, changes: Option<Vec<String>>) -> Result<Coll
     refresh_with(&mut cache, root, changes)
 }
 
+// Startup deliberately does not seed the watcher baseline: its first reconciliation
+// remains a full scan, closing the scan-before-watch gap.
+pub(super) fn initial(root: String, cache_dir: Option<PathBuf>) -> Result<Collection, String> {
+    let mut guard = INDEX
+        .lock()
+        .map_err(|_| "Índice da biblioteca indisponível.")?;
+    *guard = None;
+    let root = fs::canonicalize(root).map_err(|e| format!("Pasta inválida: {e}"))?;
+    if !root.is_dir() {
+        return Err("Escolha uma pasta de biblioteca válida.".into());
+    }
+    let mut disk = cache_dir
+        .as_ref()
+        .map(|dir| crate::library_index_disk::Index::load(dir, &root));
+    let mut raw = Snapshot {
+        root,
+        files: Vec::new(),
+        folders: BTreeSet::new(),
+        warnings: Vec::new(),
+    };
+    crate::scan_selected_disk(
+        &raw.root,
+        &raw.root,
+        &mut raw.files,
+        &mut raw.folders,
+        &mut raw.warnings,
+        0,
+        None,
+        &mut disk,
+    );
+    // A stale or inconsistent cached name must not leak a partial startup
+    // snapshot to the UI. Retry once with a clean listing cache.
+    if !raw.warnings.is_empty() && disk.is_some() {
+        raw.files.clear();
+        raw.folders.clear();
+        raw.warnings.clear();
+        disk = cache_dir
+            .as_ref()
+            .map(|_| crate::library_index_disk::Index::empty(&raw.root));
+        crate::scan_selected_disk(
+            &raw.root,
+            &raw.root,
+            &mut raw.files,
+            &mut raw.folders,
+            &mut raw.warnings,
+            0,
+            None,
+            &mut disk,
+        );
+    }
+    raw.files.sort_by(|a, b| a.path.cmp(&b.path));
+    let result = hydrate_collection(&raw.root, raw.files, raw.folders, raw.warnings)?;
+    if result.warnings.is_empty() {
+        if let (Some(dir), Some(mut disk)) = (cache_dir, disk) {
+            disk.save(&dir);
+        }
+    }
+    Ok(result)
+}
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
@@ -117,7 +177,7 @@ fn refresh_with(
 
 #[cfg(test)]
 thread_local! {
-    static READS: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+    pub(super) static READS: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 #[cfg(test)]
 pub(super) fn record_read(path: &Path) {
