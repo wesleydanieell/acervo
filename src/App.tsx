@@ -3,10 +3,10 @@ import {
   Archive, ArrowDownToLine, ArrowRight, ArrowUpDown, Book, Check, ChevronDown, ChevronRight,
   CircleHelp, ClipboardCopy, Filter, Folder, FolderOpen,
   FolderPlus, FolderTree, Globe2, Grid2X2, HardDrive, Home, Layers3, List, LoaderCircle, Menu,
-  Palette, Plug, Plus, RefreshCw, Search, Settings2, X,
+  Palette, Plug, Plus, RefreshCw, Link2, Search, Settings2, X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import "./theme.css";
 import "./explorer.css";
@@ -81,6 +81,12 @@ function App() {
   const [search, setSearch] = useState("");
   const [format, setFormat] = useState("Todos");
   const [selection, setSelection] = useState<Entry | null>(null);
+  const [associationError, setAssociationError] = useState("");
+  const [associationBusy, setAssociationBusy] = useState(false);
+  const associationLock = useRef(false);
+  const currentCollectionRoot = useRef("");
+  currentCollectionRoot.current = collection?.root || "";
+  useEffect(() => setAssociationError(""), [selection?.key]);
   useEffect(() => { setSelection(null); }, [view, selectedFolder]);
   const [modal, setModal] = useState<"root" | "prompt" | "import" | "folder" | "move" | "organize" | null>(null);
   const [sideOpen, setSideOpen] = useState(false);
@@ -366,6 +372,35 @@ ${JSON.stringify(sample, null, 2)}`;
       setStatus("Catálogo CSV exportado para " + path);
     } catch (failure) { setError("Não foi possível exportar CSV: " + String(failure)); }
   };
+  const associateExistingFile = async (work: CatalogWork, suggestedPath?: string) => {
+    const libraryRoot = collection?.root;
+    if (!libraryRoot || work.id >= 0 || associationLock.current) return;
+    associationLock.current = true; setAssociationBusy(true); setAssociationError("");
+    try {
+      let relativePath = suggestedPath;
+      if (!relativePath) {
+        const chosen = await open({ multiple: false, directory: false, defaultPath: libraryRoot,
+          title: "Selecionar edição existente", filters: [{ name: "Livros", extensions: ["pdf", "epub", "mobi", "azw3", "djvu"] }] });
+        if (typeof chosen !== "string") return;
+        const prefix = libraryRoot.endsWith("/") ? libraryRoot : libraryRoot + "/";
+        if (!chosen.startsWith(prefix)) throw new Error("Selecione um arquivo dentro da biblioteca atual.");
+        relativePath = chosen.slice(prefix.length);
+      }
+      if (!await ask("Associar " + relativePath + " à obra " + work.title + (work.author ? " — " + work.author : "") + "? O arquivo não será movido.", {
+        title: "Associar edição", kind: "info",
+      })) return;
+      if (currentCollectionRoot.current !== libraryRoot) throw new Error("A biblioteca mudou; selecione o arquivo novamente.");
+      await invoke("link_catalog_file", { root: libraryRoot, workId: work.id, title: work.title,
+        author: work.author, destination: work.destination, relativePath });
+      if (currentCollectionRoot.current === libraryRoot) {
+        setSelection(null);
+        await refresh(libraryRoot);
+        setStatus("Arquivo associado à obra: " + work.title);
+      }
+    } catch (failure) { setAssociationError(String(failure)); }
+    finally { associationLock.current = false; setAssociationBusy(false); }
+  };
+
   const searchInInstalledSources = (entry: Entry) => {
     setSourceRequest({
       query: [entry.title, entry.author].filter(Boolean).join(" "),
@@ -665,7 +700,11 @@ ${JSON.stringify(sample, null, 2)}`;
           </>}
         </main>
       </div>
-      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside aria-label="Detalhes da obra" className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className="details-cover"><BookCover key={selection.key} root={collection?.root || ""} file={selection.file} format={selection.format} present={selection.present} title={selection.title}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <button key={file.path} className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>Pesquise nas fontes instaladas. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchInInstalledSources(selection)}><Search size={17}/> Pesquisar nas fontes</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
+      {selection && <div className="drawer-backdrop" onClick={() => setSelection(null)}><aside aria-label="Detalhes da obra" className="details-drawer glass-panel" onClick={(event) => event.stopPropagation()}><div className="drawer-head"><span className="eyebrow">DETALHES DA OBRA</span><button className="icon-button" onClick={() => setSelection(null)} aria-label="Fechar detalhes"><X size={19}/></button></div><div className="details-cover"><BookCover key={selection.key} root={collection?.root || ""} file={selection.file} format={selection.format} present={selection.present} title={selection.title}/></div><h2>{selection.title}</h2><p className="drawer-author">{selection.author || "Sem autor cadastrado"}</p><div className="detail-list"><div><span>Situação</span><strong>{selection.present ? "Disponível" : "Na lista de desejos"}</strong></div><div><span>Formato</span><strong>{selection.format}</strong></div><div><span>Pasta planejada</span><strong>{selection.folder || "Raiz"}</strong></div>{selection.file && <div><span>Arquivo</span><strong>{selection.file.path}</strong></div>}{selection.file && <div><span>Tamanho</span><strong>{readableBytes(selection.file.bytes)}</strong></div>}</div>{selection.work && selection.work.id < 0 && <section className="edition-options"><h3>Arquivos associados</h3>
+        {selection.work.associatedFiles.length > 0 && <div className="associated-paths">{selection.work.associatedFiles.map(path => <span key={path} title={path}>{path}</span>)}</div>}
+        <button className="button secondary full" disabled={associationBusy} onClick={() => void associateExistingFile(selection.work!)}><Link2 size={16}/> Associar arquivo existente</button>
+        {associationError && <p className="association-error" role="alert">{associationError}</p>}
+      </section>}{selection.work && selectedAlternatives.length > 0 && <section className="edition-options"><h3>{selection.present ? "Outros formatos no acervo" : "Possível edição já disponível"}</h3><p>Encontramos arquivos com o mesmo título. Confira a obra e a edição antes de associar ao catálogo.</p>{selectedAlternatives.slice(0, 8).map((file) => <div key={file.path} className="edition-option-row"><button className="edition-option" title={file.path} onClick={() => { const entry = libraryEntries.find((candidate) => candidate.file?.path === file.path); if (entry) setSelection(entry); }}><Book size={16}/><span><strong>{file.format}</strong><small>{file.path}</small></span><ArrowRight size={15}/></button>{selection.work!.id < 0 && <button className="icon-button" disabled={associationBusy} aria-label={"Associar " + file.path} title="Associar edição" onClick={() => void associateExistingFile(selection.work!, file.path)}><Link2 size={16}/></button>}</div>)}</section>}{!selection.present && <div className="search-source"><h3>Buscar edição</h3><p>Pesquise nas fontes instaladas. Confira a origem e os direitos de uso antes de baixar.</p><label>Formato <select value={sourceFormat} onChange={(event) => setSourceFormat(event.target.value)}><option value="">Qualquer formato</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="mobi">MOBI</option></select></label><label>Idioma <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><button className="button primary full" onClick={() => searchInInstalledSources(selection)}><Search size={17}/> Pesquisar nas fontes</button></div>}<button className="button secondary full" onClick={() => void copy(selection.folder || ".", "Destino copiado para a área de transferência.")}><ClipboardCopy size={17}/> Copiar pasta de destino</button></aside></div>}
       {modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className={"modal glass-panel" + (modal === "organize" ? " organize-modal" : "")} role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : modal === "move" ? "Mover livros" : modal === "organize" ? "Organizar biblioteca por JSON" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}
         {modal === "prompt" && <div className="modal-body"><p>O prompt utiliza as pastas reais da sua biblioteca e produz um JSON compatível com o catálogo antigo.</p><div className="two-inputs"><label>Quantidade<input type="number" min={1} max={150} value={promptCount} onChange={(event) => setPromptCount(Math.min(150, Math.max(1, Number(event.target.value) || 1)))} /></label><label>Idioma<input value={promptLanguage} onChange={(event) => setPromptLanguage(event.target.value)} /></label></div><label>Temas e critérios<textarea value={promptTopics} onChange={(event) => setPromptTopics(event.target.value)} rows={2}/></label>

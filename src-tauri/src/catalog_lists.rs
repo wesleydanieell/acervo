@@ -273,6 +273,95 @@ pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportRepo
     })
 }
 
+/// Associate an existing physical book with an explicitly selected app-owned work.
+#[tauri::command]
+pub fn link_catalog_file(
+    root: String,
+    work_id: i64,
+    title: String,
+    author: String,
+    destination: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    let index = work_id
+        .checked_neg()
+        .and_then(|id| id.checked_sub(1))
+        .and_then(|id| usize::try_from(id).ok())
+        .ok_or("Ficha não pertence às listas do Acervo.")?;
+    let catalog_dir = root.join("99 - Catálogo");
+    if fs::canonicalize(&catalog_dir).map_err(|error| error.to_string())? != catalog_dir {
+        return Err("Diretório de catálogo inválido ou simbólico.".into());
+    }
+    let backup = catalog_dir.join("Acervo_Listas.json.bak");
+    if fs::symlink_metadata(&backup)
+        .is_ok_and(|meta| !meta.is_file() || meta.file_type().is_symlink())
+    {
+        return Err("Backup do catálogo inválido.".into());
+    }
+    let file = super::resolve_inside(&root, &relative_path)?;
+    if file != root.join(&relative_path)
+        || !file.is_file()
+        || !super::is_book(&file)
+        || file.starts_with(&catalog_dir)
+        || relative_path.contains('\\')
+        || relative_path
+            .split('/')
+            .any(|part| part.is_empty() || part.starts_with('.') || part == "node_modules")
+    {
+        return Err("Selecione um arquivo de livro regular na biblioteca.".into());
+    }
+    let mut works = load_values(&list_path(&root))?;
+    let work = works
+        .get(index)
+        .ok_or("Ficha não encontrada; atualize o catálogo.")?;
+    if field(work, "titulo") != title
+        || field(work, "autor") != author
+        || field(work, "local_indicado") != destination
+    {
+        return Err("A ficha foi alterada; atualize o catálogo antes de associar.".into());
+    }
+    let mut warnings = Vec::new();
+    let legacy = super::read_catalog(&root, &[], &mut warnings);
+    if !warnings.is_empty() {
+        return Err("Não foi possível verificar associações do catálogo legado.".into());
+    }
+    if legacy
+        .iter()
+        .any(|entry| entry.associated_files.contains(&relative_path))
+        || works.iter().enumerate().any(|(other, entry)| {
+            other != index
+                && entry
+                    .get("arquivos_encontrados")
+                    .and_then(Value::as_array)
+                    .is_some_and(|paths| {
+                        paths
+                            .iter()
+                            .any(|path| path.as_str() == Some(&relative_path))
+                    })
+        })
+    {
+        return Err("Este arquivo já está associado a outra obra.".into());
+    }
+    let work = works
+        .get_mut(index)
+        .and_then(Value::as_object_mut)
+        .ok_or("Ficha inválida.")?;
+    let paths = work
+        .entry("arquivos_encontrados")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or("Associações da ficha inválidas.")?;
+    if paths
+        .iter()
+        .any(|path| path.as_str() == Some(&relative_path))
+    {
+        return Ok(());
+    }
+    paths.push(Value::String(relative_path));
+    save_values(&root, works)
+}
+
 /// Export only to the exact CSV path chosen in the native save dialog.
 /// Exclusive creation avoids overwriting an existing user file.
 #[tauri::command]
@@ -361,6 +450,45 @@ mod tests {
         );
         assert!(parse_list(r#"{"obras":[{"titulo":"Perigo","local_indicado":"/tmp"}]}"#).is_err());
         assert!(parse_list(r#"{"obras":[{"titulo":""}]}"#).is_err());
+    }
+
+    #[test]
+    fn explicit_file_association_validates_identity_and_preserves_other_works() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("acervo-link-{}-{unique}", std::process::id()));
+        fs::create_dir_all(root.join("Books")).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let root_text = root.to_string_lossy().to_string();
+        import_catalog_json(root_text.clone(), r#"{"obras":[{"titulo":"Book","autor":"Author","local_indicado":"Planned"},{"titulo":"Other","local_indicado":"Books"}]}"#.into()).unwrap();
+        let file = "Books/book.epub";
+        fs::write(root.join(file), b"test file").unwrap();
+        let link = |id, title: &str, author: &str, dest: &str, path: &str| {
+            link_catalog_file(
+                root_text.clone(),
+                id,
+                title.into(),
+                author.into(),
+                dest.into(),
+                path.into(),
+            )
+        };
+        assert!(link(-1, "Wrong", "Author", "Planned", file).is_err());
+        assert!(link(-1, "Book", "Author", "Planned", "../outside.epub").is_err());
+        assert!(link(1, "Book", "Author", "Planned", file).is_err());
+        link(-1, "Book", "Author", "Planned", file).unwrap();
+        link(-1, "Book", "Author", "Planned", file).unwrap();
+        assert!(link(-2, "Other", "", "Books", file).is_err());
+        let values = load_values(&list_path(&root)).unwrap();
+        assert_eq!(values[0]["arquivos_encontrados"], json!([file]));
+        assert_eq!(values[0]["local_indicado"], "Planned");
+        assert!(values[1].get("arquivos_encontrados").is_none());
+        assert!(root.join(file).is_file());
+        assert!(root.join("99 - Catálogo/Acervo_Listas.json.bak").is_file());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -10,3 +10,7 @@ Tauri 2 / Rust, React 19 / TypeScript. App.tsx coordena navegação; CatalogCent
 - Transferir para staging, validar, resolver destino, confirmar conforme política, efetivar sem sobrescrita e atualizar associação. Separar estado de transferência de importação.
 - Regras de organização com prévia, colisões, links simbólicos, falhas parciais e recuperação.
 - Separar componentes UI e testar lógica pura; preservar tema e acessibilidade.
+
+## Associação de arquivos (incremento)
+
+Fichas JSON podem associar arquivos físicos existentes por seleção e confirmação explícita. Rust valida o ID e os campos de identidade, arquivo dentro da raiz, conflitos com fichas JSON e referências legadas. A pasta planejada permanece intacta e o arquivo não é movido; gravação atômica com backup. O ID negativo atual depende da posição da ficha, portanto a comparação de identidade é obrigatória. Próximo passo: identidade estável persistente e vínculo de download à raiz/ficha de origem, com recuperação caso a gravação da associação falhe depois do download. SQLite legado não é alterado por este comando.

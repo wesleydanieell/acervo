@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Fichas JSON podem vincular edições existentes por seleção e confirmação, sem mover os arquivos ou alterar o SQLite legado.
 - Downloads podem criar destinos aninhados personalizados após confirmação, sem sobrescrever arquivos.
 - Extensões JSON aceitam JSON Pointer, links MIME aninhados, idiomas em arrays e URLs completas de download.
 - Descobrir e Extensões em áreas distintas, com destino do catálogo visível, busca invalidada ao alterar filtros e proteção contra cliques repetidos ao baixar.

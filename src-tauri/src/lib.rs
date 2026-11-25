@@ -524,6 +524,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_collection,
             catalog_lists::import_catalog_json,
+            catalog_lists::link_catalog_file,
             catalog_lists::save_catalog_csv,
             covers::get_book_cover,
             create_folder,
