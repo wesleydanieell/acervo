@@ -702,6 +702,7 @@ pub fn run() {
         create_folder,
         move_book,
         move_books,
+        smart_organization::validate_organization_rules,
         smart_organization::preview_smart_organization,
         smart_organization::apply_smart_organization,
         organization::preview_organization,

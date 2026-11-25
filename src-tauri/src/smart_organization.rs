@@ -1,5 +1,7 @@
 //! Read-only suggestions and explicitly selected independent moves.
-use super::{Collection, downloads::destination_parts, move_book_with_policy, scan_collection};
+use super::{
+    BookFile, Collection, downloads::destination_parts, move_book_with_policy, scan_collection,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -14,6 +16,118 @@ pub struct Rules {
     catalog: bool,
     format: Option<String>,
     destination: Option<String>,
+    #[serde(default)]
+    custom: Vec<CustomRule>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CustomRule {
+    name: String,
+    enabled: bool,
+    format: String,
+    author: String,
+    language: String,
+    publisher: String,
+    destination: String,
+}
+
+fn normalized(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+impl CustomRule {
+    fn matches(&self, file: &BookFile) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        let edition = file.edition.as_ref().map(|entry| &entry.metadata);
+        let matches_value = |wanted: &str, actual: Option<&str>| {
+            wanted.is_empty()
+                || actual.is_some_and(|value| {
+                    !value.trim().is_empty() && normalized(value) == normalized(wanted)
+                })
+        };
+        matches_value(&self.format, Some(&file.format))
+            && matches_value(&self.author, edition.map(|entry| entry.author.as_str()))
+            && matches_value(&self.language, edition.map(|entry| entry.language.as_str()))
+            && matches_value(
+                &self.publisher,
+                edition.map(|entry| entry.publisher.as_str()),
+            )
+    }
+}
+
+fn validate_rules(rules: &Rules) -> Result<(), String> {
+    if rules.custom.len() > 20 {
+        return Err("Limite de 20 regras personalizadas.".into());
+    }
+    let mut names = HashSet::new();
+    for rule in &rules.custom {
+        let valid_text = |value: &str, limit: usize| {
+            value.len() <= limit && value.trim() == value && !value.chars().any(char::is_control)
+        };
+        if rule.name.is_empty()
+            || !valid_text(&rule.name, 100)
+            || !names.insert(normalized(&rule.name))
+        {
+            return Err("Nomes de regras devem ser únicos e não vazios (até 100 bytes).".into());
+        }
+        if !rule.format.is_empty()
+            && !matches!(
+                rule.format.as_str(),
+                "PDF" | "EPUB" | "MOBI" | "AZW3" | "DJVU"
+            )
+        {
+            return Err("Formato de regra inválido.".into());
+        }
+        if !valid_text(&rule.author, 500)
+            || !valid_text(&rule.publisher, 500)
+            || !valid_text(&rule.language, 25)
+            || !rule
+                .language
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err("Critério de metadados inválido.".into());
+        }
+        if [&rule.format, &rule.author, &rule.language, &rule.publisher]
+            .iter()
+            .all(|value| value.is_empty())
+        {
+            return Err(format!(
+                "Adicione pelo menos um critério à regra {}.",
+                rule.name
+            ));
+        }
+        destination_parts(&rule.destination)?;
+        if Path::new(&rule.destination).is_absolute()
+            || Path::new(&rule.destination).components().any(|part| {
+                matches!(
+                    part,
+                    std::path::Component::Prefix(_) | std::path::Component::ParentDir
+                )
+            })
+        {
+            return Err("Destino de regra fora da biblioteca.".into());
+        }
+    }
+    match (&rules.format, &rules.destination) {
+        (Some(format), Some(dest)) => {
+            if !matches!(format.as_str(), "PDF" | "EPUB" | "MOBI" | "AZW3" | "DJVU") {
+                return Err("Formato inválido.".into());
+            }
+            destination_parts(dest)?;
+        }
+        (None, None) => {}
+        _ => return Err("Regra de formato incompleta.".into()),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn validate_organization_rules(rules: Rules) -> Result<(), String> {
+    validate_rules(&rules)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -82,6 +196,7 @@ fn modified_ms(path: &Path) -> Option<u64> {
 }
 
 fn preview(collection: &Collection, rules: &Rules) -> Result<Preview, String> {
+    validate_rules(rules)?;
     let root = Path::new(&collection.root);
     let service = root.join("99 - Catálogo");
     for path in [
@@ -166,18 +281,40 @@ fn preview(collection: &Collection, rules: &Rules) -> Result<Preview, String> {
                 };
                 (dest, format!("Catálogo: {}", work.title), blocked)
             }
+            // Custom rules never override an explicit catalog association, even
+            // when catalog-directed moves are disabled.
             Some(_) => continue,
             None => {
-                let Some((format, dest)) = format_rule else {
+                let mut matches: Vec<(&str, String)> = rules
+                    .custom
+                    .iter()
+                    .filter(|rule| rule.matches(file))
+                    .map(|rule| (rule.destination.as_str(), rule.name.clone()))
+                    .collect();
+                if let Some((format, dest)) = format_rule {
+                    if &file.format == format {
+                        matches.push((dest.as_str(), format!("Formato {format}")));
+                    }
+                }
+                let Some((dest, _)) = matches.first() else {
                     continue;
                 };
-                if &file.format != format {
-                    continue;
-                }
+                let blocked = if matches.iter().any(|(other, _)| other != dest) {
+                    Some("Regras compatíveis indicam destinos diferentes.".into())
+                } else {
+                    None
+                };
                 (
-                    dest.clone(),
-                    format!("Formato {format} (sem associação)"),
-                    None,
+                    dest.to_string(),
+                    format!(
+                        "Regras: {}",
+                        matches
+                            .iter()
+                            .map(|(_, name)| name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    blocked,
                 )
             }
         };
@@ -336,6 +473,126 @@ fn apply(root: &str, rules: &Rules, selected: Vec<Suggestion>) -> Result<Applied
 mod tests {
     use super::*;
     #[test]
+    fn catalog_associations_are_not_overridden_by_custom_rules() {
+        let root = std::env::temp_dir().join(format!(
+            "acervo-rule-catalog-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for folder in ["Inbox", "A", "B", "99 - Catálogo"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        fs::write(root.join("Inbox/Book.epub"), b"book").unwrap();
+        fs::write(root.join("99 - Catálogo/Acervo_Listas.json"),r#"{"versao":1,"obras":[{"titulo":"Book","local_indicado":"A","arquivos_encontrados":["Inbox/Book.epub"]}]}"#).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let text = root.to_str().unwrap();
+        let mut rules = Rules {
+            catalog: true,
+            format: None,
+            destination: None,
+            custom: vec![CustomRule {
+                name: "EPUB".into(),
+                enabled: true,
+                format: "EPUB".into(),
+                author: String::new(),
+                language: String::new(),
+                publisher: String::new(),
+                destination: "B".into(),
+            }],
+        };
+        let collection = scan_collection(text.into()).unwrap();
+        let p = preview(&collection, &rules).unwrap();
+        assert_eq!(p.items.len(), 1);
+        assert_eq!(p.items[0].target, "A/Book.epub");
+        assert!(p.items[0].blocked.is_none());
+        rules.catalog = false;
+        assert!(preview(&collection, &rules).unwrap().items.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reusable_rules_require_all_criteria_and_report_conflicts() {
+        let root = std::env::temp_dir().join(format!(
+            "acervo-rule-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for folder in ["Inbox", "A", "B"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        let source = root.join("Inbox/Book.epub");
+        fs::write(&source, b"book").unwrap();
+        fs::write(root.join("Inbox/Unknown.epub"), b"other").unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let text = root.to_str().unwrap();
+        crate::library_editions::record(
+            &root,
+            crate::library_editions::EditionRecord {
+                path: "Inbox/Book.epub".into(),
+                source_name: "Example".into(),
+                metadata: crate::downloads::DownloadEdition {
+                    title: "Book".into(),
+                    author: "Machado".into(),
+                    language: "pt".into(),
+                    publisher: "Editora".into(),
+                    source_id: "example".into(),
+                    ..Default::default()
+                },
+                fingerprint: crate::import_fingerprint::fingerprint(&source).unwrap(),
+            },
+        )
+        .unwrap();
+        let rule = CustomRule {
+            name: "Português".into(),
+            enabled: true,
+            format: "EPUB".into(),
+            author: "machado".into(),
+            language: "PT".into(),
+            publisher: "editora".into(),
+            destination: "A".into(),
+        };
+        let mut rules = Rules {
+            catalog: true,
+            format: None,
+            destination: None,
+            custom: vec![rule.clone()],
+        };
+        let collection = scan_collection(text.into()).unwrap();
+        let result = preview(&collection, &rules).unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].target, "A/Book.epub");
+        assert!(result.items[0].blocked.is_none());
+        rules.custom.push(CustomRule {
+            name: "Conflito".into(),
+            destination: "B".into(),
+            ..rule.clone()
+        });
+        let result = preview(&collection, &rules).unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert!(result.items[0].blocked.is_some());
+        rules.custom[1].enabled = false;
+        let result = preview(&collection, &rules).unwrap();
+        assert!(result.items[0].blocked.is_none());
+        rules.custom[1].name = "PORTUGUÊS".into();
+        assert!(validate_rules(&rules).is_err());
+        rules.custom.pop();
+        rules.custom[0].publisher = "Outra".into();
+        assert!(preview(&collection, &rules).unwrap().items.is_empty());
+        rules.custom[0].publisher = "editora".into();
+        let result = preview(&collection, &rules).unwrap();
+        let done = apply(text, &rules, result.items).unwrap();
+        assert_eq!(done.moved, vec!["A/Book.epub"]);
+        assert!(root.join("Inbox/Unknown.epub").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn moves_selected_editions_without_changing_planned_destinations() {
         let root = std::env::temp_dir().join(format!(
             "acervo-smart-root-{}-{}",
@@ -362,6 +619,7 @@ mod tests {
             catalog: true,
             format: None,
             destination: None,
+            custom: vec![],
         };
         let previewed = preview(&scan_collection(text.into()).unwrap(), &rules).unwrap();
         let selected: Vec<_> = previewed
@@ -415,6 +673,7 @@ mod tests {
             catalog: true,
             format: Some("PDF".into()),
             destination: Some("PDF".into()),
+            custom: vec![],
         };
         let p = preview(&scan_collection(text.into()).unwrap(), &rules).unwrap();
         assert_eq!(p.total, 4);
