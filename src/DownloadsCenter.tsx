@@ -15,7 +15,7 @@ const sizes = (bytes: number) => bytes >= 1048576
   ? (bytes / 1048576).toFixed(1) + " MB"
   : (bytes / 1024).toFixed(1) + " KB";
 const statuses: Record<string, string> = {
-  queued: "Na fila", downloading: "Baixando", pausing: "Pausando", paused: "Pausado", ready: "Pronto para salvar",
+  waiting: "Aguardando vaga", queued: "Iniciando", downloading: "Baixando", pausing: "Pausando", paused: "Pausado", ready: "Pronto para salvar",
   failed: "Falhou", cancelled: "Cancelado", saving: "Salvando", recovery: "Recuperar importação", saved: "Na biblioteca",
 };
 
@@ -112,7 +112,11 @@ export function DownloadsCenter({ root, folders, onSaved }: {
   return <section className="downloads-center">
     <div className="page-intro"><div><div className="eyebrow">GERENCIADOR DE DOWNLOADS</div>
       <h1>Downloads</h1><p>Acompanhe transferências e decida onde cada livro será salvo na biblioteca.</p></div>
-      <button className="button secondary" onClick={() => void refresh()}><RefreshCw size={17}/> Atualizar</button>
+      <div className="download-actions">
+        {items.some(item=>item.status==="waiting") && items.filter(item=>["queued","downloading","pausing"].includes(item.status)).length<3 &&
+          <button className="button primary" onClick={()=>void invoke("start_waiting_downloads").then(()=>refresh()).catch(failure=>setError(String(failure)))}>Iniciar fila</button>}
+        <button className="button secondary" onClick={() => void refresh()}><RefreshCw size={17}/> Atualizar</button>
+      </div>
     </div>
     <div className="download-workspace-toolbar">
       <div className="download-filters" role="group" aria-label="Filtrar downloads">
@@ -138,15 +142,15 @@ export function DownloadsCenter({ root, folders, onSaved }: {
             <div className="download-title"><strong title={item.title}>{item.title}</strong><small>{item.sourceName} · {item.format.toUpperCase()} · {item.filename}</small></div>
             <span className={"download-status status-" + item.status}>{statuses[item.status] || item.status}</span>
           </div>
-          {(["queued", "downloading", "pausing", "paused"].includes(item.status)) && <div className="download-progress">
-            <progress max={100} value={percentage ?? undefined} aria-label={"Progresso de " + item.title}/>
+          {(["waiting", "queued", "downloading", "pausing", "paused"].includes(item.status)) && <div className="download-progress">
+            <progress max={100} value={item.status==="waiting"?percentage??0:percentage??undefined} aria-label={"Progresso de " + item.title}/>
             <span>{sizes(item.downloadedBytes)}{item.totalBytes ? " de " + sizes(item.totalBytes) + " · " + percentage?.toFixed(0) + "%" : " · tamanho desconhecido"}</span></div>}
           {item.edition && <small className="download-target-note">{[item.edition.title !== item.title ? item.edition.title : "",item.edition.author,item.edition.language,item.edition.publisher,item.edition.editionLabel].filter(Boolean).join(" · ")}</small>}
           {item.error && <p className="download-error" role="status">{item.error}</p>}
           {item.status === "failed" && item.downloadedBytes > 0 &&
             <p className="download-target-note">Arquivo parcial em cache: {sizes(item.downloadedBytes)}. A próxima tentativa verifica se a fonte permite retomá-lo.</p>}
           {item.status === "saved" && <p className="download-saved"><FolderCheck size={15}/>{item.savedPath}{item.catalogLinked ? " · Associado ao catálogo" : ""}</p>}
-          {item.autoImport && ["queued","downloading","saving"].includes(item.status) && <small className="download-target-note">Importação automática: {item.plannedDestination || "Raiz"}</small>}
+          {item.autoImport && ["waiting","queued","downloading","saving"].includes(item.status) && <small className="download-target-note">Importação automática: {item.plannedDestination || "Raiz"}</small>}
           {item.catalogTarget && <small className="download-target-note">Obra: {item.catalogTarget.title}{item.catalogTarget.author ? " — " + item.catalogTarget.author : ""}</small>}
           {item.status === "recovery" && item.importIntent && <div className="download-destination">
             <small className="download-target-note">Destino anterior: {item.importIntent.root}/{[item.importIntent.destination,item.filename].filter(Boolean).join("/")}</small>
@@ -186,9 +190,9 @@ export function DownloadsCenter({ root, folders, onSaved }: {
             {item.status === "recovery" && (recoverId===item.id
               ? <><button className="button secondary" disabled={!!busyId} onClick={()=>setRecoverId("")}>Voltar</button><button className="button primary" disabled={!!busyId||root!==item.importIntent?.root} onClick={()=>void recover(item)}><Check size={15}/> Confirmar recuperação</button></>
               : <button className="button primary" disabled={!!busyId||!root||root!==item.importIntent?.root} onClick={()=>setRecoverId(item.id)}><RotateCw size={15}/> Recuperar importação</button>)}
-            {(item.status === "queued" || item.status === "downloading") &&
+            {(["waiting","queued","downloading"].includes(item.status)) &&
               <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("pause_download", item.id)}><Pause size={15}/> Pausar</button>}
-            {["queued", "downloading", "pausing", "paused"].includes(item.status) &&
+            {["waiting", "queued", "downloading", "pausing", "paused"].includes(item.status) &&
               <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("cancel_download", item.id)}><Square size={14}/> Cancelar</button>}
             {["failed", "cancelled", "paused"].includes(item.status) &&
               <button className="button secondary" disabled={busyId === item.id} onClick={() => void action("retry_download", item.id)}><RotateCw size={15}/> {item.status === "paused" ? "Continuar" : "Tentar novamente"}</button>}

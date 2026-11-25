@@ -283,6 +283,11 @@ fn reconcile_restored(record: &mut DownloadRecord, staged_size: Option<u64>) {
             record.info.error =
                 "Importação anterior interrompida; confira o destino antes de salvar.".into();
         }
+        "waiting" => {
+            record.info.status = "paused".into();
+            record.info.error =
+                "Fila interrompida ao fechar o aplicativo. Retome quando desejar.".into();
+        }
         "queued" | "downloading" | "saving" => {
             record.info.status = "failed".into();
             record.info.error =
@@ -719,6 +724,78 @@ async fn fetch_to_stage(
     super::download_validation::validate_staged_book(&path, &format)
 }
 
+type ReservedJob = (String, String, Arc<AtomicU8>);
+
+fn reserve_waiting(items: &mut [DownloadRecord]) -> Vec<ReservedJob> {
+    let available = MAX_ACTIVE.saturating_sub(
+        items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.info.status.as_str(),
+                    "queued" | "downloading" | "pausing"
+                )
+            })
+            .count(),
+    );
+    items
+        .iter_mut()
+        .filter(|item| item.info.status == "waiting")
+        .take(available)
+        .map(|item| {
+            item.info.status = "queued".into();
+            item.info.error.clear();
+            (item.info.id.clone(), item.url.clone(), item.control.clone())
+        })
+        .collect()
+}
+
+fn schedule_downloads(app: &tauri::AppHandle, manager: &DownloadManager) -> Result<(), String> {
+    if let Some(error) = &manager.2 {
+        return Err(error.clone());
+    }
+    let path = manager.1.as_ref().ok_or("Registro indisponível.")?;
+    let jobs = {
+        let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
+        let previous = items.clone();
+        let jobs = reserve_waiting(&mut items);
+        if jobs.is_empty() {
+            return Ok(());
+        }
+        if let Err(error) = write_download_registry(path, &items) {
+            *items = previous;
+            return Err(error);
+        }
+        jobs
+    };
+    for (id, url, control) in jobs {
+        spawn_download(app.clone(), manager.clone(), id, url, control);
+    }
+    Ok(())
+}
+
+fn request_schedule(app: &tauri::AppHandle, manager: &DownloadManager) {
+    if let Err(error) = schedule_downloads(app, manager) {
+        if let Ok(mut items) = manager.0.lock() {
+            for item in items
+                .iter_mut()
+                .filter(|item| item.info.status == "waiting")
+            {
+                item.info.error = format!("Fila aguardando: {error}. Tente iniciar novamente.");
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn start_waiting_downloads(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, DownloadManager>,
+) -> Result<Vec<DownloadInfo>, String> {
+    schedule_downloads(&app, &manager)?;
+    manager.snapshot()
+}
+
 fn spawn_download(
     app: tauri::AppHandle,
     manager: DownloadManager,
@@ -772,6 +849,7 @@ fn spawn_download(
         if manager.persist().is_err() {
             return;
         }
+        request_schedule(&app, &manager);
         let auto_target = manager.0.lock().ok().and_then(|items| {
             items
                 .iter()
@@ -834,7 +912,14 @@ pub fn list_downloads(
 fn same_unfinished_download(existing: &DownloadRecord, candidate: &DownloadRecord) -> bool {
     matches!(
         existing.info.status.as_str(),
-        "queued" | "downloading" | "pausing" | "paused" | "ready" | "saving" | "recovery"
+        "waiting"
+            | "queued"
+            | "downloading"
+            | "pausing"
+            | "paused"
+            | "ready"
+            | "saving"
+            | "recovery"
     ) && existing.url == candidate.url
         && existing.info.format == candidate.info.format
         && existing.info.planned_destination == candidate.info.planned_destination
@@ -927,7 +1012,7 @@ pub fn queue_download(
             format: format.to_ascii_lowercase(),
             filename,
             planned_destination,
-            status: "queued".into(),
+            status: "waiting".into(),
             downloaded_bytes: 0,
             total_bytes: None,
             error: String::new(),
@@ -955,28 +1040,17 @@ pub fn queue_download(
         if items.len() >= MAX_HISTORY {
             return Err("A fila está cheia. Limpe downloads antigos.".into());
         }
-        if items
-            .iter()
-            .filter(|item| {
-                matches!(
-                    item.info.status.as_str(),
-                    "queued" | "downloading" | "pausing"
-                )
-            })
-            .count()
-            >= MAX_ACTIVE
-        {
-            return Err("Há 3 downloads ativos. Aguarde ou cancele um deles.".into());
+        if let Some(error) = &manager.2 {
+            return Err(error.clone());
         }
+        let path = manager.1.as_ref().ok_or("Registro indisponível.")?;
         items.push(download);
-    }
-    if let Err(error) = manager.persist() {
-        if let Ok(mut items) = manager.0.lock() {
-            items.retain(|item| item.info.id != id);
+        if let Err(error) = write_download_registry(path, &items) {
+            items.pop();
+            return Err(error);
         }
-        return Err(error);
     }
-    spawn_download(app, manager.clone(), id, url, control);
+    request_schedule(&app, &manager);
     manager.snapshot()
 }
 
@@ -992,6 +1066,23 @@ pub fn pause_download(
             .iter_mut()
             .find(|item| item.info.id == id)
             .ok_or("Download desconhecido.")?;
+        if item.info.status == "waiting" {
+            let previous = item.info.clone();
+            item.info.status = "paused".into();
+            item.info.error.clear();
+            if let Err(error) =
+                write_download_registry(manager.1.as_ref().ok_or("Registro indisponível.")?, &items)
+            {
+                items
+                    .iter_mut()
+                    .find(|item| item.info.id == id)
+                    .unwrap()
+                    .info = previous;
+                return Err(error);
+            }
+            drop(items);
+            return manager.snapshot();
+        }
         if !matches!(item.info.status.as_str(), "queued" | "downloading") {
             return Err("Apenas downloads ativos podem ser pausados.".into());
         }
@@ -1020,7 +1111,7 @@ pub fn cancel_download(
             "queued" | "downloading" | "pausing" => {
                 item.control.store(CANCEL_REQUESTED, Ordering::Relaxed);
             }
-            "ready" | "failed" | "cancelled" | "paused" => {
+            "waiting" | "ready" | "failed" | "cancelled" | "paused" => {
                 let stage = staged_path(&app, &id)?;
                 match fs::remove_file(stage) {
                     Ok(()) => {}
@@ -1049,21 +1140,8 @@ pub fn retry_download(
     id: String,
 ) -> Result<Vec<DownloadInfo>, String> {
     let manager = manager.inner().clone();
-    let (url, control) = {
+    {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
-        if items
-            .iter()
-            .filter(|item| {
-                matches!(
-                    item.info.status.as_str(),
-                    "queued" | "downloading" | "pausing"
-                )
-            })
-            .count()
-            >= MAX_ACTIVE
-        {
-            return Err("Há 3 downloads ativos.".into());
-        }
         let item = items
             .iter_mut()
             .find(|item| item.info.id == id)
@@ -1091,23 +1169,28 @@ pub fn retry_download(
         if !can_resume {
             item.etag.clear();
         }
-        item.info.status = "queued".into();
+        item.info.status = "waiting".into();
         item.info.error.clear();
         item.info.downloaded_bytes = if can_resume { partial_size } else { 0 };
         if !can_resume {
             item.info.total_bytes = None;
         }
         item.control = Arc::new(AtomicU8::new(RUNNING));
-        (item.url.clone(), item.control.clone())
-    };
-    if let Err(error) = manager.persist() {
-        manager.change(&id, |item| {
-            item.info.status = "failed".into();
-            item.info.error = format!("Não foi possível registrar a retomada: {error}");
-        });
-        return Err(error);
+        // Retried work goes to the back of the FIFO.
+        let index = items.iter().position(|item| item.info.id == id).unwrap();
+        let item = items.remove(index);
+        items.push(item);
+        if let Err(error) =
+            write_download_registry(manager.1.as_ref().ok_or("Registro indisponível.")?, &items)
+        {
+            if let Some(item) = items.last_mut() {
+                item.info.status = "failed".into();
+                item.info.error = error.clone();
+            }
+            return Err(error);
+        }
     }
-    spawn_download(app, manager.clone(), id, url, control);
+    request_schedule(&app, &manager);
     manager.snapshot()
 }
 
@@ -1126,7 +1209,7 @@ pub fn dismiss_download(
             .ok_or("Download desconhecido.")?;
         if matches!(
             items[index].info.status.as_str(),
-            "queued" | "downloading" | "pausing" | "saving" | "recovery"
+            "waiting" | "queued" | "downloading" | "pausing" | "saving" | "recovery"
         ) {
             return Err("Cancele ou conclua o download antes de removê-lo.".into());
         }
@@ -2295,6 +2378,37 @@ mod tests {
             etag: "\"edition-42\"".into(),
             control: Arc::new(AtomicU8::new(RUNNING)),
         };
+        let mut jobs: Vec<_> = (0..6)
+            .map(|n| {
+                let mut job = original.clone();
+                job.info.id = format!("job-{n}");
+                job.info.status = "waiting".into();
+                job.control = Arc::new(AtomicU8::new(RUNNING));
+                job
+            })
+            .collect();
+        jobs[0].info.status = "downloading".into();
+        jobs[2].info.status = "paused".into();
+        assert_eq!(
+            reserve_waiting(&mut jobs)
+                .iter()
+                .map(|job| job.0.as_str())
+                .collect::<Vec<_>>(),
+            vec!["job-1", "job-3"]
+        );
+        assert!(reserve_waiting(&mut jobs).is_empty());
+        jobs[0].info.status = "ready".into();
+        assert_eq!(reserve_waiting(&mut jobs)[0].0, "job-4");
+        jobs[1].info.status = "pausing".into();
+        assert!(reserve_waiting(&mut jobs).is_empty());
+        jobs[1].info.status = "cancelled".into();
+        assert_eq!(reserve_waiting(&mut jobs)[0].0, "job-5");
+        let mut waiting = original.clone();
+        waiting.info.status = "waiting".into();
+        assert!(same_unfinished_download(&waiting, &original));
+        reconcile_restored(&mut waiting, Some(45));
+        assert_eq!(waiting.info.status, "paused");
+        assert_eq!(waiting.info.downloaded_bytes, 45);
         let mut candidate = original.clone();
         candidate.info.id = "job-2".into();
         assert!(same_unfinished_download(&original, &candidate));

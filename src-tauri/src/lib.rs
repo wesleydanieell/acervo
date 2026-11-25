@@ -623,6 +623,7 @@ pub fn run() {
         extension_host::list_source_descriptors,
         downloads::list_downloads,
         downloads::queue_download,
+        downloads::start_waiting_downloads,
         downloads::pause_download,
         downloads::cancel_download,
         downloads::retry_download,
