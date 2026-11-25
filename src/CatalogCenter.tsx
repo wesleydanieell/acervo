@@ -1,3 +1,4 @@
+import { ToolbarSelect } from "./ToolbarSelect";
 import { ActionMenu } from "./ActionMenu";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Book, Check, ChevronDown, ClipboardCopy, Download, FilePlus2, Filter, Search, Sparkles, Upload } from "lucide-react";
@@ -138,10 +139,7 @@ export function CatalogCenter({ works, files, query, onImport, onPrompt, onExpor
             onClick={() => setAvailability(id)}>{label} <span>{count}</span></button>
         )}
       </div>
-      <label className="catalog-destination"><Filter size={16}/><select aria-label="Filtrar pasta planejada" value={destination} onChange={(event) => setDestination(event.target.value)}>
-        <option value="all">Todas as pastas planejadas</option>
-        {destinations.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
-      </select><ChevronDown size={14}/></label>
+      <ToolbarSelect label="Filtrar pasta planejada" icon={<Filter size={16}/>} value={destination} options={[{value:"all",label:"Todas as pastas planejadas"},...destinations.map(value=>({value,label:value}))]} onChange={setDestination}/>
     </div>
     <div className="catalog-list-heading"><strong>{filtered.length} obra(s)</strong><span>Prioridades aparecem primeiro</span></div>
     {filtered.length ? <div className="catalog-list">
