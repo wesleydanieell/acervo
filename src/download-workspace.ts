@@ -16,3 +16,21 @@ export function downloadDestination(
   if (candidate === "") return "";
   return folders.includes(candidate) ? candidate : null;
 }
+
+/** Mirrors the backend's lexical checks; Rust remains responsible for filesystem safety. */
+export function validDownloadPath(path: string): boolean {
+  if (!path || new TextEncoder().encode(path).length > 600) return false;
+  const parts = path.split("/");
+  return parts.length <= 80 && parts.every(part => part.length > 0
+    && new TextEncoder().encode(part).length <= 255
+    && part === part.trim() && !part.startsWith(".") && part !== "node_modules"
+    && !/[\\\p{Cc}]/u.test(part) && !/^99\s*[-–—]\s*cat[aá]logo$/i.test(part));
+}
+
+export function planDownloadDestination(
+  planned: string, selected: string | undefined, custom: string | undefined, folders: readonly string[],
+): { path: string; createMissing: boolean } | null {
+  if (custom !== undefined) return validDownloadPath(custom) ? { path: custom, createMissing: true } : null;
+  const path = downloadDestination(planned, selected, folders);
+  return path === null ? null : { path, createMissing: false };
+}
