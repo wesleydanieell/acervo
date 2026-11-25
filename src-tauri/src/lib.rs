@@ -14,6 +14,7 @@ mod html_source;
 mod import_fingerprint;
 mod library_editions;
 mod library_index;
+mod library_index_disk;
 mod library_monitor;
 mod metadata_cache;
 mod opds_parser;
@@ -128,8 +129,22 @@ fn scan_selected(
     depth: usize,
     selected: Option<&HashSet<String>>,
 ) {
-    #[cfg(test)]
-    library_index::record_read(current);
+    scan_selected_disk(
+        root, current, files, folders, warnings, depth, selected, &mut None,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_selected_disk(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<BookFile>,
+    folders: &mut BTreeSet<String>,
+    warnings: &mut Vec<String>,
+    depth: usize,
+    selected: Option<&HashSet<String>>,
+    disk: &mut Option<library_index_disk::Index>,
+) {
     if depth > 80 || files.len() > 150_000 {
         warnings.push(
             "Limite de profundidade ou arquivos atingido; algumas pastas não foram indexadas."
@@ -137,7 +152,7 @@ fn scan_selected(
         );
         return;
     }
-    let entries = match fs::read_dir(current) {
+    let entries = match library_index_disk::listing(root, current, disk.as_mut()) {
         Ok(entries) => entries,
         Err(error) => {
             warnings.push(format!("Pasta inacessível {}: {error}", current.display()));
@@ -152,13 +167,15 @@ fn scan_selected(
                 continue;
             }
         };
-        if selected
-            .is_some_and(|names| !names.contains(&entry.file_name().to_string_lossy().to_string()))
-        {
+        let path = entry.path();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if selected.is_some_and(|names| !names.contains(&name)) {
             continue;
         }
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
         let kind = match entry.file_type() {
             Ok(kind) => kind,
             Err(error) => {
@@ -176,7 +193,7 @@ fn scan_selected(
             if let Ok(relative) = path.strip_prefix(root) {
                 folders.insert(relative.to_string_lossy().replace('\\', "/"));
             }
-            scan_dir(root, &path, files, folders, warnings, depth + 1);
+            scan_selected_disk(root, &path, files, folders, warnings, depth + 1, None, disk);
         } else if kind.is_file() && is_book(&path) {
             let Ok(relative) = path.strip_prefix(root) else {
                 continue;
@@ -199,7 +216,8 @@ fn scan_selected(
                 folder,
                 format,
                 bytes: match entry.metadata() {
-                    Ok(meta) => meta.len(),
+                    Ok(meta) if meta.file_type().is_file() => meta.len(),
+                    Ok(_) => continue,
                     Err(error) => {
                         warnings.push(format!("Arquivo inacessível {}: {error}", path.display()));
                         continue;
@@ -279,6 +297,17 @@ fn read_catalog(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> 
         }
     })
     .collect()
+}
+
+#[tauri::command]
+async fn load_initial_collection(
+    app: tauri::AppHandle,
+    root: String,
+) -> Result<Collection, String> {
+    let cache = app.path().app_cache_dir().ok();
+    tauri::async_runtime::spawn_blocking(move || library_index::initial(root, cache))
+        .await
+        .map_err(|error| format!("Falha ao carregar a biblioteca: {error}"))?
 }
 
 #[tauri::command]
@@ -775,6 +804,7 @@ fn read_noctalia_colors() -> Option<serde_json::Value> {
 pub fn run() {
     let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
         load_collection,
+        load_initial_collection,
         refresh_indexed_collection,
         library_monitor::set_library_monitor,
         metadata_cache::extract_book_metadata,
