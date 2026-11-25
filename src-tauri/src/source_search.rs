@@ -283,7 +283,7 @@ fn cursor_value(data: &Value, selector: &str) -> Option<String> {
     sources::valid_cursor(&token).then_some(token)
 }
 
-fn matches_local_query(title: &str, author: &str, query: &str) -> bool {
+pub(crate) fn matches_local_query(title: &str, author: &str, query: &str) -> bool {
     fn fold(text: &str) -> String {
         text.to_lowercase()
             .chars()

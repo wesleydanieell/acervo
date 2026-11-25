@@ -5,6 +5,7 @@ Segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e Se
 ## [Unreleased]
 
 ### Alterado
+- Adaptador local de pequenos recortes bibliográficos importáveis, sem rede nem downloads.
 - Registro permanente de edições adquiridas por biblioteca, detalhes e pesquisa de metadados, sincronização ao mover livros.
 - Registro prévio de importação com SHA-256 e recuperação explícita após interrupção, preservando arquivos divergentes.
 - Metadados de edição persistidos na fila e histórico, complemento opcional de nome e renomeação de downloads prontos sem nova transferência.

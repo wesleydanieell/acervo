@@ -6,9 +6,7 @@
   "required": [
     "schemaVersion",
     "id",
-    "name",
-    "baseUrl",
-    "searchPath"
+    "name"
   ],
   "properties": {
     "schemaVersion": {
@@ -27,7 +25,8 @@
       "enum": [
         "json",
         "opds",
-        "html"
+        "html",
+        "local"
       ],
       "default": "json"
     },
@@ -45,14 +44,10 @@
       "maxLength": 500
     },
     "baseUrl": {
-      "type": "string",
-      "format": "uri",
-      "pattern": "^https://"
+      "type": "string"
     },
     "searchPath": {
-      "type": "string",
-      "maxLength": 1000,
-      "pattern": "^/(?!/).*\\{query\\}"
+      "type": "string"
     },
     "itemsPath": {
       "$ref": "#/$defs/requiredSelector"
@@ -196,6 +191,58 @@
           "$ref": "#/$defs/optionalSelector"
         }
       }
+    },
+    "localRecords": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "author": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "publisher": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "language": {
+            "type": "string",
+            "maxLength": 25
+          },
+          "format": {
+            "enum": [
+              "",
+              "epub",
+              "pdf",
+              "mobi",
+              "azw3",
+              "djvu"
+            ]
+          },
+          "editionLabel": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -222,7 +269,7 @@
       "if": {
         "properties": {
           "adapter": {
-            "const": "opds"
+            "const": "local"
           }
         },
         "required": [
@@ -231,17 +278,39 @@
       },
       "then": {
         "required": [
+          "localRecords",
           "downloadDomains"
         ],
         "properties": {
-          "downloadDomains": {
+          "localRecords": {
             "type": "array"
+          },
+          "downloadDomains": {
+            "const": []
+          },
+          "localSearch": {
+            "const": false
           },
           "pagination": {
             "type": "null"
           },
-          "localSearch": {
-            "const": false
+          "html": {
+            "type": "null"
+          },
+          "editions": {
+            "type": "null"
+          },
+          "formats": {
+            "const": []
+          },
+          "languages": {
+            "const": []
+          },
+          "baseUrl": {
+            "const": ""
+          },
+          "searchPath": {
+            "const": ""
           },
           "itemsPath": {
             "const": ""
@@ -263,110 +332,182 @@
           },
           "remoteIdField": {
             "const": ""
-          },
-          "html": {
-            "type": "null"
           }
         }
       },
       "else": {
-        "if": {
-          "properties": {
-            "adapter": {
-              "const": "html"
-            }
-          },
-          "required": [
-            "adapter"
-          ]
-        },
-        "then": {
-          "required": [
-            "downloadDomains",
-            "html"
-          ],
-          "properties": {
-            "downloadDomains": {
-              "type": "array"
-            },
-            "pagination": {
-              "type": "null"
-            },
-            "localSearch": {
-              "const": false
-            },
-            "itemsPath": {
-              "const": ""
-            },
-            "titleField": {
-              "const": ""
-            },
-            "authorField": {
-              "const": ""
-            },
-            "formatField": {
-              "const": ""
-            },
-            "languageField": {
-              "const": ""
-            },
-            "downloadUrlField": {
-              "const": ""
-            },
-            "remoteIdField": {
-              "const": ""
-            },
-            "html": {
-              "type": "object"
-            }
-          }
-        },
-        "else": {
-          "required": [
-            "itemsPath",
-            "titleField"
-          ],
-          "properties": {
-            "html": {
-              "type": "null"
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "editions": {
-            "type": "object"
-          }
-        },
         "required": [
-          "editions"
-        ]
-      },
-      "then": {
-        "required": [
-          "remoteIdField",
-          "downloadDomains"
+          "baseUrl",
+          "searchPath"
         ],
         "properties": {
-          "adapter": {
-            "const": "json"
+          "baseUrl": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
           },
-          "remoteIdField": {
-            "$ref": "#/$defs/requiredSelector"
+          "searchPath": {
+            "type": "string",
+            "maxLength": 1000,
+            "pattern": "^/(?!/).*\\{query\\}"
           },
-          "downloadDomains": {
-            "type": "array"
-          },
-          "downloadUrlField": {
-            "const": ""
-          },
-          "formatField": {
-            "const": ""
+          "localRecords": {
+            "type": "null"
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "adapter": {
+                  "const": "opds"
+                }
+              },
+              "required": [
+                "adapter"
+              ]
+            },
+            "then": {
+              "required": [
+                "downloadDomains"
+              ],
+              "properties": {
+                "downloadDomains": {
+                  "type": "array"
+                },
+                "pagination": {
+                  "type": "null"
+                },
+                "localSearch": {
+                  "const": false
+                },
+                "itemsPath": {
+                  "const": ""
+                },
+                "titleField": {
+                  "const": ""
+                },
+                "authorField": {
+                  "const": ""
+                },
+                "formatField": {
+                  "const": ""
+                },
+                "languageField": {
+                  "const": ""
+                },
+                "downloadUrlField": {
+                  "const": ""
+                },
+                "remoteIdField": {
+                  "const": ""
+                },
+                "html": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "if": {
+                "properties": {
+                  "adapter": {
+                    "const": "html"
+                  }
+                },
+                "required": [
+                  "adapter"
+                ]
+              },
+              "then": {
+                "required": [
+                  "downloadDomains",
+                  "html"
+                ],
+                "properties": {
+                  "downloadDomains": {
+                    "type": "array"
+                  },
+                  "pagination": {
+                    "type": "null"
+                  },
+                  "localSearch": {
+                    "const": false
+                  },
+                  "itemsPath": {
+                    "const": ""
+                  },
+                  "titleField": {
+                    "const": ""
+                  },
+                  "authorField": {
+                    "const": ""
+                  },
+                  "formatField": {
+                    "const": ""
+                  },
+                  "languageField": {
+                    "const": ""
+                  },
+                  "downloadUrlField": {
+                    "const": ""
+                  },
+                  "remoteIdField": {
+                    "const": ""
+                  },
+                  "html": {
+                    "type": "object"
+                  }
+                }
+              },
+              "else": {
+                "required": [
+                  "itemsPath",
+                  "titleField"
+                ],
+                "properties": {
+                  "html": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "editions": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "editions"
+              ]
+            },
+            "then": {
+              "required": [
+                "remoteIdField",
+                "downloadDomains"
+              ],
+              "properties": {
+                "adapter": {
+                  "const": "json"
+                },
+                "remoteIdField": {
+                  "$ref": "#/$defs/requiredSelector"
+                },
+                "downloadDomains": {
+                  "type": "array"
+                },
+                "downloadUrlField": {
+                  "const": ""
+                },
+                "formatField": {
+                  "const": ""
+                }
+              }
+            }
+          }
+        ]
       }
     }
   ]

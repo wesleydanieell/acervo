@@ -26,6 +26,7 @@ pub enum AdapterKind {
     Json,
     Opds,
     Html,
+    Local,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +43,9 @@ pub struct SourceManifest {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub base_url: String,
+    #[serde(default)]
     pub search_path: String,
     #[serde(default)]
     pub items_path: String,
@@ -72,6 +75,8 @@ pub struct SourceManifest {
     pub html: Option<HtmlMapping>,
     #[serde(default)]
     pub editions: Option<JsonEditions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_records: Option<Vec<crate::local_source::LocalRecord>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +190,12 @@ pub fn validate(manifest: &SourceManifest) -> Result<(), String> {
         || manifest.description.len() > 500
     {
         return Err("Nome ou descrição da fonte fora do limite.".into());
+    }
+    if manifest.adapter == AdapterKind::Local {
+        return crate::local_source::validate_manifest(manifest);
+    }
+    if manifest.local_records.is_some() {
+        return Err("localRecords exige o adaptador local.".into());
     }
     let url = url::Url::parse(&manifest.base_url).map_err(|_| "baseUrl inválida.")?;
     if url.scheme() != "https"
@@ -343,9 +354,10 @@ pub(crate) fn valid_cursor(cursor: &str) -> bool {
 }
 
 pub(crate) fn permits_download(manifest: &SourceManifest, link: &str) -> bool {
-    if (manifest.adapter == AdapterKind::Json
-        && manifest.download_url_field.is_empty()
-        && manifest.editions.is_none())
+    if manifest.adapter == AdapterKind::Local
+        || (manifest.adapter == AdapterKind::Json
+            && manifest.download_url_field.is_empty()
+            && manifest.editions.is_none())
         || (manifest.adapter == AdapterKind::Html
             && manifest
                 .html
@@ -585,6 +597,7 @@ pub fn install_demo_source(app: tauri::AppHandle) -> Result<Vec<InstalledSource>
             download_domains: None,
             html: None,
             editions: None,
+            local_records: None,
         },
     )
 }
@@ -668,6 +681,7 @@ mod tests {
             download_domains: None,
             html: None,
             editions: None,
+            local_records: None,
         }
     }
 

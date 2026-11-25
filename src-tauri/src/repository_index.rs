@@ -118,6 +118,9 @@ pub fn verify_manifest(
     let manifest: crate::sources::SourceManifest =
         serde_json::from_slice(data).map_err(|error| format!("Invalid manifest: {error}"))?;
     crate::sources::validate(&manifest)?;
+    if manifest.adapter == crate::sources::AdapterKind::Local {
+        return Err("Catálogos locais devem ser importados manualmente.".into());
+    }
     if manifest.download_domains.is_none() {
         return Err("Repository manifests require explicit downloadDomains.".into());
     }

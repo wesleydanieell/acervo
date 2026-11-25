@@ -1,0 +1,27 @@
+# Anna's Archive — avaliação de integração
+
+## Estado
+
+Não há uma extensão funcional validada. Em 24/11/2026, a consulta HTTPS à política de acesso do domínio encontrado expirou no ambiente de desenvolvimento. A documentação indexada descreve datasets de metadados e uma API de download para membros, mas não uma API pública estável de pesquisa.
+
+Referências: FAQ e documentação de datasets do projeto. O acesso direto e as permissões de automação não foram confirmados nesta avaliação.
+
+## Compatibilidade com o Acervo
+
+- HTML declarativo pode extrair metadados de uma página estática autorizada, mas precisa de seletores validados contra a resposta real.
+- JSON pode consumir um serviço autorizado de metadados com downloadDomains vazio e sem seletores de aquisição. Não exige mudanças no host.
+- A API atual não oferece credenciais por extensão nem resolução de páginas intermediárias. Não armazenar tokens em manifestos, índices públicos, logs ou URLs de histórico.
+- Uma licença da obra não necessariamente cobre uma tradução ou edição específica. Manter aquisição limitada a arquivos cuja distribuição seja autorizada.
+
+## Critérios de aceitação
+
+Validar uma origem autorizada e alcançável, testar pesquisa e normalização de metadados com fixtures próprias e declarar capacidades reais. Para aquisição, validar licença da edição e usar um endpoint autorizado. Não contornar controles de acesso, automatizar desafios ou substituir a política HTTPS. Não publicar manifestos fictícios como fontes funcionais.
+
+Por enquanto, manter esta avaliação fora do índice instalável; os adaptadores e as fontes de domínio público existentes continuam disponíveis.
+
+
+## Segunda tentativa
+
+Em 24/11/2026, o robots.txt de https://annas-archive.gl respondeu HTTP 200, com User-agent: *, Crawl-delay: 10 e Disallow: /search, entre outras restrições. Não foi realizada raspagem da pesquisa nem acesso a endpoints de download. O FAQ recomenda usar uma cópia das bases para pesquisa própria. A alternativa implementada nesta branch é um adaptador local para pequenos recortes bibliográficos normalizados e obtidos de forma autorizada. O exemplo é sintético e não representa dados extraídos do Anna's Archive. Não é uma integração direta nem suporta o conjunto de dados completo.
+
+Referência técnica: https://docs.searxng.org/_modules/searx/engines/annas_archive.html (confirma o uso de HTML pela integração de terceiros, não concede permissão de automação).
