@@ -52,9 +52,16 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação: 170 testes Rust aprovados (2 novos: exclusão de raízes sobrepostas e integração com comandos existentes sob reserva em outra thread). git diff --check aprovado.
 - Limitações: reserva em memória e no processo; não impede mudanças externas, outros processos, aliases físicos não canônicos ou mudanças na fila fora da importação. Regras em localStorage e cache derivado não são coordenados por essa reserva. Locks globais existentes ainda podem serializar operações independentes. Não houve validação visual, instalação, execução estrutural nem alterações na biblioteca real.
 
+## 2026-11-25 — integridade de edições e colisões de aquisição
+
+- Prévia estrutural verifica fingerprints SHA-256 das edições afetadas, reutilizando verificador existente. Limite inicial de 1 GiB de leitura reservada e 512 tentativas por proposta; verificação excedente é bloqueio explícito, não aprovação. Fingerprint limita leitura ao tamanho esperado e compara metadados durante a leitura (ctime/dev/inode em Unix). Orçamento exclusivo de edições, não inclui outras verificações.
+- Aquisição: `destinationConflicts` aponta downloads de origens diferentes da mesma biblioteca que passam a compartilhar o mesmo destino completo (inclui nome de arquivo). Considera destinos planejados e da ficha; outras raízes, histórico e jobs sem raiz não são confundidos. Duplicatas preexistentes não são novas colisões.
+- Validação Linux: 172 testes Rust aprovados (2 novos: orçamento e colisões de aquisição; teste integrado também verifica divergência de edição). git diff --check aprovado.
+- Limitações: diagnósticos somente leitura; colisões com arquivos físicos projetados e equivalência case-insensitive ainda pendentes. Verificação de conteúdo não elimina TOCTOU. Sem alteração da biblioteca real, execução estrutural, instalação ou validação visual.
+
 ## Próximo incremento recomendado
 
-1. Verificar fingerprints de edições com orçamento de I/O definido; definir verificação de identidades e snapshots exatos necessários para recuperação. Revisar aquisição de reservas para futuros pontos de escrita.
-2. Definir coordenação de mutações e reservas por raiz, política de colisões de destinos futuros e snapshots exatos da fila e regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
+1. Definir formato de journal e snapshots exatos dos dados a modificar (incluindo identidade do arquivo, SQLite e índices), com persistência segura e teste de corrupção/interrupção. Não habilitar execução prematuramente.
+2. Completar política de colisões com arquivos físicos projetados e coordenação da fila/regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

@@ -1,6 +1,8 @@
 //! Per-library edition provenance, independent of download history.
 use crate::downloads::DownloadEdition;
-use crate::import_fingerprint::{FileFingerprint, fingerprint};
+use crate::import_fingerprint::FileFingerprint;
+#[cfg(test)]
+use crate::import_fingerprint::fingerprint;
 use serde::{
     Deserialize, Deserializer, Serialize,
     de::{MapAccess, Visitor},
@@ -196,7 +198,11 @@ pub(crate) fn load(root: &Path) -> Result<BTreeMap<String, EditionRecord>, Strin
     Ok(envelope.entries)
 }
 
-fn verify_book(root: &Path, relative: &str, expected: &FileFingerprint) -> Result<(), String> {
+pub(crate) fn verify_book(
+    root: &Path,
+    relative: &str,
+    expected: &FileFingerprint,
+) -> Result<(), String> {
     valid_path(relative)?;
     let mut path = root.to_path_buf();
     let parts: Vec<_> = relative.split('/').collect();
@@ -210,7 +216,7 @@ fn verify_book(root: &Path, relative: &str, expected: &FileFingerprint) -> Resul
         }
     }
     if fs::canonicalize(&path).map_err(|e| e.to_string())? != path
-        || fingerprint(&path)? != *expected
+        || crate::import_fingerprint::fingerprint_with_limit(&path, expected.bytes)? != *expected
     {
         return Err("Arquivo de edição não corresponde à impressão digital.".into());
     }

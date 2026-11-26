@@ -2,13 +2,17 @@
 use super::{DownloadInfo, DownloadManager, destination_parts};
 use crate::library_reference_impact::{PathChange, PathRemap};
 use serde::Serialize;
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DownloadImpact {
     changes: Vec<DownloadChange>,
     blockers: Vec<DownloadBlocker>,
+    destination_conflicts: Vec<DestinationConflict>,
     pub(crate) revision: String,
 }
 #[derive(Debug, Serialize)]
@@ -26,6 +30,76 @@ struct DownloadBlocker {
     id: String,
     title: String,
     reason: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DestinationConflict {
+    target: String,
+    download_ids: Vec<String>,
+}
+
+/// Only newly converging planned paths are reported here. Existing duplicate
+/// destinations, unbound jobs and historical downloads have separate semantics.
+fn destination_conflicts(
+    root: &str,
+    remap: &PathRemap<'_>,
+    records: &[DownloadInfo],
+) -> Result<Vec<DestinationConflict>, String> {
+    let mut groups = BTreeMap::<String, BTreeSet<(String, String)>>::new();
+    for info in records {
+        let Some(target) = &info.catalog_target else {
+            continue;
+        };
+        if target.root != root || info.status == "saved" || info.import_intent.is_some() {
+            continue;
+        }
+        // Both manually suggested and automatic import destinations are meaningful.
+        for destination in [&info.planned_destination, &target.destination] {
+            let destination = if destination == "." {
+                ""
+            } else {
+                destination.as_str()
+            };
+            if destination_parts(destination).is_err() {
+                continue;
+            }
+            let Ok(change) = remap.map(destination) else {
+                continue;
+            };
+            let after = change
+                .as_ref()
+                .map_or(destination, |change| change.after.as_str());
+            if destination_parts(after).is_err() {
+                continue;
+            }
+            let join = |dir: &str| {
+                if dir.is_empty() {
+                    info.filename.clone()
+                } else {
+                    format!("{dir}/{}", info.filename)
+                }
+            };
+            groups
+                .entry(join(after))
+                .or_default()
+                .insert((info.id.clone(), join(destination)));
+        }
+    }
+    Ok(groups
+        .into_iter()
+        .filter_map(|(target, entries)| {
+            let ids: BTreeSet<_> = entries.iter().map(|(id, _)| id.clone()).collect();
+            let origins: BTreeSet<_> = entries.iter().map(|(_, path)| path).collect();
+            if ids.len() < 2 || origins.len() < 2 {
+                return None;
+            }
+            Some(DestinationConflict {
+                target,
+                download_ids: ids.into_iter().collect(),
+            })
+        })
+        .collect())
 }
 
 fn block(result: &mut DownloadImpact, info: &DownloadInfo, reason: &'static str) {
@@ -83,6 +157,7 @@ fn analyze(
         })
         .collect();
     result.revision = crate::library_reference_impact::revision(&(1u8, state))?;
+    result.destination_conflicts = destination_conflicts(root, remap, records)?;
     for info in records {
         let bound = info.catalog_target.as_ref().map(|t| t.root.as_str());
         // An approved import is immutable. Even if its destination is unrelated,
@@ -171,6 +246,31 @@ mod tests {
             "error":"","savedPath":"A/Book.pdf",
             "catalogTarget":root.map(|r| CatalogTarget{root:r.into(),title:"Book".into(),author:"Author".into(),destination:destination.into(),legacy_id:None})
         })).unwrap()
+    }
+
+    #[test]
+    fn newly_converging_download_destinations_report_only_matching_filenames_and_root() {
+        let map = PathRemap::new(vec![("A", "New")]);
+        let mut records = vec![
+            info("first", "ready", Some("/library"), "A/Future"),
+            info("second", "paused", Some("/library"), "New/Future"),
+            info("different", "ready", Some("/library"), "New/Future"),
+            info("other", "ready", Some("/other"), "New/Future"),
+            info("saved", "saved", Some("/library"), "New/Future"),
+            info("unbound", "ready", None, "New/Future"),
+        ];
+        records[2].filename = "Other.pdf".into();
+        let conflicts = destination_conflicts("/library", &map, &records).unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].target, "New/Future/Book.pdf");
+        assert_eq!(conflicts[0].download_ids, vec!["first", "second"]);
+        records[1].planned_destination = "A/Future".into();
+        records[1].catalog_target.as_mut().unwrap().destination = "A/Future".into();
+        assert!(
+            destination_conflicts("/library", &map, &records)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

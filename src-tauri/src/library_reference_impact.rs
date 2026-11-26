@@ -30,6 +30,32 @@ pub struct ReferenceImpact {
     pub editions: Vec<PathChange>,
     pub blockers: Vec<ReferenceBlocker>,
     pub revision: String,
+    pub edition_verification: EditionVerification,
+}
+
+const EDITION_VERIFICATION_BYTES: u64 = 1024 * 1024 * 1024;
+const EDITION_VERIFICATION_FILES: usize = 512;
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditionVerification {
+    checked: usize,
+    deferred: usize,
+    bytes_reserved: u64,
+}
+
+impl EditionVerification {
+    fn reserve(&mut self, bytes: u64, limit: u64, max_files: usize) -> bool {
+        // The fingerprint reader permits an extra byte to detect concurrent growth.
+        let cost = bytes.saturating_add(1);
+        if self.checked >= max_files || cost > limit.saturating_sub(self.bytes_reserved) {
+            self.deferred += 1;
+            return false;
+        }
+        self.checked += 1;
+        self.bytes_reserved += cost;
+        true
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -238,12 +264,33 @@ pub(crate) fn preview(root: &Path, remap: &PathRemap<'_>) -> Result<ReferenceImp
                 path,
                 reason: "missingOrInvalidBook",
             });
-        } else if let Some(record) = manual.entries.get(&path) {
+            continue;
+        }
+        if let Some(record) = manual.entries.get(&path) {
             if crate::manual_metadata::identity(root, &path).ok().as_ref() != Some(&record.identity)
             {
                 result.blockers.push(ReferenceBlocker {
-                    path,
+                    path: path.clone(),
                     reason: "staleManualIdentity",
+                });
+            }
+        }
+        if let Some(record) = editions.get(&path) {
+            if !result.edition_verification.reserve(
+                record.fingerprint.bytes,
+                EDITION_VERIFICATION_BYTES,
+                EDITION_VERIFICATION_FILES,
+            ) {
+                result.blockers.push(ReferenceBlocker {
+                    path,
+                    reason: "editionVerificationDeferred",
+                });
+            } else if crate::library_editions::verify_book(root, &path, &record.fingerprint)
+                .is_err()
+            {
+                result.blockers.push(ReferenceBlocker {
+                    path,
+                    reason: "staleOrUnreadableEdition",
                 });
             }
         }
@@ -254,6 +301,16 @@ pub(crate) fn preview(root: &Path, remap: &PathRemap<'_>) -> Result<ReferenceImp
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn edition_verification_budget_is_bounded_and_defers_without_claiming_success() {
+        let mut v = EditionVerification::default();
+        assert!(v.reserve(4, 10, 2));
+        assert!(!v.reserve(6, 10, 2));
+        assert!(v.reserve(4, 10, 2));
+        assert!(!v.reserve(0, 10, 2));
+        assert_eq!((v.checked, v.deferred, v.bytes_reserved), (2, 2, 10));
+    }
+
     #[test]
     fn component_mapping_is_not_a_text_replacement_or_cascade() {
         let map = PathRemap::new(vec![("A", "New"), ("New", "Other")]);

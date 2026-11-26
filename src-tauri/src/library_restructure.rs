@@ -502,7 +502,7 @@ mod tests {
         assert!(!root.join("New").exists());
         fs::write(root.join("A/livro.epub"), b"changed contents").unwrap();
         let changed = plan(&root, vec![mv("A", "New")]).unwrap();
-        assert_eq!(changed.reference_impact.blockers.len(), 1);
+        assert_eq!(changed.reference_impact.blockers.len(), 2);
     }
 
     #[test]
