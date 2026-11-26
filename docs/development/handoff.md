@@ -75,9 +75,17 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação Linux: 179 testes Rust aprovados (2 novos: imagens exatas/ausência/corrupção e origem/recurso substituído). Corrigida incompatibilidade de desserialização u128 encontrada na primeira execução, suíte final íntegra. git diff --check aprovado.
 - Limitações: snapshots não são restauração, hashes não autenticam alterações maliciosas. Ainda sem acesso exclusivo de recuperação, arquivamento, identidade Windows, validação macOS, simulação de perda de energia ou execução estrutural. Releitura do journal verifica blobs e pode custar até o limite de 64 MiB. Nenhuma alteração na biblioteca real ou validação visual.
 
+## 2026-11-25 — inspeção exclusiva de recuperação
+
+- `library_mutations::RecoveryReservation` usa o mesmo registro de exclusão por raiz, mas é uma capacidade distinta das reservas de escrita. Só é concedida para journal válido e pendente; corrupção continua bloqueando. Não pode ser passada aos helpers de mutação existentes.
+- `library_journal/recovery.rs` e IPC somente leitura `inspect_library_recovery`: estado, índice inFlight e evidência Before/After/Conflict/Unsupported. A classificação compara imagens exatas de JSON e identidade da pasta de origem/destino, sem checkpoints novos ou escrita física. Before/After referem-se à direção original mesmo durante compensação.
+- Pasta criada já existente não é considerada aplicada sem prova de identidade. Movimentações sem timestamp de nascimento retornam Unsupported; links, pais ausentes ou locais ocupados não são assumidos seguros. SQLite, downloads e regras são Unsupported até adaptadores.
+- Validação Linux: 182 testes Rust aprovados (3 novos: inspeção repetível e exclusão, classificação conservadora, compensação interrompida); git diff --check aprovado. Teste de identidade tem fallback explícito quando filesystem não fornece nascimento. Nenhum checkpoint é reconciliado pelo classificador.
+- Limitações: evidência de diretório não valida toda a subárvore; não há restaurador, executor, arquivamento ou descoberta persistente de raízes sobrepostas. Sem autorização de escrita por evidência, sem testes reais de perda de energia, sem alteração da biblioteca real ou validação visual.
+
 ## Próximo incremento recomendado
 
-1. Implementar acesso interno de recuperação exclusivo, classificador de evidência para passos interrompidos e testes de conflito/idempotência; construir adaptadores exatos de SQLite, fila e regras, definir arquivamento e política de raízes sobrepostas. Não habilitar execução prematuramente.
+1. Construir adaptador transacional SQLite para capturar os campos exatos afetados e verificar/restaurar com precondições; depois fila e regras. Definir prova de criação de pasta e identidade de subárvore, política de arquivamento/raízes sobrepostas antes de habilitar execução.
 2. Completar política de colisões com arquivos físicos projetados e coordenação da fila/regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

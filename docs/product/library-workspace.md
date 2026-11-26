@@ -109,3 +109,5 @@ Aceite: a mesma operação proposta manualmente ou por IA tem as mesmas validaç
 - Não instalar binários de branches experimentais no perfil normal. Instalar somente a versão integrada e validada. Registrar o que está pronto, o que depende de outra etapa e limitações conhecidas.
 
 A prévia de aquisição também identifica novos destinos de arquivo coincidentes entre downloads vinculados à mesma raiz, considerando nome e destinos planejados/da ficha. Não confunde formatos/nomes distintos, registros históricos ou outras bibliotecas. Destinos anteriormente iguais não são classificados como nova colisão. Ainda não verifica colisões com arquivos físicos projetados nem equivalência de nomes em filesystems case-insensitive.
+
+A inspeção de recuperação já possui reserva exclusiva interna e diagnóstico Before/After/Conflict/Unsupported da etapa interrompida, para imagens JSON e identidade de movimentação de pasta. Não aplica compensações nem altera checkpoints; criação existente sem prova de identidade continua conflito.

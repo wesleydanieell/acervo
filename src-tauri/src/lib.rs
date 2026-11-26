@@ -834,6 +834,7 @@ pub fn run() {
         organization::preview_organization,
         library_restructure::preview_library_restructure,
         library_journal::inspect_library_journal,
+        library_journal::recovery::inspect_library_recovery,
         organization::apply_organization,
         sources::list_sources,
         source_browser::open_source_webview,

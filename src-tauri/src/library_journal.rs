@@ -1,5 +1,6 @@
 //! Durable, append-only structural journal. No filesystem executor is exposed.
 mod images;
+pub(crate) mod recovery;
 use crate::library_reference_impact::revision;
 pub(crate) use images::{Image, Images};
 use serde::{Deserialize, Serialize};
@@ -551,9 +552,9 @@ pub(crate) fn append(
 #[cfg(test)]
 mod tests {
     use super::*;
-    struct Fixture(PathBuf);
+    pub(super) struct Fixture(pub(super) PathBuf);
     impl Fixture {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "acervo-journal-{}-{}",
                 std::process::id(),
@@ -563,7 +564,7 @@ mod tests {
             fs::create_dir(path.join("A")).unwrap();
             Self(fs::canonicalize(path).unwrap())
         }
-        fn intent(&self) -> Intent {
+        pub(super) fn intent(&self) -> Intent {
             Intent {
                 root: self.0.to_str().unwrap().into(),
                 plan_revision: "a".repeat(64),

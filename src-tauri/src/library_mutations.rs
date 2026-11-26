@@ -14,7 +14,7 @@ pub(crate) struct Reservation {
     root: PathBuf,
 }
 impl Reservation {
-    pub(crate) fn acquire(root: &Path) -> Result<Self, String> {
+    fn reserve(root: &Path) -> Result<Self, String> {
         let root = fs::canonicalize(root).map_err(|e| format!("Biblioteca inválida: {e}"))?;
         if !root.is_dir() {
             return Err("Biblioteca inválida.".into());
@@ -32,7 +32,10 @@ impl Reservation {
         }
         active.insert(root.clone());
         drop(active);
-        let reservation = Self { root };
+        Ok(Self { root })
+    }
+    pub(crate) fn acquire(root: &Path) -> Result<Self, String> {
+        let reservation = Self::reserve(root)?;
         if crate::library_journal::inspect(reservation.root())?.is_some_and(|state| state.pending())
         {
             return Err("Há uma reorganização pendente de recuperação nesta biblioteca.".into());
@@ -42,6 +45,23 @@ impl Reservation {
 
     pub(crate) fn root(&self) -> &Path {
         &self.root
+    }
+}
+/// Distinct capability: cannot be passed to existing mutation helpers.
+#[must_use]
+pub(crate) struct RecoveryReservation(Reservation);
+impl RecoveryReservation {
+    pub(crate) fn acquire(root: &Path) -> Result<Self, String> {
+        let reservation = Reservation::reserve(root)?;
+        if !crate::library_journal::inspect(reservation.root())?
+            .is_some_and(|state| state.pending())
+        {
+            return Err("Nenhuma reorganização pendente de recuperação.".into());
+        }
+        Ok(Self(reservation))
+    }
+    pub(crate) fn root(&self) -> &Path {
+        self.0.root()
     }
 }
 impl Drop for Reservation {
