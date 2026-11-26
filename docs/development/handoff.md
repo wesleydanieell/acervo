@@ -83,9 +83,16 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação Linux: 182 testes Rust aprovados (3 novos: inspeção repetível e exclusão, classificação conservadora, compensação interrompida); git diff --check aprovado. Teste de identidade tem fallback explícito quando filesystem não fornece nascimento. Nenhum checkpoint é reconciliado pelo classificador.
 - Limitações: evidência de diretório não valida toda a subárvore; não há restaurador, executor, arquivamento ou descoberta persistente de raízes sobrepostas. Sem autorização de escrita por evidência, sem testes reais de perda de energia, sem alteração da biblioteca real ou validação visual.
 
+## 2026-11-25 — adaptador transacional SQLite
+
+- `library_journal/sqlite.rs`: snapshot lógico ordenado por ID, com hash do schema, título/autor para identidade e valores exatos (inclusive NULL e texto JSON original) de arquivos_encontrados/local_indicado. Leitura em transação, compatível com WAL; nunca copia ou substitui o arquivo de banco. Limites de 50 mil linhas e 16 MiB por imagem. Planeja remapeamento por componentes, inclusive obras ausentes, sem alterar dados.
+- Adaptador interno replace compara snapshot integral em transação IMMEDIATE, modifica somente colunas de referência, valida pós-condição antes de commit; repetição no estado desejado não escreve. Rejeita mudança de schema/identidades, triggers sobre livros, dependências FK apontando para livros, links nos arquivos de banco e auxiliares. Erro ou restrição aborta a transação.
+- Integra captura SQLite na preparação e classificação Before/After/Conflict do journal. Adaptador de escrita ainda não é chamado por IPC ou executor; preserva valores de outras colunas, não é backup completo do DB nem prova de identidade física da instância do banco. Schema não usual e efeitos de colunas geradas não foram validados.
+- Validação Linux: 186 testes Rust aprovados (4 novos: WAL e roundtrip exato, conflitos e rollback por constraint, classificação integrada no journal, triggers/FKs). git diff --check aprovado. Nenhuma modificação na biblioteca real, instalação ou validação visual.
+
 ## Próximo incremento recomendado
 
-1. Construir adaptador transacional SQLite para capturar os campos exatos afetados e verificar/restaurar com precondições; depois fila e regras. Definir prova de criação de pasta e identidade de subárvore, política de arquivamento/raízes sobrepostas antes de habilitar execução.
+1. Implementar adaptadores da fila e persistência nativa de regras com migração, preservando dados e coordenando mutações; depois adaptador de restauração JSON. Definir prova de criação de pasta/identidade de subárvore, arquivamento/raízes sobrepostas e testes de falhas antes de habilitar execução.
 2. Completar política de colisões com arquivos físicos projetados e coordenação da fila/regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

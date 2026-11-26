@@ -193,3 +193,10 @@ pub(crate) fn capture_json(root: &Path, resource: Resource) -> Result<Option<Vec
     Image::of(Some(&bytes))?;
     Ok(Some(bytes))
 }
+
+pub(super) fn capture_resource(root: &Path, resource: Resource) -> Result<Option<Vec<u8>>, String> {
+    match resource {
+        Resource::LegacyCatalog => super::sqlite::capture_bytes(root),
+        _ => capture_json(root, resource),
+    }
+}

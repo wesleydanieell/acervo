@@ -87,11 +87,14 @@ fn classify(root: &Path, step: &Step) -> Result<Evidence, String> {
         } => {
             if !matches!(
                 resource,
-                Resource::Lists | Resource::ManualMetadata | Resource::Editions
+                Resource::LegacyCatalog
+                    | Resource::Lists
+                    | Resource::ManualMetadata
+                    | Resource::Editions
             ) {
                 return Ok(Unsupported);
             }
-            let actual = images::capture_json(root, *resource)?;
+            let actual = images::capture_resource(root, *resource)?;
             let image = Image::of(actual.as_deref())?;
             Ok(if &image == before {
                 Before
@@ -242,7 +245,7 @@ mod tests {
         fs::create_dir(root.join("New")).unwrap();
         assert_eq!(classify(root, &create).unwrap(), Evidence::Conflict);
         let unsupported = Step::RewriteReferences {
-            resource: Resource::LegacyCatalog,
+            resource: Resource::Downloads,
             before: Image::Missing,
             after: Image::of(Some(b"db")).unwrap(),
         };

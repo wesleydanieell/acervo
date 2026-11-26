@@ -1,6 +1,7 @@
 //! Durable, append-only structural journal. No filesystem executor is exposed.
 mod images;
 pub(crate) mod recovery;
+mod sqlite;
 use crate::library_reference_impact::revision;
 pub(crate) use images::{Image, Images};
 use serde::{Deserialize, Serialize};
@@ -502,10 +503,13 @@ pub(crate) fn prepare(
                 resource, before, ..
             } if matches!(
                 resource,
-                Resource::Lists | Resource::ManualMetadata | Resource::Editions
+                Resource::LegacyCatalog
+                    | Resource::Lists
+                    | Resource::ManualMetadata
+                    | Resource::Editions
             ) =>
             {
-                let actual = images::capture_json(root, *resource)?;
+                let actual = images::capture_resource(root, *resource)?;
                 if Image::of(actual.as_deref())? != *before {
                     return Err("Recurso mudou antes do journal.".into());
                 }
