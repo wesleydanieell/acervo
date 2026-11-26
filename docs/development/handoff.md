@@ -67,9 +67,17 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação Linux: 177 testes Rust aprovados (5 novos: checkpoints/reabertura, corrupção/lacunas, caminhos protegidos/raiz, bloqueio pendente e estado terminal). Simulações não são teste de perda de energia ou processo morto no meio de uma escrita física. git diff --check aprovado.
 - Limitações: intenção ainda não contém snapshots exatos nem identidade forte de origem; hashes são descritores. Não há arquivamento/rotação, reabertura para recuperação, descoberta de journals de outras raízes sobrepostas após reinício, executor ou undo/redo. Windows/macOS não validados; writer requer sincronização de diretório. Log não autentica manipulação intencional ou remoção de sufixo completo. Nenhuma instalação, validação visual ou alteração da biblioteca real.
 
+## 2026-11-25 — snapshots exatos e identidade de origem
+
+- `library_journal/images.rs`: imagens Missing/Bytes(length,sha256), armazenamento endereçado por conteúdo em snapshots/*.bin, deduplicação, limite de 16 MiB por imagem e 64 MiB total. Exige conjunto exato das imagens referenciadas e uma reescrita por recurso. Publica blobs antes da intenção; reabertura verifica comprimento e hash, rejeita ausência, corrupção e arquivos inesperados.
+- Captura de bytes exatos de listas, metadados manuais e edições; antes de preparar o journal, compara a imagem anterior com o arquivo atual. Preserva diferença entre ausência e arquivo vazio. SQLite, fila e regras ainda exigem adaptadores próprios; não copia DB vivo nem restaura recursos nesta etapa.
+- MoveFolder registra dev/inode e criação quando disponível em Unix; preparação rejeita origem substituída ou simbólica. Não é hash de subárvore nem prova contra reutilização de inode quando criação indisponível. Identidade de pasta criada e evidência da etapa inFlight ainda pendentes. Formato experimental anterior sem compatibilidade de leitura; nenhum journal produtivo foi criado.
+- Validação Linux: 179 testes Rust aprovados (2 novos: imagens exatas/ausência/corrupção e origem/recurso substituído). Corrigida incompatibilidade de desserialização u128 encontrada na primeira execução, suíte final íntegra. git diff --check aprovado.
+- Limitações: snapshots não são restauração, hashes não autenticam alterações maliciosas. Ainda sem acesso exclusivo de recuperação, arquivamento, identidade Windows, validação macOS, simulação de perda de energia ou execução estrutural. Releitura do journal verifica blobs e pode custar até o limite de 64 MiB. Nenhuma alteração na biblioteca real ou validação visual.
+
 ## Próximo incremento recomendado
 
-1. Implementar armazenamento de snapshots exatos dos recursos, com referências verificáveis antes/depois e identidades de origem para passos físicos; testar ausência, corrupção, limites e divergências. Definir acesso de recuperação exclusivo e política de journals sobrepostos/arquivamento. Não habilitar execução prematuramente.
+1. Implementar acesso interno de recuperação exclusivo, classificador de evidência para passos interrompidos e testes de conflito/idempotência; construir adaptadores exatos de SQLite, fila e regras, definir arquivamento e política de raízes sobrepostas. Não habilitar execução prematuramente.
 2. Completar política de colisões com arquivos físicos projetados e coordenação da fila/regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

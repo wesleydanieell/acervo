@@ -1,5 +1,7 @@
 //! Durable, append-only structural journal. No filesystem executor is exposed.
+mod images;
 use crate::library_reference_impact::revision;
+pub(crate) use images::{Image, Images};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -23,14 +25,64 @@ pub(crate) enum Step {
     MoveFolder {
         source: String,
         target: String,
+        identity: FolderIdentity,
     },
     RewriteReferences {
         resource: Resource,
-        before: String,
-        after: String,
+        before: Image,
+        after: Image,
     },
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Stable object evidence across a same-filesystem directory rename, not a subtree hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FolderIdentity {
+    device: u64,
+    inode: u64,
+    created_ns: Option<u64>,
+}
+impl FolderIdentity {
+    #[allow(dead_code)]
+    pub(crate) fn capture(root: &Path, relative: &str) -> Result<Self, String> {
+        let relative = crate::library_restructure::relative(relative)?;
+        let mut current = root.to_path_buf();
+        for part in relative.components() {
+            current.push(part);
+            if !fs::symlink_metadata(&current)
+                .map_err(|e| e.to_string())?
+                .file_type()
+                .is_dir()
+            {
+                return Err("Origem física inválida ou simbólica.".into());
+            }
+        }
+        let meta = fs::symlink_metadata(&current).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let value = Self {
+                device: meta.dev(),
+                inode: meta.ino(),
+                created_ns: meta
+                    .created()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .and_then(|d| u64::try_from(d.as_nanos()).ok()),
+            };
+            if value.inode == 0 {
+                return Err("Identidade de pasta indisponível.".into());
+            }
+            Ok(value)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = meta;
+            Err("Identidade estável de pasta não implementada nesta plataforma.".into())
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Resource {
     LegacyCatalog,
@@ -68,7 +120,14 @@ impl Intent {
                 Step::CreateFolder { path } => {
                     crate::library_restructure::relative(path)?;
                 }
-                Step::MoveFolder { source, target } => {
+                Step::MoveFolder {
+                    source,
+                    target,
+                    identity,
+                } => {
+                    if identity.inode == 0 {
+                        return Err("Identidade inválida.".into());
+                    }
                     let source = crate::library_restructure::relative(source)?;
                     let target = crate::library_restructure::relative(target)?;
                     if source.starts_with(&target) || target.starts_with(&source) {
@@ -76,7 +135,9 @@ impl Intent {
                     }
                 }
                 Step::RewriteReferences { before, after, .. } => {
-                    if !digest_valid(before) || !digest_valid(after) || before == after {
+                    before.validate()?;
+                    after.validate()?;
+                    if before == after {
                         return Err("Revisões de referência inválidas.".into());
                     }
                 }
@@ -286,6 +347,12 @@ fn load(root: &Path) -> Result<Option<Loaded>, String> {
             .file_name()
             .into_string()
             .map_err(|_| "Nome de journal inválido.")?;
+        if name == images::DIRECTORY {
+            if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+                return Err("Diretório de snapshots inválido.".into());
+            }
+            continue;
+        }
         if name.starts_with(".pending-") && name.ends_with(".tmp") {
             if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
                 return Err("Temporário de journal inválido.".into());
@@ -336,9 +403,9 @@ fn load(root: &Path) -> Result<Option<Loaded>, String> {
             });
         }
     }
-    loaded
-        .ok_or_else(|| "Journal incompleto: intenção não persistida.".into())
-        .map(Some)
+    let loaded = loaded.ok_or("Journal incompleto: intenção não persistida.")?;
+    images::verify(&dir, &loaded.intent.steps)?;
+    Ok(Some(loaded))
 }
 
 pub(crate) fn inspect(root: &Path) -> Result<Option<State>, String> {
@@ -377,7 +444,11 @@ fn write_record(dir: &Path, record: &Record) -> Result<(), String> {
     if bytes.len() as u64 > MAX_RECORD_BYTES {
         return Err("Registro de journal excede limite.".into());
     }
-    let target = dir.join(filename(record.sequence));
+    publish(dir, &filename(record.sequence), &bytes)
+}
+
+fn publish(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
+    let target = dir.join(name);
     let (temp, mut file) = loop {
         let temp = dir.join(format!(
             ".pending-{}-{}.tmp",
@@ -398,7 +469,7 @@ fn write_record(dir: &Path, record: &Record) -> Result<(), String> {
         }
     };
     let result = (|| {
-        file.write_all(&bytes).map_err(|e| e.to_string())?;
+        file.write_all(bytes).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
         drop(file);
         crate::rename_without_replace(&temp, &target).map_err(|e| e.to_string())?;
@@ -414,9 +485,34 @@ fn write_record(dir: &Path, record: &Record) -> Result<(), String> {
 pub(crate) fn prepare(
     reservation: &crate::library_mutations::Reservation,
     intent: Intent,
+    snapshots: &Images,
 ) -> Result<(), String> {
     let root = reservation.root();
     intent.validate(root)?;
+    images::validate_inputs(&intent.steps, snapshots)?;
+    for step in &intent.steps {
+        match step {
+            Step::MoveFolder {
+                source, identity, ..
+            } if &FolderIdentity::capture(root, source)? != identity => {
+                return Err("Identidade de origem mudou antes do journal.".into());
+            }
+            Step::RewriteReferences {
+                resource, before, ..
+            } if matches!(
+                resource,
+                Resource::Lists | Resource::ManualMetadata | Resource::Editions
+            ) =>
+            {
+                let actual = images::capture_json(root, *resource)?;
+                if Image::of(actual.as_deref())? != *before {
+                    return Err("Recurso mudou antes do journal.".into());
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Fail before creating a directory on platforms without the durability contract.
     sync_directory(root)?;
     let record = Record::new(0, None, Event::Prepared { intent })?;
@@ -432,6 +528,7 @@ pub(crate) fn prepare(
     let dir = service.join(DIRECTORY);
     fs::create_dir(&dir).map_err(|e| e.to_string())?;
     sync_directory(&service)?;
+    images::persist(&dir, snapshots)?;
     write_record(&dir, &record)
 }
 
@@ -463,6 +560,7 @@ mod tests {
                 NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir(&path).unwrap();
+            fs::create_dir(path.join("A")).unwrap();
             Self(fs::canonicalize(path).unwrap())
         }
         fn intent(&self) -> Intent {
@@ -474,6 +572,7 @@ mod tests {
                     Step::MoveFolder {
                         source: "A".into(),
                         target: "New/A".into(),
+                        identity: FolderIdentity::capture(&self.0, "A").unwrap(),
                     },
                 ],
             }
@@ -491,8 +590,8 @@ mod tests {
         let f = Fixture::new();
         let guard = crate::library_mutations::Reservation::acquire(&f.0).unwrap();
         assert!(inspect(&f.0).unwrap().is_none());
-        prepare(&guard, f.intent()).unwrap();
-        assert!(prepare(&guard, f.intent()).is_err());
+        prepare(&guard, f.intent(), &Images::default()).unwrap();
+        assert!(prepare(&guard, f.intent(), &Images::default()).is_err());
         assert!(append(&guard, Event::Committed).is_err());
         append(&guard, Event::BeginStep { index: 0 }).unwrap();
         assert_eq!(
@@ -523,7 +622,7 @@ mod tests {
     fn pending_journal_blocks_mutation_after_reopen_until_reconciled() {
         let f = Fixture::new();
         let guard = crate::library_mutations::Reservation::acquire(&f.0).unwrap();
-        prepare(&guard, f.intent()).unwrap();
+        prepare(&guard, f.intent(), &Images::default()).unwrap();
         append(&guard, Event::BeginStep { index: 0 }).unwrap();
         assert!(append(&guard, Event::BeginRollback).is_err());
         // Simulated evidence: no physical operations were performed in this fixture.
@@ -540,7 +639,7 @@ mod tests {
     fn corruption_gaps_and_incomplete_intent_fail_closed() {
         let f = Fixture::new();
         let guard = crate::library_mutations::Reservation::acquire(&f.0).unwrap();
-        prepare(&guard, f.intent()).unwrap();
+        prepare(&guard, f.intent(), &Images::default()).unwrap();
         append(&guard, Event::BeginStep { index: 0 }).unwrap();
         let dir = directory(&f.0).unwrap().unwrap();
         fs::write(dir.join(".pending-crashed.tmp"), b"partial").unwrap();
@@ -560,10 +659,78 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn exact_images_are_persisted_before_intent_and_corruption_blocks_reopen() {
+        let f = Fixture::new();
+        let guard = crate::library_mutations::Reservation::acquire(&f.0).unwrap();
+        let mut images = Images::default();
+        let before = images.insert(None).unwrap();
+        let after = images
+            .insert(Some(b"{  \"extra\": 1 }\n".to_vec()))
+            .unwrap();
+        assert_ne!(before, Image::of(Some(b"")).unwrap());
+        let mut intent = f.intent();
+        intent.steps.push(Step::RewriteReferences {
+            resource: Resource::Lists,
+            before,
+            after: after.clone(),
+        });
+        assert!(prepare(&guard, intent.clone(), &Images::default()).is_err());
+        assert!(directory(&f.0).unwrap().is_none());
+        prepare(&guard, intent, &images).unwrap();
+        let Image::Bytes { sha256, .. } = after else {
+            panic!()
+        };
+        let blob = directory(&f.0)
+            .unwrap()
+            .unwrap()
+            .join("snapshots")
+            .join(format!("{sha256}.bin"));
+        let exact = fs::read(&blob).unwrap();
+        assert_eq!(exact, b"{  \"extra\": 1 }\n");
+        assert!(inspect(&f.0).unwrap().unwrap().pending());
+        fs::write(&blob, b"corrupt").unwrap();
+        assert!(inspect(&f.0).is_err());
+        fs::write(&blob, exact).unwrap();
+        assert!(inspect(&f.0).is_ok());
+        fs::remove_file(blob).unwrap();
+        assert!(inspect(&f.0).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_rejects_changed_origin_and_changed_json_before_image() {
+        let f = Fixture::new();
+        let guard = crate::library_mutations::Reservation::acquire(&f.0).unwrap();
+        let intent = f.intent();
+        fs::rename(f.0.join("A"), f.0.join("Old")).unwrap();
+        fs::create_dir(f.0.join("A")).unwrap();
+        assert!(prepare(&guard, intent, &Images::default()).is_err());
+        assert!(directory(&f.0).unwrap().is_none());
+        fs::create_dir(f.0.join("99 - Catálogo")).unwrap();
+        let path = f.0.join("99 - Catálogo/Acervo_Listas.json");
+        fs::write(&path, b"original").unwrap();
+        let mut images = Images::default();
+        let before = images
+            .insert(images::capture_json(&f.0, Resource::Lists).unwrap())
+            .unwrap();
+        let after = images.insert(Some(b"new".to_vec())).unwrap();
+        let mut intent = f.intent();
+        intent.steps.push(Step::RewriteReferences {
+            resource: Resource::Lists,
+            before,
+            after,
+        });
+        fs::write(&path, b"changed").unwrap();
+        assert!(prepare(&guard, intent, &images).is_err());
+        assert!(directory(&f.0).unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn completed_journal_is_readable_and_does_not_block_existing_commands() {
         let f = Fixture::new();
         let guard = crate::library_mutations::Reservation::acquire(&f.0).unwrap();
-        prepare(&guard, f.intent()).unwrap();
+        prepare(&guard, f.intent(), &Images::default()).unwrap();
         for index in 0..2 {
             append(&guard, Event::BeginStep { index }).unwrap();
             append(&guard, Event::StepApplied { index }).unwrap();
@@ -573,6 +740,7 @@ mod tests {
         assert!(crate::library_mutations::Reservation::acquire(&f.0).is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn rejects_protected_paths_and_wrong_root() {
         let f = Fixture::new();
