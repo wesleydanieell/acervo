@@ -329,6 +329,70 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    #[test]
+    fn structural_preview_ipc_contract_is_read_only_and_revalidates() {
+        use serde_json::{Value, json};
+        use tauri::test::{INVOKE_KEY, get_ipc_response, mock_builder, mock_context, noop_assets};
+        let f = Fixture::new();
+        let app = mock_builder()
+            .manage(crate::downloads::DownloadManager::default())
+            .invoke_handler(tauri::generate_handler![preview_library_restructure])
+            .build(mock_context(noop_assets()))
+            .unwrap();
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let request = |body: Value| {
+            get_ipc_response(
+                &window,
+                tauri::webview::InvokeRequest {
+                    cmd: "preview_library_restructure".into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: if cfg!(windows) {
+                        "http://tauri.localhost"
+                    } else {
+                        "tauri://localhost"
+                    }
+                    .parse()
+                    .unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(body),
+                    headers: Default::default(),
+                    invoke_key: INVOKE_KEY.into(),
+                },
+            )
+            .map(|result| result.deserialize::<Value>().unwrap())
+        };
+        let mut body = json!({
+            "root":f.0,
+            "operations":[{"kind":"createFolder","path":"New"},{"kind":"moveFolder","source":"A","target":"New/A"}],
+            "rules":{"catalog":true,"format":"PDF","destination":"A/Future","custom":[]},
+            "expectedFilesystemRevision":null,
+            "expectedPlanRevision":null
+        });
+        let first = request(body.clone()).unwrap();
+        assert_eq!(first["version"], 1);
+        assert_eq!(first["executionSupported"], false);
+        assert_eq!(first["createdFolders"], json!(["New"]));
+        assert_eq!(first["movedFolders"][0]["books"], 1);
+        assert_eq!(
+            first["ruleImpact"][0]["destination"]["after"],
+            "New/A/Future"
+        );
+        assert!(first["downloadImpact"]["destinationConflicts"].is_array());
+        assert!(first["referenceImpact"]["editionVerification"]["checked"].is_number());
+        body["expectedFilesystemRevision"] = first["filesystemRevision"].clone();
+        body["expectedPlanRevision"] = first["planRevision"].clone();
+        assert_eq!(
+            request(body.clone()).unwrap()["planRevision"],
+            first["planRevision"]
+        );
+        fs::write(f.0.join("A/livro.epub"), b"external edit").unwrap();
+        assert!(request(body).is_err());
+        assert!(!f.0.join("New").exists());
+        assert!(f.0.join("A/Vazia").exists());
+    }
+
     fn mv(source: &str, target: &str) -> StructuralOperation {
         StructuralOperation::MoveFolder {
             source: source.into(),

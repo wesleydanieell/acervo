@@ -8,11 +8,13 @@ export type StructuralPreview={
   downloadImpact:{changes:{id:string;title:string;status:string;plannedDestination:PathChange|null;catalogDestination:PathChange|null}[];blockers:{id:string;title:string;reason:string}[];destinationConflicts:{target:string;downloadIds:string[]}[]}|null;
   ruleImpact:{ruleName:string;enabled:boolean;destination:PathChange}[]|null;
 };
-export const structuralPath=(path:string)=>path!==""&&!isServiceCatalogPath(path)&&path.split("/").every(part=>part!==""&&!part.startsWith(".")&&part!=="node_modules"&&part.trim()===part&&!/[\\:\x00-\x1f\x7f]/.test(part)&&new TextEncoder().encode(part).length<=255);
+export const folderParent=(path:string)=>path.split("/").slice(0,-1).join("/");
+export const structuralPath=(path:string)=>path!==""&&new TextEncoder().encode(path).length<=600&&path.split("/").length<=80&&path.split("/").every(part=>!isServiceCatalogPath(part)&&part!==""&&!part.startsWith(".")&&part!=="node_modules"&&part.trim()===part&&!/[\\:\x00-\x1f\x7f]/.test(part)&&new TextEncoder().encode(part).length<=255);
 const within=(path:string,parent:string)=>path===parent||path.startsWith(parent+"/");
 export function draftOperation(kind:StructuralOperation["kind"],source:string,parent:string,name:string):StructuralOperation{
   if(name.includes("/")||!structuralPath(name)||parent!==""&&!structuralPath(parent))throw new Error("Informe um nome de pasta válido.");
   const target=parent?parent+"/"+name:name;
+  if(!structuralPath(target))throw new Error("Caminho de destino excede os limites.");
   if(kind==="createFolder")return {kind,path:target};
   if(!structuralPath(source)||within(target,source)||within(source,target))throw new Error("Origem e destino não podem se sobrepor.");
   return {kind,source,target};

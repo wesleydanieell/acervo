@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useRef,useState,type ReactNode} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {ArrowRight,Folder,FolderPlus,FolderTree,RefreshCw,Search,Trash2,X} from "lucide-react";
-import {draftOperation,draftParents,impactCounts,projectFolders,structuralPath,type StructuralOperation,type StructuralPreview,type PathChange} from "./structural-plan";
+import {draftOperation,draftParents,folderParent,impactCounts,projectFolders,structuralPath,type StructuralOperation,type StructuralPreview,type PathChange} from "./structural-plan";
 import {parseRules,ruleStorageKey,type OrganizationRules} from "./organization-rules";
 import "./structural-planner.css";
 
@@ -37,7 +37,7 @@ export function StructuralPlanner({root,folders,initialFolder,onClose}:{root:str
   const lock=useRef(false);
   const [kind,setKind]=useState<StructuralOperation["kind"]>("moveFolder");
   const [source,setSource]=useState(initialFolder&&structuralPath(initialFolder)?initialFolder:"");
-  const [parent,setParent]=useState("");
+  const [parent,setParent]=useState(initialFolder&&structuralPath(initialFolder)?folderParent(initialFolder):"");
   const [name,setName]=useState(initialFolder.split("/").pop()||"");
   const [operations,setOperations]=useState<StructuralOperation[]>([]);
   const [preview,setPreview]=useState<StructuralPreview|null>(null);
@@ -49,7 +49,7 @@ export function StructuralPlanner({root,folders,initialFolder,onClose}:{root:str
   const actual=useMemo(()=>projectFolders(folders,[]),[folders]);
   const projected=useMemo(()=>projectFolders(folders,operations),[folders,operations]);
   const parents=useMemo(()=>draftParents(folders,operations,kind==="moveFolder"?source:""),[folders,operations,kind,source]);
-  const sources=actual.filter(path=>!operations.some(op=>op.kind==="moveFolder"&&(path===op.source||path.startsWith(op.source+"/")||op.source.startsWith(path+"/"))));
+  const sources=useMemo(()=>actual.filter(path=>!operations.some(op=>op.kind==="moveFolder"&&(path===op.source||path.startsWith(op.source+"/")||op.source.startsWith(path+"/")))),[actual,operations]);
   const invalidate=()=>{setPreview(null);setVerified(false);setError("");setRuleError("");};
   const add=()=>{
     try{
@@ -73,6 +73,7 @@ export function StructuralPlanner({root,folders,initialFolder,onClose}:{root:str
     catch(failure){setRuleError("Regras não analisadas: "+String(failure));}
     try{
       const result=await invoke<StructuralPreview>("preview_library_restructure",{root,operations,rules,expectedFilesystemRevision:revalidate?previous?.filesystemRevision??null:null,expectedPlanRevision:revalidate?previous?.planRevision??null:null});
+      if(result.version!==1||!result.planRevision||result.executionSupported)throw new Error("Contrato de prévia estrutural incompatível.");
       if(active.current){setPreview(result);setVerified(revalidate);}
     }catch(failure){if(active.current)setError(String(failure));}
     finally{lock.current=false;if(active.current)setBusy(false);}
@@ -86,7 +87,7 @@ export function StructuralPlanner({root,folders,initialFolder,onClose}:{root:str
         <div className="smart-review-head"><strong>Adicionar ação</strong><small>{operations.length}/100</small></div>
         <div className="structural-fields">
           <label>Ação<select disabled={busy} value={kind} onChange={e=>{setKind(e.target.value as StructuralOperation["kind"]);setSource("");setParent("");setName("");}}><option value="moveFolder">Mover / renomear pasta</option><option value="createFolder">Criar pasta</option></select></label>
-          {kind==="moveFolder"&&<FolderChoice label="Origem" paths={sources} value={source} disabled={busy} onChange={path=>{setSource(path);setName(path.split("/").pop()||"");setParent("");}}/>}
+          {kind==="moveFolder"&&<FolderChoice label="Origem" paths={sources} value={source} disabled={busy} onChange={path=>{setSource(path);setName(path.split("/").pop()||"");setParent(folderParent(path));}}/>}
           <FolderChoice label="Pasta pai" paths={parents} value={parent} disabled={busy} rootChoice onChange={setParent}/>
           <label>Nome final<input disabled={busy} maxLength={255} value={name} onChange={e=>setName(e.target.value)} placeholder="Nome da pasta"/></label>
         </div>

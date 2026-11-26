@@ -23,3 +23,11 @@
 @media(max-width:660px){.structural-comparison,.structural-fields{grid-template-columns:1fr}.structural-tree-list{height:120px}.structural-planner .download-picker-footer{flex-wrap:wrap}.structural-footer-note{max-width:none;width:100%}}
 
 .structural-choice{display:grid;gap:6px;min-width:0}.structural-choice>.button{justify-self:start}
+.structural-fields{align-items:start}
+.structural-planner .destination-search{min-width:0}
+:root .structural-planner .destination-search input{background:transparent;border:0;border-radius:0;min-height:32px;min-width:0;flex:1;width:100%;padding:4px 0}
+.structural-planner .structural-tree-list{height:150px;scrollbar-width:thin}
+.structural-planner .structural-body{scrollbar-color:var(--stroke) transparent}
+@media(max-width:660px){.structural-planner .structural-tree-list{height:120px}}
+:root dialog.structural-planner .download-picker-body .destination-search input:not([type=checkbox]):not([type=radio]):not([type=file]){background:transparent;border:0;box-shadow:none;border-radius:0;min-height:30px;min-width:0;width:100%;padding:4px 0}
+.structural-planner .structural-tree-list{height:130px}

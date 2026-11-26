@@ -106,6 +106,13 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação: 64 testes frontend aprovados (+4 para projeção, caminhos, candidatos e totais), build TypeScript/Vite aprovado, 189 testes Rust da etapa anterior. git diff --check aprovado. Uma tentativa de comando remoto usou caminho incorreto, corrigida e repetida no worktree correto.
 - Limitações: prévia somente leitura, comparação de caminhos não é árvore editável por drag/drop, sem persistência de rascunhos; não testado visualmente nos três temas nem no runtime Tauri. Sem alteração da biblioteca real. Ainda não mesclar sem revisão de integração/validação nativa da entrega.
 
+## 2026-11-25 — revisão da primeira entrega de planejamento
+
+- Corrigido pai padrão de renomeação, limites de caminhos completos e proteção de componentes internos, memoização de candidatos e validação do contrato de resposta. Polimento de espaçamento, listas, campos de pesquisa e scrollbar.
+- Teste de integração via Tauri MockRuntime chama o comando IPC real com payload camelCase, criação/movimento, regras, impactos e revisões; mudança externa invalida revalidação e nenhuma pasta é criada. Primeira tentativa usou URL de origem incorreta no Linux; corrigida para protocolo tauri://localhost (http://tauri.localhost no Windows). 190 testes Rust e 65 frontend aprovados, build TypeScript/Vite aprovado. MockRuntime não é execução completa do webview nativo.
+- Capturas Firefox headless 1260×820 do componente isolado com dados fictícios, nos três estilos, inspecionadas; ajustados campos e layout. Não é teste de interação completo no Tauri real, nem validação de todos os estados ou temas claros. Sem instalação ou alterações na biblioteca real.
+- Entrega candidata a merge: fluxo de planejamento somente leitura; executor e writers internos continuam sem IPC de aplicação. Não promete recuperação automática. Próximos passos devem partir da main após merge confirmado, em nova branch funcional.
+
 ## Próximo incremento recomendado
 
 1. Implementar adaptadores da fila e persistência nativa de regras com migração, preservando dados e coordenando mutações. Definir prova de criação de pasta/identidade de subárvore, arquivamento/raízes sobrepostas, invalidação de tokens manuais e testes de falhas antes de habilitar execução. Integrar prévia mínima ao frontend e revisar possibilidade de entrega funcional somente leitura.
