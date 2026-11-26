@@ -35,9 +35,18 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação: 165 testes Rust aprovados (3 novos: determinismo e ordem, edição/criação/remoção externa, substituição de arquivo de mesmo tamanho e troca de pasta pai). git diff --check aprovado.
 - Limitações: continua somente leitura; não protege toda a janela entre validação e futura escrita, nem garante snapshot simultâneo do catálogo, regras e fila. A validação foi feita em Linux, não em Windows/macOS. Sem alteração de arquivos reais ou validação visual.
 
+## 2026-11-25 — revisão lógica e composta do plano
+
+- A prévia retorna `planRevision` e aceita `expectedPlanRevision`, vinculando a revisão física ao estado lógico do catálogo, índices, fila, regras fornecidas e impactos. Divergências exigem nova prévia; não é autorização de execução.
+- Catálogo: leitura de fichas JSON compartilhada entre projeção e hash (inclui campos extras das fichas). SQLite: revisão dos campos do modelo atual, ordenada por ID. Índices: revisão do conteúdo tipado de metadados manuais e edições.
+- Fila: revisão ordenada dos estados relevantes à raiz e downloads avulsos, excluindo progresso e histórico salvo. Regras completas entram no hash, inclusive critérios; ausência do snapshot continua explícita.
+- Referências afetadas a arquivos ausentes ou inválidos e identidade manual divergente geram bloqueios diagnósticos. A verificação de fingerprint de edições permanece pendente.
+- Validação Linux: 168 testes Rust aprovados (3 novos: mudança lógica sem mudança física e órfãos, critérios de regras, estado da fila versus progresso/histórico). Teste integrado de catálogo também verifica identidade manual real e alteração externa. git diff --check aprovado.
+- Limitações: revisão lógica não inclui campos SQLite fora do modelo, envelope JSON externo às fichas nem bytes exatos; não há snapshot atômico, reserva de mutação, integração visual ou executor. Nenhuma alteração na biblioteca real.
+
 ## Próximo incremento recomendado
 
-1. Estender o snapshot a referências persistidas e definir verificação de identidades dos arquivos associados (incluindo registros órfãos). Preparar guardas de coordenação por raiz; revisar todos os pontos de mutação.
+1. Auditar pontos de mutação e preparar guardas por raiz, com ordem de aquisição explícita e testes de concorrência. Verificar fingerprints de edições com orçamento de I/O definido.
 2. Definir coordenação de mutações e reservas por raiz, política de colisões de destinos futuros e snapshots exatos da fila e regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

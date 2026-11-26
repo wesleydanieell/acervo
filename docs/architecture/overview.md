@@ -35,3 +35,10 @@ O caminho planejado de uma obra é independente de suas associações físicas. 
 ### Revisão física da proposta estrutural
 
 `library_restructure/snapshot.rs` observa metadados da raiz, ancestrais de origens/destinos, entradas do inventário e caminhos ausentes, em mapa ordenado. O SHA-256 inclui versão do formato, raiz canônica, operações em ordem e observações; é uma revisão física e não um hash de conteúdo, token de aprovação ou reserva de mutação. Observações repetidas divergentes retornam erro; diretórios são observados antes e depois da leitura. A chamada de prévia aceita `expectedFilesystemRevision` opcional e rejeita revisão divergente. Em Unix a revisão inclui dev/inode/ctime; outras plataformas usam tamanho e timestamps disponíveis (menor garantia). A futura execução precisa de proteção contra TOCTOU, validação de identidades persistidas, snapshots do catálogo/fila/regras e coordenação de mutações; a revisão não autoriza escrita.
+
+
+### Revisão lógica e composta
+
+A análise de referências reutiliza a leitura das fichas JSON para projetar a UI e calcular a revisão, sem reler o arquivo para o hash. A revisão lógica inclui os campos existentes do modelo SQLite (ordenados por ID), fichas JSON interpretadas e índices tipados completos. Não equivale a um snapshot exato de armazenamento para rollback. A fila usa uma projeção ordenada por ID dos registros pertinentes à raiz ou não vinculados, exclui progresso volátil e histórico salvo, e preserva o estado/intenções de importação na revisão. A revisão composta vincula essas informações, as regras completas fornecidas, os impactos e a revisão física; `expectedPlanRevision` permite revalidação somente leitura.
+
+Referências físicas afetadas são verificadas sem seguir links simbólicos; registros manuais têm sua identidade comparada com a observada. Referências órfãs/identidades divergentes aparecem como bloqueios diagnósticos. Fingerprints de edições, coordenação global, snapshot consistente entre módulos, comparação imediatamente antes de escrever e journal exato permanecem requisitos do futuro executor.

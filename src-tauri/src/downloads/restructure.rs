@@ -9,6 +9,7 @@ use std::path::Path;
 pub(crate) struct DownloadImpact {
     changes: Vec<DownloadChange>,
     blockers: Vec<DownloadBlocker>,
+    pub(crate) revision: String,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +51,38 @@ fn analyze(
 ) -> Result<DownloadImpact, String> {
     let root = root.to_str().ok_or("Raiz não UTF-8.")?;
     let mut result = DownloadImpact::default();
+    // Scope to this library and unbound records; ignore saved history and progress counters.
+    let mut relevant: Vec<_> = records
+        .iter()
+        .filter(|info| {
+            info.import_intent
+                .as_ref()
+                .is_some_and(|intent| intent.root == root)
+                || (info.status != "saved"
+                    && info
+                        .catalog_target
+                        .as_ref()
+                        .is_none_or(|target| target.root == root))
+        })
+        .collect();
+    relevant.sort_by(|a, b| a.id.cmp(&b.id));
+    let state: Vec<_> = relevant
+        .iter()
+        .map(|info| {
+            (
+                &info.id,
+                &info.title,
+                &info.status,
+                &info.filename,
+                &info.planned_destination,
+                &info.catalog_target,
+                info.auto_import,
+                &info.import_intent,
+                &info.edition,
+            )
+        })
+        .collect();
+    result.revision = crate::library_reference_impact::revision(&(1u8, state))?;
     for info in records {
         let bound = info.catalog_target.as_ref().map(|t| t.root.as_str());
         // An approved import is immutable. Even if its destination is unrelated,
@@ -138,6 +171,25 @@ mod tests {
             "error":"","savedPath":"A/Book.pdf",
             "catalogTarget":root.map(|r| CatalogTarget{root:r.into(),title:"Book".into(),author:"Author".into(),destination:destination.into(),legacy_id:None})
         })).unwrap()
+    }
+
+    #[test]
+    fn download_revision_ignores_progress_and_history_but_tracks_pending_state() {
+        let root = Path::new("/library");
+        let map = PathRemap::new(vec![("A", "New")]);
+        let mut records = vec![
+            info("current", "ready", Some("/library"), "AB"),
+            info("other", "ready", Some("/other"), "A"),
+            info("saved", "saved", Some("/library"), "A"),
+        ];
+        let first = analyze(root, &map, &records).unwrap().revision;
+        records[0].downloaded_bytes = 42;
+        records[1].status = "paused".into();
+        records[2].saved_path = "Changed.pdf".into();
+        records.reverse();
+        assert_eq!(first, analyze(root, &map, &records).unwrap().revision);
+        records[2].status = "saving".into();
+        assert_ne!(first, analyze(root, &map, &records).unwrap().revision);
     }
 
     #[test]

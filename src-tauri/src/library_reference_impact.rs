@@ -28,6 +28,43 @@ pub struct ReferenceImpact {
     pub works: Vec<WorkImpact>,
     pub manual_metadata: Vec<PathChange>,
     pub editions: Vec<PathChange>,
+    pub blockers: Vec<ReferenceBlocker>,
+    pub revision: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceBlocker {
+    path: String,
+    reason: &'static str,
+}
+
+pub(crate) fn revision(value: &impl Serialize) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn physical_book_exists(root: &Path, path: &str) -> bool {
+    if crate::manual_metadata::valid_path(path).is_err() {
+        return false;
+    }
+    let mut current = root.to_path_buf();
+    let mut parts = path.split('/').peekable();
+    while let Some(part) = parts.next() {
+        current.push(part);
+        let Ok(meta) = fs::symlink_metadata(&current) else {
+            return false;
+        };
+        if if parts.peek().is_some() {
+            !meta.file_type().is_dir()
+        } else {
+            !meta.file_type().is_file()
+        } {
+            return false;
+        }
+    }
+    true
 }
 
 /// A single simultaneous substitution, never cascading across operations.
@@ -96,9 +133,6 @@ fn index_impact<'a>(
 }
 
 pub(crate) fn preview(root: &Path, remap: &PathRemap<'_>) -> Result<ReferenceImpact, String> {
-    if remap.moves.is_empty() {
-        return Ok(ReferenceImpact::default());
-    }
     // Do not follow a redirected service directory or catalog database.
     if let Some(service) = crate::library_editions::service(root)? {
         for name in ["Catalogo_Conhecimento.db", "Acervo_Listas.json"] {
@@ -113,7 +147,15 @@ pub(crate) fn preview(root: &Path, remap: &PathRemap<'_>) -> Result<ReferenceImp
     }
     let mut warnings = Vec::new();
     let mut works = crate::read_catalog(root, &[], &mut warnings);
-    works.extend(crate::catalog_lists::load(root, &[], &mut warnings));
+    works.sort_by_key(|work| work.id);
+    let lists = crate::catalog_lists::load_values(&crate::catalog_lists::list_path(root))?;
+    let legacy_revision = revision(&works)?;
+    let list_revision = revision(&lists)?;
+    works.extend(crate::catalog_lists::works_from_values(
+        lists,
+        &[],
+        &mut warnings,
+    ));
     if !warnings.is_empty() {
         return Err(format!(
             "Catálogo não pode ser planejado com segurança: {}",
@@ -122,6 +164,7 @@ pub(crate) fn preview(root: &Path, remap: &PathRemap<'_>) -> Result<ReferenceImp
     }
 
     let mut result = ReferenceImpact::default();
+    let mut affected_paths = std::collections::BTreeSet::new();
     let mut list_identities = HashMap::<(String, String, String), bool>::new();
     for work in works {
         let destination = remap.map(&work.destination)?;
@@ -159,6 +202,7 @@ pub(crate) fn preview(root: &Path, remap: &PathRemap<'_>) -> Result<ReferenceImp
                 }
             }
             if let Some(change) = change {
+                affected_paths.insert(change.before.clone());
                 changes.push(change);
             }
         }
@@ -180,6 +224,30 @@ pub(crate) fn preview(root: &Path, remap: &PathRemap<'_>) -> Result<ReferenceImp
     )?;
     let editions = crate::library_editions::load(root)?;
     result.editions = index_impact(remap, editions.keys(), crate::library_editions::valid_path)?;
+    result.revision = revision(&(1u8, legacy_revision, list_revision, &manual, &editions))?;
+    affected_paths.extend(
+        result
+            .manual_metadata
+            .iter()
+            .chain(&result.editions)
+            .map(|change| change.before.clone()),
+    );
+    for path in affected_paths {
+        if !physical_book_exists(root, &path) {
+            result.blockers.push(ReferenceBlocker {
+                path,
+                reason: "missingOrInvalidBook",
+            });
+        } else if let Some(record) = manual.entries.get(&path) {
+            if crate::manual_metadata::identity(root, &path).ok().as_ref() != Some(&record.identity)
+            {
+                result.blockers.push(ReferenceBlocker {
+                    path,
+                    reason: "staleManualIdentity",
+                });
+            }
+        }
+    }
     Ok(result)
 }
 

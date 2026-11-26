@@ -33,6 +33,7 @@ pub struct FolderImpact {
 pub struct StructuralPreview {
     version: u8,
     filesystem_revision: String,
+    plan_revision: Option<String>,
     created_folders: Vec<String>,
     moved_folders: Vec<FolderImpact>,
     execution_supported: bool,
@@ -165,6 +166,7 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
     let mut preview = StructuralPreview {
         version: 1,
         filesystem_revision: String::new(),
+        plan_revision: None,
         created_folders: vec![],
         moved_folders: vec![],
         execution_supported: false,
@@ -236,6 +238,26 @@ fn plan(root: &Path, operations: Vec<StructuralOperation>) -> Result<StructuralP
     Ok(preview)
 }
 
+fn update_plan_revision(
+    preview: &mut StructuralPreview,
+    rules: Option<&crate::smart_organization::Rules>,
+    expected: Option<&str>,
+) -> Result<(), String> {
+    let revision = crate::library_reference_impact::revision(&(
+        1u8,
+        &preview.filesystem_revision,
+        &preview.reference_impact,
+        &preview.download_impact,
+        rules,
+        &preview.rule_impact,
+    ))?;
+    if expected.is_some_and(|expected| expected != revision) {
+        return Err("Dados da organização mudaram. Gere uma nova prévia.".into());
+    }
+    preview.plan_revision = Some(revision);
+    Ok(())
+}
+
 /// Preview only: no persistent token or authorization to execute is returned.
 #[tauri::command]
 pub async fn preview_library_restructure(
@@ -244,6 +266,7 @@ pub async fn preview_library_restructure(
     manager: tauri::State<'_, crate::downloads::DownloadManager>,
     rules: Option<crate::smart_organization::Rules>,
     expected_filesystem_revision: Option<String>,
+    expected_plan_revision: Option<String>,
 ) -> Result<StructuralPreview, String> {
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -267,6 +290,11 @@ pub async fn preview_library_restructure(
             .as_ref()
             .map(|rules| crate::smart_organization::preview_restructure_rules(rules, &remap))
             .transpose()?;
+        update_plan_revision(
+            &mut preview,
+            rules.as_ref(),
+            expected_plan_revision.as_deref(),
+        )?;
         Ok(preview)
     })
     .await
@@ -306,6 +334,42 @@ mod tests {
             target: target.into(),
         }
     }
+    #[test]
+    fn catalog_edits_invalidate_plan_without_physical_changes_and_report_orphans() {
+        let f = Fixture::new();
+        let list = f.0.join("99 - Catálogo/Acervo_Listas.json");
+        fs::write(&list, r#"[{"titulo":"Book","local_indicado":"A","arquivos_encontrados":["A/missing.pdf"],"extra":"before"}]"#).unwrap();
+        let mut first = plan(&f.0, vec![mv("A", "New")]).unwrap();
+        assert_eq!(first.reference_impact.blockers.len(), 1);
+        update_plan_revision(&mut first, None, None).unwrap();
+        let mut same = plan(&f.0, vec![mv("A", "New")]).unwrap();
+        update_plan_revision(&mut same, None, first.plan_revision.as_deref()).unwrap();
+        fs::write(&list, r#"[{"titulo":"Book","local_indicado":"A","arquivos_encontrados":["A/missing.pdf"],"extra":"after"}]"#).unwrap();
+        let mut changed = plan(&f.0, vec![mv("A", "New")]).unwrap();
+        assert_eq!(first.filesystem_revision, changed.filesystem_revision);
+        assert!(update_plan_revision(&mut changed, None, first.plan_revision.as_deref()).is_err());
+    }
+
+    #[test]
+    fn rules_snapshot_including_criteria_and_missing_analysis_changes_revision() {
+        let f = Fixture::new();
+        let mut p = plan(&f.0, vec![mv("A", "New")]).unwrap();
+        let rules: crate::smart_organization::Rules = serde_json::from_value(serde_json::json!({
+            "catalog":true,"format":"PDF","destination":"A"
+        }))
+        .unwrap();
+        update_plan_revision(&mut p, None, None).unwrap();
+        let before = p.plan_revision.clone();
+        assert!(update_plan_revision(&mut p, Some(&rules), before.as_deref()).is_err());
+        update_plan_revision(&mut p, Some(&rules), None).unwrap();
+        let before = p.plan_revision.clone();
+        let edited: crate::smart_organization::Rules = serde_json::from_value(serde_json::json!({
+            "catalog":true,"format":"EPUB","destination":"A"
+        }))
+        .unwrap();
+        assert!(update_plan_revision(&mut p, Some(&edited), before.as_deref()).is_err());
+    }
+
     #[test]
     fn filesystem_revision_detects_external_edits_and_plan_changes() {
         let f = Fixture::new();
@@ -384,7 +448,15 @@ mod tests {
             INSERT INTO livros VALUES(42,'Legacy future','','','A/Not yet',NULL,1);"#).unwrap();
         drop(connection);
         let manual = service.join("Acervo_Metadados_Manuais.json");
-        fs::write(&manual, r#"{"version":1,"revision":1,"entries":{"A/livro.epub":{"metadata":{"title":"Manual"},"identity":{"bytes":"4","modifiedNs":"1","createdNs":"1","device":"1","inode":"1"}}}}"#).unwrap();
+        fs::write(
+            &manual,
+            serde_json::to_vec(&serde_json::json!({
+                "version":1,"revision":1,"entries":{"A/livro.epub":{"metadata":{"title":"Manual"},
+                "identity":crate::manual_metadata::identity(&root, "A/livro.epub").unwrap()}}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         crate::library_editions::record(
             &root,
             crate::library_editions::EditionRecord {
@@ -405,6 +477,7 @@ mod tests {
         let p = plan(&root, vec![mv("A", "New")]).unwrap();
         let impact = p.reference_impact;
         assert_eq!(impact.works.len(), 3);
+        assert!(impact.blockers.is_empty());
         let present = impact.works.iter().find(|w| w.work_id == -1).unwrap();
         assert_eq!(present.associated_files[0].after, "New/livro.epub");
         assert_eq!(present.associated_files.len(), 1);
@@ -426,6 +499,9 @@ mod tests {
         }
         assert!(root.join("A/livro.epub").exists());
         assert!(!root.join("New").exists());
+        fs::write(root.join("A/livro.epub"), b"changed contents").unwrap();
+        let changed = plan(&root, vec![mv("A", "New")]).unwrap();
+        assert_eq!(changed.reference_impact.blockers.len(), 1);
     }
 
     #[test]

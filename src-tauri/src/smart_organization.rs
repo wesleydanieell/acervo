@@ -10,7 +10,7 @@ use std::{
 };
 
 const LIMIT: usize = 100;
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Rules {
     catalog: bool,

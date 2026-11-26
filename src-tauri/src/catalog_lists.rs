@@ -84,11 +84,11 @@ fn identity(book: &Value) -> String {
         .join("\u{1f}")
 }
 
-fn list_path(root: &Path) -> std::path::PathBuf {
+pub(crate) fn list_path(root: &Path) -> std::path::PathBuf {
     root.join("99 - Catálogo").join(LIST_FILE)
 }
 
-fn load_values(path: &Path) -> Result<Vec<Value>, String> {
+pub(crate) fn load_values(path: &Path) -> Result<Vec<Value>, String> {
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -230,6 +230,14 @@ pub fn load(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> Vec<
             return Vec::new();
         }
     };
+    works_from_values(items, files, warnings)
+}
+
+pub(crate) fn works_from_values(
+    items: Vec<Value>,
+    files: &[BookFile],
+    warnings: &mut Vec<String>,
+) -> Vec<CatalogWork> {
     let known: HashSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
     items
         .into_iter()
