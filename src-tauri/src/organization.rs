@@ -1,5 +1,5 @@
 //! Explicit, preflighted JSON moves. Never apply an AI-generated plan without preview and confirmation.
-use super::{is_book, move_book, resolve_inside};
+use super::{is_book, move_book_reserved, resolve_inside};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -131,22 +131,22 @@ pub fn preview_organization(
 #[tauri::command]
 pub fn apply_organization(root: String, json_text: String) -> Result<Vec<String>, String> {
     // Always re-validate at application time in case the filesystem changed after preview.
-    let preview = validate_plan(Path::new(&root), &json_text)?;
-    let canonical = fs::canonicalize(root).map_err(|error| error.to_string())?;
-    let root_text = canonical.to_string_lossy().to_string();
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
+    let preview = validate_plan(reservation.root(), &json_text)?;
     let mut finished: Vec<(String, String)> = Vec::new();
 
     for item in preview.items {
-        match move_book(root_text.clone(), item.source.clone(), item.destination) {
+        match move_book_reserved(&reservation, item.source.clone(), item.destination, false) {
             Ok(new_path) => finished.push((item.source, new_path)),
             Err(error) => {
                 let mut rollback_errors = Vec::new();
                 for (original, moved) in finished.iter().rev() {
                     let parent = Path::new(original).parent().unwrap_or(Path::new(""));
-                    if let Err(rollback) = move_book(
-                        root_text.clone(),
+                    if let Err(rollback) = move_book_reserved(
+                        &reservation,
                         moved.clone(),
                         parent.to_string_lossy().to_string(),
+                        false,
                     ) {
                         rollback_errors.push(format!("{moved}: {rollback}"));
                     }

@@ -36,6 +36,9 @@ sha2 = "0.10"
 notify = "8"
 
 
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

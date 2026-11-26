@@ -1,6 +1,6 @@
 //! Read-only suggestions and explicitly selected independent moves.
 use super::{
-    BookFile, Collection, downloads::destination_parts, move_book_with_policy, scan_collection,
+    BookFile, Collection, downloads::destination_parts, move_book_reserved, scan_collection,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,7 +10,7 @@ use std::{
 };
 
 const LIMIT: usize = 100;
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Rules {
     catalog: bool,
@@ -155,6 +155,61 @@ fn validate_rules(rules: &Rules) -> Result<(), String> {
         _ => return Err("Regra de formato incompleta.".into()),
     }
     Ok(())
+}
+
+/// Preview persisted rule destinations, including disabled rules that may be enabled later.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuleDestinationImpact {
+    rule_name: String,
+    enabled: bool,
+    destination: crate::library_reference_impact::PathChange,
+}
+
+pub(crate) fn preview_restructure_rules(
+    rules: &Rules,
+    remap: &crate::library_reference_impact::PathRemap<'_>,
+) -> Result<Vec<RuleDestinationImpact>, String> {
+    validate_rules(rules)?;
+    let mut result = Vec::new();
+    let mut add = |name: &str, enabled, destination: &str| -> Result<(), String> {
+        if let Some(destination) = remap.map(destination)? {
+            destination_parts(&destination.after)?;
+            result.push(RuleDestinationImpact {
+                rule_name: name.into(),
+                enabled,
+                destination,
+            });
+        }
+        Ok(())
+    };
+    if let (Some(format), Some(destination)) = (&rules.format, &rules.destination) {
+        add(format, true, destination)?;
+    }
+    for rule in &rules.custom {
+        add(&rule.name, rule.enabled, &rule.destination)?;
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+#[test]
+fn restructure_rules_include_disabled_rules_without_changing_settings() {
+    let rules: Rules = serde_json::from_value(serde_json::json!({
+        "catalog": true, "format":"PDF", "destination":"A/Future",
+        "custom":[
+          {"name":"Disabled","enabled":false,"format":"EPUB","author":"","language":"","publisher":"","destination":"A/More"},
+          {"name":"Unchanged","enabled":true,"format":"PDF","author":"","language":"","publisher":"","destination":"AB/More"}
+        ]
+    })).unwrap();
+    let map = crate::library_reference_impact::PathRemap::new(vec![("A", "New")]);
+    let impact = preview_restructure_rules(&rules, &map).unwrap();
+    assert_eq!(impact.len(), 2);
+    assert_eq!(impact[0].destination.after, "New/Future");
+    assert_eq!(impact[1].destination.after, "New/More");
+    assert!(!impact[1].enabled);
+    assert_eq!(rules.destination.as_deref(), Some("A/Future"));
+    assert_eq!(rules.custom[0].destination, "A/More");
 }
 
 #[tauri::command]
@@ -445,6 +500,7 @@ fn apply(root: &str, rules: &Rules, selected: Vec<Suggestion>) -> Result<Applied
     if selected.is_empty() || selected.len() > LIMIT {
         return Err("Selecione de 1 a 100 sugestões.".into());
     }
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(root))?;
     let collection = scan_collection(root.into())?;
     if collection.root != root {
         return Err("Biblioteca mudou; gere outra prévia.".into());
@@ -485,8 +541,8 @@ fn apply(root: &str, rules: &Rules, selected: Vec<Suggestion>) -> Result<Applied
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 _ => return Err("Destino ocupado ou inacessível.".into()),
             }
-            move_book_with_policy(
-                root.into(),
+            move_book_reserved(
+                &reservation,
                 item.source.clone(),
                 item.destination.clone(),
                 item.work_id.is_some(),

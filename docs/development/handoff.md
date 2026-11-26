@@ -1,0 +1,121 @@
+# Acervo — registro de continuidade
+
+Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o desenvolvimento em outra sessão. Atualizar a cada incremento, junto ao código, sem depender do histórico do chat.
+
+## Retomar
+
+- Repositório: wesleydanieell/acervo; checkout original: /home/wesley/Projects/acervo.
+- Branch de trabalho: feat/library-workspace. Worktree desta sessão: /tmp/acervo-library-workspace.b9wT0z (temporária; pode desaparecer). Se necessário, recuperar a branch remota em uma nova worktree persistente. Não trocar de branch em checkout com alterações locais.
+- Começar com git status, git worktree list, git fetch origin e git log; confirmar a branch e evitar modificar a biblioteca real.
+- Ler docs/product/library-workspace.md, docs/product/roadmap.md, docs/architecture/overview.md e docs/ux/workspace.md.
+- Agrupar PRs por etapa coerente; Conventional Commits pequenos. Não habilitar operações destrutivas sem testes de recuperação e revisão.
+- Atualizar este registro com data, mudanças, decisões, testes realmente executados, limitações e próximo passo. Não marcar como concluído o que só foi projetado.
+
+## 2026-11-25 — seleção e planejamento estrutural
+
+- 7a49d55: seleção em lote e escopos; 0cee23a: explorador hierárquico de destinos e prévia; 21a83aa: roadmap detalhado.
+- eef653e: prévia Rust de criação/movimentação/renomeação de pastas, inventário de arquivos auxiliares e pastas vazias, bloqueio de colisões, ciclos e links simbólicos. 156 testes Rust e 60 frontend aprovados, build frontend aprovado nessa sessão.
+- Incremento atual: prévia de referências integrada, módulo library_reference_impact.rs. Mapeia prefixos simultâneos por componentes (A não afeta AB), separa destinos planejados de arquivos associados, inclui obras ausentes, detecta colisões de índices e ambiguidades novas nas listas. Testes integrados verificam SQLite, JSON, metadados manuais e edições sem alteração dos bytes persistidos.
+- Testes desta sessão: cargo test --manifest-path src-tauri/Cargo.toml --lib: 160 aprovados. git diff --check aprovado. Não houve validação visual nesta sessão.
+- Decisão: não há executor estrutural nem integração visual nesta etapa. A prévia não é autorização para executar e não garante snapshot consistente durante mudanças concorrentes. Sem escrita nem alteração na biblioteca real.
+- Pendências: validar identidade dos arquivos antes da aplicação; mapear fila e referências de aquisição, regras persistidas e cache; estabelecer snapshots exatos e coordenação de mutações; journal durável com recuperação; integrar editor visual. Validar etapa 1 no executável e nos três temas. PR #77 (morph de retorno de capas) estava em draft na sessão anterior; conferir estado remoto antes de agir.
+
+## 2026-11-25 — impacto de aquisição e regras
+
+- Prévia integrada ao estado de downloads: separa destino planejado e destino da ficha; preserva histórico salvo e ignora outra raiz. Bloqueia raiz ambígua quando destino afetado, importação pendente, transferência ativa afetada, ficha inválida ou destino inválido. Não altera fila.
+- Regras: armazenamento atual em localStorage por raiz; backend calcula mudanças de destinos de regras de formato e personalizadas, inclusive desativadas, a partir de snapshot opcional. null indica ausência de análise, não ausência de impacto. Não grava configurações. Frontend do editor ainda não consome o contrato.
+- Chamada IPC de prévia passou a executar I/O em spawn_blocking.
+- Testes: cargo test --manifest-path src-tauri/Cargo.toml --lib: 162 aprovados (inclui fixtures de fila, histórico, outra raiz, importação pendente e regras desativadas). git diff --check aprovado. Nenhuma validação visual ou execução estrutural. Nenhum dado da biblioteca real alterado.
+- Limitações: mudanças concorrentes podem invalidar a prévia; colisões entre destinos futuros ainda não analisadas; raiz de downloads avulsos não é persistida. Bloqueios são diagnósticos e não um mecanismo de exclusão mútua. Regras precisam de persistência coordenada para integrar ao journal.
+
+## 2026-11-25 — revisão física do plano
+
+- `library_restructure/snapshot.rs`: mapa ordenado de observações físicas, inclui raiz canônica, operação em ordem, origens, descendentes, ancestrais e destinos ausentes. SHA-256 determinístico de metadados (Unix: dispositivo, inode, ctime, tamanho e timestamps; fallback de outras plataformas mais fraco). Não é hash de conteúdo.
+- `preview_library_restructure`: retorna filesystemRevision e aceita expectedFilesystemRevision opcional para rejeitar prévias antigas. Reusa validação de destinos existente; rejeita nomes não UTF-8 no inventário em vez de convertê-los com perda. Observações repetidas divergentes invalidam a prévia.
+- Validação: 165 testes Rust aprovados (3 novos: determinismo e ordem, edição/criação/remoção externa, substituição de arquivo de mesmo tamanho e troca de pasta pai). git diff --check aprovado.
+- Limitações: continua somente leitura; não protege toda a janela entre validação e futura escrita, nem garante snapshot simultâneo do catálogo, regras e fila. A validação foi feita em Linux, não em Windows/macOS. Sem alteração de arquivos reais ou validação visual.
+
+## 2026-11-25 — revisão lógica e composta do plano
+
+- A prévia retorna `planRevision` e aceita `expectedPlanRevision`, vinculando a revisão física ao estado lógico do catálogo, índices, fila, regras fornecidas e impactos. Divergências exigem nova prévia; não é autorização de execução.
+- Catálogo: leitura de fichas JSON compartilhada entre projeção e hash (inclui campos extras das fichas). SQLite: revisão dos campos do modelo atual, ordenada por ID. Índices: revisão do conteúdo tipado de metadados manuais e edições.
+- Fila: revisão ordenada dos estados relevantes à raiz e downloads avulsos, excluindo progresso e histórico salvo. Regras completas entram no hash, inclusive critérios; ausência do snapshot continua explícita.
+- Referências afetadas a arquivos ausentes ou inválidos e identidade manual divergente geram bloqueios diagnósticos. A verificação de fingerprint de edições permanece pendente.
+- Validação Linux: 168 testes Rust aprovados (3 novos: mudança lógica sem mudança física e órfãos, critérios de regras, estado da fila versus progresso/histórico). Teste integrado de catálogo também verifica identidade manual real e alteração externa. git diff --check aprovado.
+- Limitações: revisão lógica não inclui campos SQLite fora do modelo, envelope JSON externo às fichas nem bytes exatos; não há snapshot atômico, reserva de mutação, integração visual ou executor. Nenhuma alteração na biblioteca real.
+
+## 2026-11-25 — coordenação de operações
+
+- Novo módulo `library_mutations.rs`: reserva RAII por raiz canônica, rejeita sobreposições ancestral/descendente e libera ao fim. Registro não mantém mutex durante I/O. Aquisição antes de locks de módulos; sem aquisição recursiva.
+- Integração nas entradas de criação de pasta, movimento simples/lote, organização JSON e inteligente, edição manual, importação e associação de catálogo, importação/recuperação de downloads e prévia estrutural. Lotes e reversões compartilham a reserva via `move_book_reserved`.
+- Importação automática que falhar por concorrência fica pronta para ação manual, com mensagem de suspensão. Helpers internos de persistência continuam com locks existentes.
+- Validação: 170 testes Rust aprovados (2 novos: exclusão de raízes sobrepostas e integração com comandos existentes sob reserva em outra thread). git diff --check aprovado.
+- Limitações: reserva em memória e no processo; não impede mudanças externas, outros processos, aliases físicos não canônicos ou mudanças na fila fora da importação. Regras em localStorage e cache derivado não são coordenados por essa reserva. Locks globais existentes ainda podem serializar operações independentes. Não houve validação visual, instalação, execução estrutural nem alterações na biblioteca real.
+
+## 2026-11-25 — integridade de edições e colisões de aquisição
+
+- Prévia estrutural verifica fingerprints SHA-256 das edições afetadas, reutilizando verificador existente. Limite inicial de 1 GiB de leitura reservada e 512 tentativas por proposta; verificação excedente é bloqueio explícito, não aprovação. Fingerprint limita leitura ao tamanho esperado e compara metadados durante a leitura (ctime/dev/inode em Unix). Orçamento exclusivo de edições, não inclui outras verificações.
+- Aquisição: `destinationConflicts` aponta downloads de origens diferentes da mesma biblioteca que passam a compartilhar o mesmo destino completo (inclui nome de arquivo). Considera destinos planejados e da ficha; outras raízes, histórico e jobs sem raiz não são confundidos. Duplicatas preexistentes não são novas colisões.
+- Validação Linux: 172 testes Rust aprovados (2 novos: orçamento e colisões de aquisição; teste integrado também verifica divergência de edição). git diff --check aprovado.
+- Limitações: diagnósticos somente leitura; colisões com arquivos físicos projetados e equivalência case-insensitive ainda pendentes. Verificação de conteúdo não elimina TOCTOU. Sem alteração da biblioteca real, execução estrutural, instalação ou validação visual.
+
+## 2026-11-25 — infraestrutura inicial de journal
+
+- `library_journal.rs`: intenção tipada versionada, log encadeado SHA-256 em diretório de serviço protegido, checkpoints imutáveis numerados, publicação exclusiva com sync de arquivo/diretório e transições validadas. Limites de 128 etapas, 516 registros e 256 KiB por registro. Diretorio vazio, lacunas, corrupção e transições ilegais falham fechados.
+- Estados de aplicação e compensação com etapa inFlight; ordem inversa para compensações. Eventos de não aplicação somente poderão ser usados com evidência comprovada no futuro executor. Sem execução física; comandos atuais não criam journal.
+- IPC somente leitura `inspect_library_journal`. Reserva da raiz consultada rejeita pendência ou journal inválido; estados terminais permitem operações existentes. Sem bypass de recuperação neste incremento.
+- Validação Linux: 177 testes Rust aprovados (5 novos: checkpoints/reabertura, corrupção/lacunas, caminhos protegidos/raiz, bloqueio pendente e estado terminal). Simulações não são teste de perda de energia ou processo morto no meio de uma escrita física. git diff --check aprovado.
+- Limitações: intenção ainda não contém snapshots exatos nem identidade forte de origem; hashes são descritores. Não há arquivamento/rotação, reabertura para recuperação, descoberta de journals de outras raízes sobrepostas após reinício, executor ou undo/redo. Windows/macOS não validados; writer requer sincronização de diretório. Log não autentica manipulação intencional ou remoção de sufixo completo. Nenhuma instalação, validação visual ou alteração da biblioteca real.
+
+## 2026-11-25 — snapshots exatos e identidade de origem
+
+- `library_journal/images.rs`: imagens Missing/Bytes(length,sha256), armazenamento endereçado por conteúdo em snapshots/*.bin, deduplicação, limite de 16 MiB por imagem e 64 MiB total. Exige conjunto exato das imagens referenciadas e uma reescrita por recurso. Publica blobs antes da intenção; reabertura verifica comprimento e hash, rejeita ausência, corrupção e arquivos inesperados.
+- Captura de bytes exatos de listas, metadados manuais e edições; antes de preparar o journal, compara a imagem anterior com o arquivo atual. Preserva diferença entre ausência e arquivo vazio. SQLite, fila e regras ainda exigem adaptadores próprios; não copia DB vivo nem restaura recursos nesta etapa.
+- MoveFolder registra dev/inode e criação quando disponível em Unix; preparação rejeita origem substituída ou simbólica. Não é hash de subárvore nem prova contra reutilização de inode quando criação indisponível. Identidade de pasta criada e evidência da etapa inFlight ainda pendentes. Formato experimental anterior sem compatibilidade de leitura; nenhum journal produtivo foi criado.
+- Validação Linux: 179 testes Rust aprovados (2 novos: imagens exatas/ausência/corrupção e origem/recurso substituído). Corrigida incompatibilidade de desserialização u128 encontrada na primeira execução, suíte final íntegra. git diff --check aprovado.
+- Limitações: snapshots não são restauração, hashes não autenticam alterações maliciosas. Ainda sem acesso exclusivo de recuperação, arquivamento, identidade Windows, validação macOS, simulação de perda de energia ou execução estrutural. Releitura do journal verifica blobs e pode custar até o limite de 64 MiB. Nenhuma alteração na biblioteca real ou validação visual.
+
+## 2026-11-25 — inspeção exclusiva de recuperação
+
+- `library_mutations::RecoveryReservation` usa o mesmo registro de exclusão por raiz, mas é uma capacidade distinta das reservas de escrita. Só é concedida para journal válido e pendente; corrupção continua bloqueando. Não pode ser passada aos helpers de mutação existentes.
+- `library_journal/recovery.rs` e IPC somente leitura `inspect_library_recovery`: estado, índice inFlight e evidência Before/After/Conflict/Unsupported. A classificação compara imagens exatas de JSON e identidade da pasta de origem/destino, sem checkpoints novos ou escrita física. Before/After referem-se à direção original mesmo durante compensação.
+- Pasta criada já existente não é considerada aplicada sem prova de identidade. Movimentações sem timestamp de nascimento retornam Unsupported; links, pais ausentes ou locais ocupados não são assumidos seguros. SQLite, downloads e regras são Unsupported até adaptadores.
+- Validação Linux: 182 testes Rust aprovados (3 novos: inspeção repetível e exclusão, classificação conservadora, compensação interrompida); git diff --check aprovado. Teste de identidade tem fallback explícito quando filesystem não fornece nascimento. Nenhum checkpoint é reconciliado pelo classificador.
+- Limitações: evidência de diretório não valida toda a subárvore; não há restaurador, executor, arquivamento ou descoberta persistente de raízes sobrepostas. Sem autorização de escrita por evidência, sem testes reais de perda de energia, sem alteração da biblioteca real ou validação visual.
+
+## 2026-11-25 — adaptador transacional SQLite
+
+- `library_journal/sqlite.rs`: snapshot lógico ordenado por ID, com hash do schema, título/autor para identidade e valores exatos (inclusive NULL e texto JSON original) de arquivos_encontrados/local_indicado. Leitura em transação, compatível com WAL; nunca copia ou substitui o arquivo de banco. Limites de 50 mil linhas e 16 MiB por imagem. Planeja remapeamento por componentes, inclusive obras ausentes, sem alterar dados.
+- Adaptador interno replace compara snapshot integral em transação IMMEDIATE, modifica somente colunas de referência, valida pós-condição antes de commit; repetição no estado desejado não escreve. Rejeita mudança de schema/identidades, triggers sobre livros, dependências FK apontando para livros, links nos arquivos de banco e auxiliares. Erro ou restrição aborta a transação.
+- Integra captura SQLite na preparação e classificação Before/After/Conflict do journal. Adaptador de escrita ainda não é chamado por IPC ou executor; preserva valores de outras colunas, não é backup completo do DB nem prova de identidade física da instância do banco. Schema não usual e efeitos de colunas geradas não foram validados.
+- Validação Linux: 186 testes Rust aprovados (4 novos: WAL e roundtrip exato, conflitos e rollback por constraint, classificação integrada no journal, triggers/FKs). git diff --check aprovado. Nenhuma modificação na biblioteca real, instalação ou validação visual.
+
+## 2026-11-25 — adaptador de referências JSON
+
+- `library_journal/json.rs`: planejamento de imagens antes/depois para listas, metadados manuais e edições. Preserva envelope e campos adicionais das listas, associações nulas, caminhos não afetados, identidades e fingerprints. Remapeia simultaneamente prefixos por componentes, chaves de índices e caminho interno de edição; revisão manual avança na imagem proposta. Rejeita colisões, identidades ambíguas e dados inválidos. Reutiliza decodificadores validados dos módulos existentes.
+- Adaptador interno replace de arquivos JSON existentes: compara bytes esperados, prepara temporário exclusivo, preserva permissões, sincroniza arquivo, verifica novamente antes de renomear e sincroniza diretório. Estado desejado já presente é idempotente; restauração usa bytes originais. Não cria/exclui recursos e não atualiza backup legado .bak. Não está ligado ao IPC ou executor.
+- Validação Linux: 189 testes Rust aprovados (3 novos: roundtrip exato de listas e conflito externo, remapeamento dos índices e identidade, conflitos e recursos não afetados). git diff --check aprovado.
+- Limitações: compare e rename não constituem CAS atômico contra outros processos; ownership/ACL/xattrs não são preservados. Restauração de revisão manual anterior pode revalidar tokens antigos (definir epoch/invalidação antes de expor). Ainda faltam fila/regras, integração com checkpoints e executor. Nenhum arquivo real alterado ou teste visual.
+- Diretriz de entrega do usuário: merge por entrega concreta, revisada e testada; não abrir PR por microincremento. Branch atual ainda não oferece execução estrutural utilizável; não mesclar este incremento isoladamente. Push SQLite 7ae672b confirmado.
+
+## 2026-11-25 — primeira interface de planejamento estrutural
+
+- Menu Gerenciar → Planejar estrutura abre `StructuralPlanner.tsx` em diálogo nativo, isolado por raiz. Proposta local de criação e movimentação/renomeação de pastas, até 100 ações, comparação de caminhos atual/proposta, busca e paginação incremental. Não grava rascunho, não executa.
+- `structural-plan.ts` centraliza projeção por prefixos de componentes, candidatos e validações preliminares. Backend continua autoridade; remoção de uma ação dependente pode invalidar proposta, que precisa ser revalidada.
+- Chama preview_library_restructure com regras atuais da raiz via localStorage; erro de leitura deixa regras explicitamente não analisadas. Apresenta impacto em pastas/livros, obras/destinos, índices, downloads, regras e bloqueios. Revalidar fornece revisões física e composta; edição da proposta invalida resultado. Resultados assíncronos ignorados ao fechar. Listas de impactos carregam inicialmente até 80 itens, seletores até 100.
+- Validação: 64 testes frontend aprovados (+4 para projeção, caminhos, candidatos e totais), build TypeScript/Vite aprovado, 189 testes Rust da etapa anterior. git diff --check aprovado. Uma tentativa de comando remoto usou caminho incorreto, corrigida e repetida no worktree correto.
+- Limitações: prévia somente leitura, comparação de caminhos não é árvore editável por drag/drop, sem persistência de rascunhos; não testado visualmente nos três temas nem no runtime Tauri. Sem alteração da biblioteca real. Ainda não mesclar sem revisão de integração/validação nativa da entrega.
+
+## 2026-11-25 — revisão da primeira entrega de planejamento
+
+- Corrigido pai padrão de renomeação, limites de caminhos completos e proteção de componentes internos, memoização de candidatos e validação do contrato de resposta. Polimento de espaçamento, listas, campos de pesquisa e scrollbar.
+- Teste de integração via Tauri MockRuntime chama o comando IPC real com payload camelCase, criação/movimento, regras, impactos e revisões; mudança externa invalida revalidação e nenhuma pasta é criada. Primeira tentativa usou URL de origem incorreta no Linux; corrigida para protocolo tauri://localhost (http://tauri.localhost no Windows). 190 testes Rust e 65 frontend aprovados, build TypeScript/Vite aprovado. MockRuntime não é execução completa do webview nativo.
+- Capturas Firefox headless 1260×820 do componente isolado com dados fictícios, nos três estilos, inspecionadas; ajustados campos e layout. Não é teste de interação completo no Tauri real, nem validação de todos os estados ou temas claros. Sem instalação ou alterações na biblioteca real.
+- Entrega candidata a merge: fluxo de planejamento somente leitura; executor e writers internos continuam sem IPC de aplicação. Não promete recuperação automática. Próximos passos devem partir da main após merge confirmado, em nova branch funcional.
+
+## Próximo incremento recomendado
+
+1. Implementar adaptadores da fila e persistência nativa de regras com migração, preservando dados e coordenando mutações. Definir prova de criação de pasta/identidade de subárvore, arquivamento/raízes sobrepostas, invalidação de tokens manuais e testes de falhas antes de habilitar execução. Integrar prévia mínima ao frontend e revisar possibilidade de entrega funcional somente leitura.
+2. Completar política de colisões com arquivos físicos projetados e coordenação da fila/regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
+3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
+4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

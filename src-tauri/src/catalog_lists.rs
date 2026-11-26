@@ -58,7 +58,7 @@ fn validate_book(book: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_list(raw: &str) -> Result<Vec<Value>, String> {
+pub(crate) fn parse_list(raw: &str) -> Result<Vec<Value>, String> {
     let data: Value =
         serde_json::from_str(raw).map_err(|error| format!("JSON inválido: {error}"))?;
     let works = if data.is_array() {
@@ -84,11 +84,11 @@ fn identity(book: &Value) -> String {
         .join("\u{1f}")
 }
 
-fn list_path(root: &Path) -> std::path::PathBuf {
+pub(crate) fn list_path(root: &Path) -> std::path::PathBuf {
     root.join("99 - Catálogo").join(LIST_FILE)
 }
 
-fn load_values(path: &Path) -> Result<Vec<Value>, String> {
+pub(crate) fn load_values(path: &Path) -> Result<Vec<Value>, String> {
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -230,6 +230,14 @@ pub fn load(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> Vec<
             return Vec::new();
         }
     };
+    works_from_values(items, files, warnings)
+}
+
+pub(crate) fn works_from_values(
+    items: Vec<Value>,
+    files: &[BookFile],
+    warnings: &mut Vec<String>,
+) -> Vec<CatalogWork> {
     let known: HashSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
     items
         .into_iter()
@@ -281,10 +289,11 @@ pub fn load(root: &Path, files: &[BookFile], warnings: &mut Vec<String>) -> Vec<
 
 #[tauri::command]
 pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportReport, String> {
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
     let _guard = LIST_WRITE_LOCK
         .lock()
         .map_err(|_| "Catálogo indisponível.")?;
-    let root = fs::canonicalize(root).map_err(|e| format!("Biblioteca inválida: {e}"))?;
+    let root = reservation.root().to_path_buf();
     if !root.is_dir() {
         return Err("A raiz deve ser uma pasta.".into());
     }
@@ -513,6 +522,12 @@ pub fn link_catalog_file(
     destination: String,
     relative_path: String,
 ) -> Result<(), String> {
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
+    let root = reservation
+        .root()
+        .to_str()
+        .ok_or("Raiz não UTF-8.")?
+        .to_owned();
     let _guard = LIST_WRITE_LOCK
         .lock()
         .map_err(|_| "Catálogo indisponível.")?;

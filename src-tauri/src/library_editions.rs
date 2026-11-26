@@ -1,6 +1,8 @@
 //! Per-library edition provenance, independent of download history.
 use crate::downloads::DownloadEdition;
-use crate::import_fingerprint::{FileFingerprint, fingerprint};
+use crate::import_fingerprint::FileFingerprint;
+#[cfg(test)]
+use crate::import_fingerprint::fingerprint;
 use serde::{
     Deserialize, Deserializer, Serialize,
     de::{MapAccess, Visitor},
@@ -32,10 +34,10 @@ pub(crate) struct EditionRecord {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Envelope {
+pub(crate) struct Envelope {
     version: u32,
     #[serde(deserialize_with = "read_entries")]
-    entries: BTreeMap<String, EditionRecord>,
+    pub(crate) entries: BTreeMap<String, EditionRecord>,
 }
 
 fn read_entries<'de, D: Deserializer<'de>>(
@@ -183,7 +185,13 @@ pub(crate) fn load(root: &Path) -> Result<BTreeMap<String, EditionRecord>, Strin
     if bytes.len() as u64 > MAX_BYTES {
         return Err("Índice de edições excede 16 MiB.".into());
     }
-    let envelope: Envelope = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    Ok(decode_index(&bytes)?.entries)
+}
+pub(crate) fn decode_index(bytes: &[u8]) -> Result<Envelope, String> {
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err("Índice de edições excede 16 MiB.".into());
+    }
+    let envelope: Envelope = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     if envelope.version != 1 || envelope.entries.len() > MAX_ENTRIES {
         return Err("Versão ou tamanho de índice inválido.".into());
     }
@@ -193,10 +201,14 @@ pub(crate) fn load(root: &Path) -> Result<BTreeMap<String, EditionRecord>, Strin
             return Err("Chave de edição divergente do caminho.".into());
         }
     }
-    Ok(envelope.entries)
+    Ok(envelope)
 }
 
-fn verify_book(root: &Path, relative: &str, expected: &FileFingerprint) -> Result<(), String> {
+pub(crate) fn verify_book(
+    root: &Path,
+    relative: &str,
+    expected: &FileFingerprint,
+) -> Result<(), String> {
     valid_path(relative)?;
     let mut path = root.to_path_buf();
     let parts: Vec<_> = relative.split('/').collect();
@@ -210,7 +222,7 @@ fn verify_book(root: &Path, relative: &str, expected: &FileFingerprint) -> Resul
         }
     }
     if fs::canonicalize(&path).map_err(|e| e.to_string())? != path
-        || fingerprint(&path)? != *expected
+        || crate::import_fingerprint::fingerprint_with_limit(&path, expected.bytes)? != *expected
     {
         return Err("Arquivo de edição não corresponde à impressão digital.".into());
     }

@@ -39,11 +39,18 @@ fn validate_length(bytes: u64) -> Result<(), String> {
 }
 
 pub(crate) fn fingerprint(path: &Path) -> Result<FileFingerprint, String> {
+    fingerprint_with_limit(path, MAX_BYTES)
+}
+
+pub(crate) fn fingerprint_with_limit(path: &Path, limit: u64) -> Result<FileFingerprint, String> {
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if !metadata.file_type().is_file() {
         return Err("A importação exige arquivo regular, não link simbólico.".into());
     }
     validate_length(metadata.len())?;
+    if metadata.len() > limit {
+        return Err("Arquivo excede o orçamento de verificação.".into());
+    }
 
     let mut options = OpenOptions::new();
     options.read(true);
@@ -65,7 +72,7 @@ pub(crate) fn fingerprint(path: &Path) -> Result<FileFingerprint, String> {
         return Err("A importação exige arquivo regular.".into());
     }
     validate_length(before.len())?;
-    if before.len() != metadata.len() {
+    if before.len() != metadata.len() || before.len() > limit {
         return Err("O tamanho do arquivo mudou ao abrir.".into());
     }
 
@@ -87,8 +94,24 @@ pub(crate) fn fingerprint(path: &Path) -> Result<FileFingerprint, String> {
         hasher.update(&buffer[..count]);
     }
     let after = file.metadata().map_err(|error| error.to_string())?;
-    if bytes != before.len() || after.len() != before.len() {
+    if bytes != before.len()
+        || after.len() != before.len()
+        || before.modified().ok() != after.modified().ok()
+    {
         return Err("O tamanho do arquivo mudou durante a leitura.".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if (
+            before.dev(),
+            before.ino(),
+            before.ctime(),
+            before.ctime_nsec(),
+        ) != (after.dev(), after.ino(), after.ctime(), after.ctime_nsec())
+        {
+            return Err("Arquivo mudou durante a leitura.".into());
+        }
     }
     let result = FileFingerprint {
         bytes,
