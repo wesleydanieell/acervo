@@ -34,10 +34,10 @@ pub(crate) struct EditionRecord {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Envelope {
+pub(crate) struct Envelope {
     version: u32,
     #[serde(deserialize_with = "read_entries")]
-    entries: BTreeMap<String, EditionRecord>,
+    pub(crate) entries: BTreeMap<String, EditionRecord>,
 }
 
 fn read_entries<'de, D: Deserializer<'de>>(
@@ -185,7 +185,13 @@ pub(crate) fn load(root: &Path) -> Result<BTreeMap<String, EditionRecord>, Strin
     if bytes.len() as u64 > MAX_BYTES {
         return Err("Índice de edições excede 16 MiB.".into());
     }
-    let envelope: Envelope = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    Ok(decode_index(&bytes)?.entries)
+}
+pub(crate) fn decode_index(bytes: &[u8]) -> Result<Envelope, String> {
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err("Índice de edições excede 16 MiB.".into());
+    }
+    let envelope: Envelope = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     if envelope.version != 1 || envelope.entries.len() > MAX_ENTRIES {
         return Err("Versão ou tamanho de índice inválido.".into());
     }
@@ -195,7 +201,7 @@ pub(crate) fn load(root: &Path) -> Result<BTreeMap<String, EditionRecord>, Strin
             return Err("Chave de edição divergente do caminho.".into());
         }
     }
-    Ok(envelope.entries)
+    Ok(envelope)
 }
 
 pub(crate) fn verify_book(

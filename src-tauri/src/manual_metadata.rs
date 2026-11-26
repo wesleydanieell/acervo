@@ -107,7 +107,7 @@ pub struct EditSnapshot {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Index {
     version: u32,
-    revision: u64,
+    pub(crate) revision: u64,
     #[serde(deserialize_with = "read_entries")]
     pub entries: BTreeMap<String, ManualRecord>,
 }
@@ -321,7 +321,13 @@ pub(crate) fn load(root: &Path) -> Result<Index, String> {
     if bytes.len() as u64 > MAX_BYTES {
         return Err("Índice manual excede 16 MiB.".into());
     }
-    let index: Index = serde_json::from_slice(&bytes)
+    decode_index(&bytes)
+}
+pub(crate) fn decode_index(bytes: &[u8]) -> Result<Index, String> {
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err("Índice manual excede 16 MiB.".into());
+    }
+    let index: Index = serde_json::from_slice(bytes)
         .map_err(|e| format!("Índice manual corrompido; recuperação explícita necessária: {e}"))?;
     if index.version != 1 {
         return Err("Versão de índice manual não suportada.".into());

@@ -170,12 +170,7 @@ pub(super) fn verify(dir: &Path, steps: &[Step]) -> Result<(), String> {
 /// database file: WAL/transaction semantics need a dedicated logical snapshot.
 #[allow(dead_code)]
 pub(crate) fn capture_json(root: &Path, resource: Resource) -> Result<Option<Vec<u8>>, String> {
-    let name = match resource {
-        Resource::Lists => "Acervo_Listas.json",
-        Resource::ManualMetadata => "Acervo_Metadados_Manuais.json",
-        Resource::Editions => "Acervo_Edicoes.json",
-        _ => return Err("Recurso exige adaptador de snapshot próprio.".into()),
-    };
+    let name = json_name(resource)?;
     let Some(service) = crate::library_editions::service(root)? else {
         return Ok(None);
     };
@@ -192,6 +187,15 @@ pub(crate) fn capture_json(root: &Path, resource: Resource) -> Result<Option<Vec
         .map_err(|e| e.to_string())?;
     Image::of(Some(&bytes))?;
     Ok(Some(bytes))
+}
+
+pub(super) fn json_name(resource: Resource) -> Result<&'static str, String> {
+    Ok(match resource {
+        Resource::Lists => "Acervo_Listas.json",
+        Resource::ManualMetadata => "Acervo_Metadados_Manuais.json",
+        Resource::Editions => "Acervo_Edicoes.json",
+        _ => return Err("Recurso exige adaptador de snapshot próprio.".into()),
+    })
 }
 
 pub(super) fn capture_resource(root: &Path, resource: Resource) -> Result<Option<Vec<u8>>, String> {

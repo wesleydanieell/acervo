@@ -90,9 +90,17 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Integra captura SQLite na preparação e classificação Before/After/Conflict do journal. Adaptador de escrita ainda não é chamado por IPC ou executor; preserva valores de outras colunas, não é backup completo do DB nem prova de identidade física da instância do banco. Schema não usual e efeitos de colunas geradas não foram validados.
 - Validação Linux: 186 testes Rust aprovados (4 novos: WAL e roundtrip exato, conflitos e rollback por constraint, classificação integrada no journal, triggers/FKs). git diff --check aprovado. Nenhuma modificação na biblioteca real, instalação ou validação visual.
 
+## 2026-11-25 — adaptador de referências JSON
+
+- `library_journal/json.rs`: planejamento de imagens antes/depois para listas, metadados manuais e edições. Preserva envelope e campos adicionais das listas, associações nulas, caminhos não afetados, identidades e fingerprints. Remapeia simultaneamente prefixos por componentes, chaves de índices e caminho interno de edição; revisão manual avança na imagem proposta. Rejeita colisões, identidades ambíguas e dados inválidos. Reutiliza decodificadores validados dos módulos existentes.
+- Adaptador interno replace de arquivos JSON existentes: compara bytes esperados, prepara temporário exclusivo, preserva permissões, sincroniza arquivo, verifica novamente antes de renomear e sincroniza diretório. Estado desejado já presente é idempotente; restauração usa bytes originais. Não cria/exclui recursos e não atualiza backup legado .bak. Não está ligado ao IPC ou executor.
+- Validação Linux: 189 testes Rust aprovados (3 novos: roundtrip exato de listas e conflito externo, remapeamento dos índices e identidade, conflitos e recursos não afetados). git diff --check aprovado.
+- Limitações: compare e rename não constituem CAS atômico contra outros processos; ownership/ACL/xattrs não são preservados. Restauração de revisão manual anterior pode revalidar tokens antigos (definir epoch/invalidação antes de expor). Ainda faltam fila/regras, integração com checkpoints e executor. Nenhum arquivo real alterado ou teste visual.
+- Diretriz de entrega do usuário: merge por entrega concreta, revisada e testada; não abrir PR por microincremento. Branch atual ainda não oferece execução estrutural utilizável; não mesclar este incremento isoladamente. Push SQLite 7ae672b confirmado.
+
 ## Próximo incremento recomendado
 
-1. Implementar adaptadores da fila e persistência nativa de regras com migração, preservando dados e coordenando mutações; depois adaptador de restauração JSON. Definir prova de criação de pasta/identidade de subárvore, arquivamento/raízes sobrepostas e testes de falhas antes de habilitar execução.
+1. Implementar adaptadores da fila e persistência nativa de regras com migração, preservando dados e coordenando mutações. Definir prova de criação de pasta/identidade de subárvore, arquivamento/raízes sobrepostas, invalidação de tokens manuais e testes de falhas antes de habilitar execução. Integrar prévia mínima ao frontend e revisar possibilidade de entrega funcional somente leitura.
 2. Completar política de colisões com arquivos físicos projetados e coordenação da fila/regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

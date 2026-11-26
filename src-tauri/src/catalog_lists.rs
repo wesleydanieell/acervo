@@ -58,7 +58,7 @@ fn validate_book(book: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_list(raw: &str) -> Result<Vec<Value>, String> {
+pub(crate) fn parse_list(raw: &str) -> Result<Vec<Value>, String> {
     let data: Value =
         serde_json::from_str(raw).map_err(|error| format!("JSON inválido: {error}"))?;
     let works = if data.is_array() {

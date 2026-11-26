@@ -1,5 +1,6 @@
 //! Durable, append-only structural journal. No filesystem executor is exposed.
 mod images;
+mod json;
 pub(crate) mod recovery;
 mod sqlite;
 use crate::library_reference_impact::revision;

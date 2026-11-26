@@ -111,3 +111,5 @@ Aceite: a mesma operação proposta manualmente ou por IA tem as mesmas validaç
 A prévia de aquisição também identifica novos destinos de arquivo coincidentes entre downloads vinculados à mesma raiz, considerando nome e destinos planejados/da ficha. Não confunde formatos/nomes distintos, registros históricos ou outras bibliotecas. Destinos anteriormente iguais não são classificados como nova colisão. Ainda não verifica colisões com arquivos físicos projetados nem equivalência de nomes em filesystems case-insensitive.
 
 A inspeção de recuperação já possui reserva exclusiva interna e diagnóstico Before/After/Conflict/Unsupported da etapa interrompida, para imagens JSON e identidade de movimentação de pasta. Não aplica compensações nem altera checkpoints; criação existente sem prova de identidade continua conflito.
+
+Os três recursos JSON locais agora possuem adaptador interno de planejamento e substituição condicional de arquivos existentes, preservando dados de referência e permitindo roundtrip dos bytes originais. O executor ainda precisa integrar os adaptadores ao journal; não há reorganização estrutural habilitada.
