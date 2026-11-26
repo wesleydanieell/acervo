@@ -289,10 +289,11 @@ pub(crate) fn works_from_values(
 
 #[tauri::command]
 pub fn import_catalog_json(root: String, json_text: String) -> Result<ImportReport, String> {
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
     let _guard = LIST_WRITE_LOCK
         .lock()
         .map_err(|_| "Catálogo indisponível.")?;
-    let root = fs::canonicalize(root).map_err(|e| format!("Biblioteca inválida: {e}"))?;
+    let root = reservation.root().to_path_buf();
     if !root.is_dir() {
         return Err("A raiz deve ser uma pasta.".into());
     }
@@ -521,6 +522,12 @@ pub fn link_catalog_file(
     destination: String,
     relative_path: String,
 ) -> Result<(), String> {
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
+    let root = reservation
+        .root()
+        .to_str()
+        .ok_or("Raiz não UTF-8.")?
+        .to_owned();
     let _guard = LIST_WRITE_LOCK
         .lock()
         .map_err(|_| "Catálogo indisponível.")?;

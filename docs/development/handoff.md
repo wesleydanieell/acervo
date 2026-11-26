@@ -44,9 +44,17 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação Linux: 168 testes Rust aprovados (3 novos: mudança lógica sem mudança física e órfãos, critérios de regras, estado da fila versus progresso/histórico). Teste integrado de catálogo também verifica identidade manual real e alteração externa. git diff --check aprovado.
 - Limitações: revisão lógica não inclui campos SQLite fora do modelo, envelope JSON externo às fichas nem bytes exatos; não há snapshot atômico, reserva de mutação, integração visual ou executor. Nenhuma alteração na biblioteca real.
 
+## 2026-11-25 — coordenação de operações
+
+- Novo módulo `library_mutations.rs`: reserva RAII por raiz canônica, rejeita sobreposições ancestral/descendente e libera ao fim. Registro não mantém mutex durante I/O. Aquisição antes de locks de módulos; sem aquisição recursiva.
+- Integração nas entradas de criação de pasta, movimento simples/lote, organização JSON e inteligente, edição manual, importação e associação de catálogo, importação/recuperação de downloads e prévia estrutural. Lotes e reversões compartilham a reserva via `move_book_reserved`.
+- Importação automática que falhar por concorrência fica pronta para ação manual, com mensagem de suspensão. Helpers internos de persistência continuam com locks existentes.
+- Validação: 170 testes Rust aprovados (2 novos: exclusão de raízes sobrepostas e integração com comandos existentes sob reserva em outra thread). git diff --check aprovado.
+- Limitações: reserva em memória e no processo; não impede mudanças externas, outros processos, aliases físicos não canônicos ou mudanças na fila fora da importação. Regras em localStorage e cache derivado não são coordenados por essa reserva. Locks globais existentes ainda podem serializar operações independentes. Não houve validação visual, instalação, execução estrutural nem alterações na biblioteca real.
+
 ## Próximo incremento recomendado
 
-1. Auditar pontos de mutação e preparar guardas por raiz, com ordem de aquisição explícita e testes de concorrência. Verificar fingerprints de edições com orçamento de I/O definido.
+1. Verificar fingerprints de edições com orçamento de I/O definido; definir verificação de identidades e snapshots exatos necessários para recuperação. Revisar aquisição de reservas para futuros pontos de escrita.
 2. Definir coordenação de mutações e reservas por raiz, política de colisões de destinos futuros e snapshots exatos da fila e regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

@@ -902,10 +902,14 @@ fn spawn_download(
                     true,
                     true,
                 );
-                if result.is_err() {
+                if let Err(error) = result {
                     manager.change(&id, |item| {
                         if item.info.status == "ready" {
                             item.info.auto_import = false;
+                            if item.info.error.is_empty() {
+                                item.info.error =
+                                    format!("Importação automática suspensa: {error}");
+                            }
                         }
                     });
                     let _ = manager.persist();
@@ -1572,6 +1576,12 @@ fn save_download_to_library(
     create_missing: bool,
     link_catalog: bool,
 ) -> Result<String, String> {
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
+    let root = reservation
+        .root()
+        .to_str()
+        .ok_or("Raiz não UTF-8.")?
+        .to_owned();
     let info = {
         let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
         let item = items
@@ -1735,6 +1745,12 @@ pub async fn recover_download_import(
 ) -> Result<Vec<DownloadInfo>, String> {
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
+        let root = reservation
+            .root()
+            .to_str()
+            .ok_or("Raiz não UTF-8.")?
+            .to_owned();
         let (info, intent, stage, root) = {
             let mut items = manager.0.lock().map_err(|_| "Fila indisponível.")?;
             let item = items

@@ -270,8 +270,9 @@ pub async fn preview_library_restructure(
 ) -> Result<StructuralPreview, String> {
     let manager = manager.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
-        let mut preview = plan(&root, operations)?;
+        let reservation = crate::library_mutations::Reservation::acquire(Path::new(&root))?;
+        let root = reservation.root();
+        let mut preview = plan(root, operations)?;
         snapshot::verify_revision(
             &preview.filesystem_revision,
             expected_filesystem_revision.as_deref(),
@@ -284,7 +285,7 @@ pub async fn preview_library_restructure(
                 .collect(),
         );
         preview.download_impact = Some(crate::downloads::restructure::preview(
-            &root, &remap, &manager,
+            root, &remap, &manager,
         )?);
         preview.rule_impact = rules
             .as_ref()

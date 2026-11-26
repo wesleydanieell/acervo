@@ -387,6 +387,10 @@ fn save(
     expected: EditToken,
     metadata: ManualMetadata,
 ) -> Result<EditSnapshot, String> {
+    let reservation = crate::library_mutations::Reservation::acquire(root)?;
+    if reservation.root() != root {
+        return Err("Raiz não canônica.".into());
+    }
     let _guard = MUTATIONS
         .lock()
         .map_err(|_| "Índice manual indisponível.")?;

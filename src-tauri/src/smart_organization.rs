@@ -1,6 +1,6 @@
 //! Read-only suggestions and explicitly selected independent moves.
 use super::{
-    BookFile, Collection, downloads::destination_parts, move_book_with_policy, scan_collection,
+    BookFile, Collection, downloads::destination_parts, move_book_reserved, scan_collection,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -500,6 +500,7 @@ fn apply(root: &str, rules: &Rules, selected: Vec<Suggestion>) -> Result<Applied
     if selected.is_empty() || selected.len() > LIMIT {
         return Err("Selecione de 1 a 100 sugestões.".into());
     }
+    let reservation = crate::library_mutations::Reservation::acquire(Path::new(root))?;
     let collection = scan_collection(root.into())?;
     if collection.root != root {
         return Err("Biblioteca mudou; gere outra prévia.".into());
@@ -540,8 +541,8 @@ fn apply(root: &str, rules: &Rules, selected: Vec<Suggestion>) -> Result<Applied
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 _ => return Err("Destino ocupado ou inacessível.".into()),
             }
-            move_book_with_policy(
-                root.into(),
+            move_book_reserved(
+                &reservation,
                 item.source.clone(),
                 item.destination.clone(),
                 item.work_id.is_some(),

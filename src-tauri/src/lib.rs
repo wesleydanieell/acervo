@@ -17,14 +17,15 @@ mod library_editions;
 mod library_index;
 mod library_index_disk;
 mod library_monitor;
+mod library_mutations;
+mod library_reference_impact;
+mod library_restructure;
 mod manual_metadata;
 mod metadata_cache;
 mod noctalia;
 mod opds_parser;
 mod opds_source;
 mod organization;
-mod library_reference_impact;
-mod library_restructure;
 mod repository_index;
 mod smart_organization;
 mod source_browser;
@@ -443,7 +444,8 @@ fn resolve_inside(root: &Path, relative: &str) -> Result<PathBuf, String> {
 
 #[tauri::command]
 fn create_folder(root: String, parent: String, name: String) -> Result<String, String> {
-    let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
+    let reservation = library_mutations::Reservation::acquire(Path::new(&root))?;
+    let root = reservation.root().to_path_buf();
     if !root.is_dir() {
         return Err("Biblioteca inválida.".into());
     }
@@ -629,18 +631,16 @@ fn rename_without_replace(source: &Path, target: &Path) -> std::io::Result<()> {
 
 #[tauri::command]
 fn move_book(root: String, relative_path: String, destination: String) -> Result<String, String> {
-    move_book_with_policy(root, relative_path, destination, false)
+    let reservation = library_mutations::Reservation::acquire(Path::new(&root))?;
+    move_book_reserved(&reservation, relative_path, destination, false)
 }
-fn move_book_with_policy(
-    root: String,
+fn move_book_reserved(
+    reservation: &library_mutations::Reservation,
     relative_path: String,
     destination: String,
     preserve_destination: bool,
 ) -> Result<String, String> {
-    let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
-    if !root.is_dir() {
-        return Err("Biblioteca inválida.".into());
-    }
+    let root = reservation.root().to_path_buf();
     let source = resolve_inside(&root, &relative_path)?;
     let target_dir = resolve_inside(&root, &destination)?;
     if !source.is_file() || !is_book(&source) || !target_dir.is_dir() {
@@ -737,10 +737,8 @@ fn move_books(
     if relative_paths.is_empty() || relative_paths.len() > 100 {
         return Err("Selecione entre 1 e 100 livros por operação.".into());
     }
-    let canonical_root = fs::canonicalize(&root).map_err(|error| error.to_string())?;
-    if !canonical_root.is_dir() {
-        return Err("Biblioteca inválida.".into());
-    }
+    let reservation = library_mutations::Reservation::acquire(Path::new(&root))?;
+    let canonical_root = reservation.root().to_path_buf();
     let target_dir = resolve_inside(&canonical_root, &destination)?;
     if !target_dir.is_dir() || target_dir.starts_with(canonical_root.join("99 - Catálogo")) {
         return Err("Selecione uma pasta de destino válida, fora do catálogo.".into());
@@ -781,18 +779,18 @@ fn move_books(
         prepared.push(old);
     }
     let mut done: Vec<(String, String)> = Vec::new();
-    let root_text = canonical_root.to_string_lossy().to_string();
     for old in prepared {
-        match move_book(root_text.clone(), old.clone(), destination.clone()) {
+        match move_book_reserved(&reservation, old.clone(), destination.clone(), false) {
             Ok(new) => done.push((old, new)),
             Err(error) => {
                 let mut rollback_errors = Vec::new();
                 for (original, moved) in done.iter().rev() {
                     let original_parent = Path::new(original).parent().unwrap_or(Path::new(""));
-                    if let Err(recovery) = move_book(
-                        root_text.clone(),
+                    if let Err(recovery) = move_book_reserved(
+                        &reservation,
                         moved.clone(),
                         original_parent.to_string_lossy().to_string(),
+                        false,
                     ) {
                         rollback_errors.push(format!("{moved}: {recovery}"));
                     }
@@ -896,6 +894,58 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn library_reservation_blocks_existing_write_commands_until_released() {
+        let root = std::env::temp_dir().join(format!(
+            "acervo-coordinator-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for path in ["A", "B"] {
+            fs::create_dir_all(root.join(path)).unwrap();
+        }
+        fs::write(root.join("A/book.pdf"), b"book").unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let text = root.to_str().unwrap().to_owned();
+        let guard = library_mutations::Reservation::acquire(&root).unwrap();
+        let other = text.clone();
+        std::thread::spawn(move || {
+            assert!(create_folder(other.clone(), "".into(), "New".into()).is_err());
+            assert!(move_book(other.clone(), "A/book.pdf".into(), "B".into()).is_err());
+            assert!(move_books(other.clone(), vec!["A/book.pdf".into()], "B".into()).is_err());
+            assert!(
+                catalog_lists::import_catalog_json(other.clone(), r#"[{"titulo":"Book"}]"#.into())
+                    .is_err()
+            );
+            assert!(
+                organization::apply_organization(
+                    other,
+                    r#"{"versao":1,"movimentacoes":[{"arquivo":"A/book.pdf","destino":"B"}]}"#
+                        .into()
+                )
+                .is_err()
+            );
+        })
+        .join()
+        .unwrap();
+        assert!(root.join("A/book.pdf").is_file());
+        assert!(!root.join("New").exists());
+        assert!(!root.join("99 - Catálogo").exists());
+        drop(guard);
+        assert_eq!(
+            create_folder(text.clone(), "".into(), "New".into()).unwrap(),
+            "New"
+        );
+        assert_eq!(
+            move_books(text, vec!["A/book.pdf".into()], "B".into()).unwrap(),
+            vec!["B/book.pdf"]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn rename_never_replaces_a_destination_even_during_rollback() {
         let dir = std::env::temp_dir().join(format!(
