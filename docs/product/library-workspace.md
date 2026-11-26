@@ -59,7 +59,9 @@ Aceite: fixtures contendo uma obra com várias edições, obras futuras, metadad
 
 ## Etapa 4 — Execução durável, histórico e desfazer
 
-**Planejada; requisito para liberar edição estrutural.**
+**Em implementação; requisito para liberar edição estrutural.**
+
+Primeiro incremento: journal append-only em `99 - Catálogo/.acervo-structural-journal` com intenção versionada, etapas tipadas e checkpoints de aplicação/compensação encadeados por SHA-256. Registros publicados sem sobrescrita após sincronização do arquivo e diretório. A consulta `inspect_library_journal` é somente leitura. A reserva da mesma raiz rejeita journal pendente, incompleto ou corrompido. Não há executor, recuperação automática, arquivamento de histórico nem snapshots exatos dos recursos neste incremento. Os hashes de referência na intenção são descritores, não backups. Escrita experimental do journal permanece interna e somente testada em Linux.
 
 - Persistir intenção validada e estado anterior exato antes de tocar dados; checkpoints duráveis, identificação do que foi efetivamente aplicado, erros localizados e recuperação após reinício.
 - Orquestrar filesystem, SQLite e JSON com compensações explícitas. Não prometer uma transação atômica única entre sistemas diferentes; impedir nova mutação conflitante enquanto houver recuperação pendente.

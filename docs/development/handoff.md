@@ -59,9 +59,17 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Validação Linux: 172 testes Rust aprovados (2 novos: orçamento e colisões de aquisição; teste integrado também verifica divergência de edição). git diff --check aprovado.
 - Limitações: diagnósticos somente leitura; colisões com arquivos físicos projetados e equivalência case-insensitive ainda pendentes. Verificação de conteúdo não elimina TOCTOU. Sem alteração da biblioteca real, execução estrutural, instalação ou validação visual.
 
+## 2026-11-25 — infraestrutura inicial de journal
+
+- `library_journal.rs`: intenção tipada versionada, log encadeado SHA-256 em diretório de serviço protegido, checkpoints imutáveis numerados, publicação exclusiva com sync de arquivo/diretório e transições validadas. Limites de 128 etapas, 516 registros e 256 KiB por registro. Diretorio vazio, lacunas, corrupção e transições ilegais falham fechados.
+- Estados de aplicação e compensação com etapa inFlight; ordem inversa para compensações. Eventos de não aplicação somente poderão ser usados com evidência comprovada no futuro executor. Sem execução física; comandos atuais não criam journal.
+- IPC somente leitura `inspect_library_journal`. Reserva da raiz consultada rejeita pendência ou journal inválido; estados terminais permitem operações existentes. Sem bypass de recuperação neste incremento.
+- Validação Linux: 177 testes Rust aprovados (5 novos: checkpoints/reabertura, corrupção/lacunas, caminhos protegidos/raiz, bloqueio pendente e estado terminal). Simulações não são teste de perda de energia ou processo morto no meio de uma escrita física. git diff --check aprovado.
+- Limitações: intenção ainda não contém snapshots exatos nem identidade forte de origem; hashes são descritores. Não há arquivamento/rotação, reabertura para recuperação, descoberta de journals de outras raízes sobrepostas após reinício, executor ou undo/redo. Windows/macOS não validados; writer requer sincronização de diretório. Log não autentica manipulação intencional ou remoção de sufixo completo. Nenhuma instalação, validação visual ou alteração da biblioteca real.
+
 ## Próximo incremento recomendado
 
-1. Definir formato de journal e snapshots exatos dos dados a modificar (incluindo identidade do arquivo, SQLite e índices), com persistência segura e teste de corrupção/interrupção. Não habilitar execução prematuramente.
+1. Implementar armazenamento de snapshots exatos dos recursos, com referências verificáveis antes/depois e identidades de origem para passos físicos; testar ausência, corrupção, limites e divergências. Definir acesso de recuperação exclusivo e política de journals sobrepostos/arquivamento. Não habilitar execução prematuramente.
 2. Completar política de colisões com arquivos físicos projetados e coordenação da fila/regras. Considerar persistência nativa de regras com migração testada, preservando dados do usuário.
 3. Desenhar journal e executor com recuperação idempotente e testes de falhas; manter aplicação estrutural indisponível até os critérios de segurança.
 4. Integrar prévia ao editor visual, com estado explícito de dados não analisados, bloqueios e comparação de estrutura. Validar etapa 1 nativamente e nos três temas.

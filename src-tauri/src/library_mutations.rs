@@ -31,7 +31,13 @@ impl Reservation {
             );
         }
         active.insert(root.clone());
-        Ok(Self { root })
+        drop(active);
+        let reservation = Self { root };
+        if crate::library_journal::inspect(reservation.root())?.is_some_and(|state| state.pending())
+        {
+            return Err("Há uma reorganização pendente de recuperação nesta biblioteca.".into());
+        }
+        Ok(reservation)
     }
 
     pub(crate) fn root(&self) -> &Path {

@@ -42,7 +42,7 @@ pub struct StructuralPreview {
     rule_impact: Option<Vec<crate::smart_organization::RuleDestinationImpact>>,
 }
 
-fn relative(value: &str) -> Result<PathBuf, String> {
+pub(crate) fn relative(value: &str) -> Result<PathBuf, String> {
     if value.is_empty()
         || crate::downloads::destination_parts(value).is_err()
         || value.split('/').any(|part| {

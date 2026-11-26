@@ -16,6 +16,7 @@ mod library_duplicates;
 mod library_editions;
 mod library_index;
 mod library_index_disk;
+mod library_journal;
 mod library_monitor;
 mod library_mutations;
 mod library_reference_impact;
@@ -832,6 +833,7 @@ pub fn run() {
         smart_organization::apply_smart_organization,
         organization::preview_organization,
         library_restructure::preview_library_restructure,
+        library_journal::inspect_library_journal,
         organization::apply_organization,
         sources::list_sources,
         source_browser::open_source_webview,
