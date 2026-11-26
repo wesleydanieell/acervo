@@ -98,6 +98,14 @@ Atualizado em 2026-11-25. Este arquivo é o ponto de entrada para retomar o dese
 - Limitações: compare e rename não constituem CAS atômico contra outros processos; ownership/ACL/xattrs não são preservados. Restauração de revisão manual anterior pode revalidar tokens antigos (definir epoch/invalidação antes de expor). Ainda faltam fila/regras, integração com checkpoints e executor. Nenhum arquivo real alterado ou teste visual.
 - Diretriz de entrega do usuário: merge por entrega concreta, revisada e testada; não abrir PR por microincremento. Branch atual ainda não oferece execução estrutural utilizável; não mesclar este incremento isoladamente. Push SQLite 7ae672b confirmado.
 
+## 2026-11-25 — primeira interface de planejamento estrutural
+
+- Menu Gerenciar → Planejar estrutura abre `StructuralPlanner.tsx` em diálogo nativo, isolado por raiz. Proposta local de criação e movimentação/renomeação de pastas, até 100 ações, comparação de caminhos atual/proposta, busca e paginação incremental. Não grava rascunho, não executa.
+- `structural-plan.ts` centraliza projeção por prefixos de componentes, candidatos e validações preliminares. Backend continua autoridade; remoção de uma ação dependente pode invalidar proposta, que precisa ser revalidada.
+- Chama preview_library_restructure com regras atuais da raiz via localStorage; erro de leitura deixa regras explicitamente não analisadas. Apresenta impacto em pastas/livros, obras/destinos, índices, downloads, regras e bloqueios. Revalidar fornece revisões física e composta; edição da proposta invalida resultado. Resultados assíncronos ignorados ao fechar. Listas de impactos carregam inicialmente até 80 itens, seletores até 100.
+- Validação: 64 testes frontend aprovados (+4 para projeção, caminhos, candidatos e totais), build TypeScript/Vite aprovado, 189 testes Rust da etapa anterior. git diff --check aprovado. Uma tentativa de comando remoto usou caminho incorreto, corrigida e repetida no worktree correto.
+- Limitações: prévia somente leitura, comparação de caminhos não é árvore editável por drag/drop, sem persistência de rascunhos; não testado visualmente nos três temas nem no runtime Tauri. Sem alteração da biblioteca real. Ainda não mesclar sem revisão de integração/validação nativa da entrega.
+
 ## Próximo incremento recomendado
 
 1. Implementar adaptadores da fila e persistência nativa de regras com migração, preservando dados e coordenando mutações. Definir prova de criação de pasta/identidade de subárvore, arquivamento/raízes sobrepostas, invalidação de tokens manuais e testes de falhas antes de habilitar execução. Integrar prévia mínima ao frontend e revisar possibilidade de entrega funcional somente leitura.

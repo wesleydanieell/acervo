@@ -21,6 +21,7 @@ import { effectiveMetadata, metadataFields, type ManualMetadata } from "./manual
 import { DuplicatesCenter } from "./DuplicatesCenter";
 import { MetadataCenter, type CachedMetadata } from "./MetadataCenter";
 import { SmartOrganization } from "./SmartOrganization";
+import { StructuralPlanner } from "./StructuralPlanner";
 import { CatalogCenter } from "./CatalogCenter";
 import { SourcesCenter } from "./SourcesCenter";
 import { namingOptions, readNamingPreset, type NamingPreset } from "./download-naming";
@@ -141,6 +142,7 @@ function App() {
   const [folderParent, setFolderParent] = useState("");
   const [contextMenu, setContextMenu] = useState<MenuState | null>(null);
   const [smartRoot,setSmartRoot]=useState("");
+  const [structuralRoot,setStructuralRoot]=useState("");
   const [metadataRoot,setMetadataRoot]=useState("");
   const [manualEdit,setManualEdit]=useState<{root:string;file:BookFile}|null>(null);
   const [duplicateRoot,setDuplicateRoot]=useState("");
@@ -805,6 +807,7 @@ ${JSON.stringify(sample, null, 2)}`;
           <div className="page-intro"><div><h1>{currentLabel}</h1><p>{collection ? collection.files.length + " arquivos na biblioteca" : "Nenhuma biblioteca selecionada"}</p></div><div className="page-actions"><ActionMenu label="Gerenciar" icon={<Layers3 size={17}/>} actions={[
             {label:"Duplicatas",icon:<Archive size={17}/>,disabled:!collection||loading,run:()=>setDuplicateRoot(collection?.root??"")},
             {label:"Metadados",icon:<Book size={17}/>,disabled:!collection||loading,run:()=>setMetadataRoot(collection?.root??"")},
+            {label:"Planejar estrutura",icon:<FolderTree size={17}/>,disabled:!collection||loading,run:()=>setStructuralRoot(collection?.root??"")},
             {label:"Organizar por JSON",icon:<Layers3 size={17}/>,disabled:!collection||loading,run:()=>openOrganizationDialog()},
           ]}/><button className="button secondary" disabled={!collection||loading} onClick={()=>setSmartRoot(collection?.root??"")}><FolderTree size={17}/> Organizar</button><button className="button primary add-button" disabled={!collection||loading} onClick={() => openFolderDialog(selectedFolder)}><FolderPlus size={18}/> Nova pasta</button></div></div>
           {error && <div className="alert" role="alert"><CircleHelp size={18}/><span>{error}</span><button onClick={() => setError("")} aria-label="Dispensar erro"><X size={16}/></button></div>}
@@ -846,6 +849,7 @@ ${JSON.stringify(sample, null, 2)}`;
       {manualEdit&&collection?.root===manualEdit.root&&<ManualMetadataEditor key={manualEdit.root+":"+manualEdit.file.path} root={manualEdit.root} file={manualEdit.file} onClose={()=>setManualEdit(null)} onChanged={async()=>{if(requestedRoot.current===manualEdit.root){await refresh(manualEdit.root);setSelection(null);}}}/> }
       {duplicateRoot && collection?.root===duplicateRoot && <DuplicatesCenter key={duplicateRoot} root={duplicateRoot} folders={collection.folders} initialFolder={selectedFolder} onClose={()=>setDuplicateRoot("")} onInspect={path=>{const entry=libraryEntries.find(item=>item.file?.path===path);if(entry){setDuplicateRoot("");setSelection(entry);}else{setError("Arquivo não encontrado; atualize a biblioteca.");setDuplicateRoot("");}}}/> }
       {metadataRoot && collection?.root===metadataRoot && <MetadataCenter key={metadataRoot} root={metadataRoot} files={collection.files} cacheWarning={collection.warnings.find(warning=>warning.startsWith("Cache de metadados:"))} onClose={()=>setMetadataRoot("")} onChanged={async()=>{if(requestedRoot.current===metadataRoot){await refresh(metadataRoot);setSelection(null);}}}/> }
+      {structuralRoot && collection?.root===structuralRoot && <StructuralPlanner key={structuralRoot} root={structuralRoot} folders={collection.folders} initialFolder={selectedFolder} onClose={()=>setStructuralRoot("")}/>}
       {smartRoot && collection?.root===smartRoot && <SmartOrganization key={smartRoot} root={smartRoot} folders={collection.folders} onClose={()=>setSmartRoot("")} onChanged={async()=>{await refresh(smartRoot);setSelection(null);setBulkSelected(new Set());}}/>}
       <MotionPresence>{modal && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><section className={"modal glass-panel" + (modal === "organize" ? " organize-modal" : "")} role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">ACERVO</span><h2>{modal === "root" ? "Selecionar biblioteca" : modal === "prompt" ? "Gerador de listas" : modal === "folder" ? "Nova pasta" : modal === "move" ? "Mover livros" : modal === "organize" ? "Organizar biblioteca por JSON" : "Importar lista JSON"}</h2></div><button className="icon-button" onClick={() => setModal(null)} aria-label="Fechar"><X size={20}/></button></div>
         {modal === "root" && <div className="modal-body"><p>Escolha a pasta raiz no explorador. O acervo será lido sem alterar livros ou pastas.</p><button className="button primary full" disabled={loading} onClick={() => void chooseRoot()}>{loading ? <LoaderCircle className="spinning" size={18}/> : <FolderOpen size={18}/>} Escolher pelo explorador</button><div className="manual-path"><label>Ou informe o caminho manualmente<input value={root} onChange={(event) => setRoot(event.target.value)} placeholder="/home/usuario/Books" /></label><button className="button secondary full" disabled={loading || !root.trim()} onClick={() => void refresh(root)}>Carregar caminho informado</button></div></div>}

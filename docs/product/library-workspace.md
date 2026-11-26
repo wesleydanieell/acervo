@@ -73,7 +73,7 @@ Aceite: injeção de falha em cada fronteira de escrita, interrupção/reinício
 
 ## Etapa 5 — Editor visual de estrutura
 
-**Planejada; prévias podem evoluir antes, aplicar exige etapas 2–4.**
+**Em implementação; prévia inicial disponível pelo menu Gerenciar → Planejar estrutura.** A interface compara caminhos atuais e projetados, adiciona/remove ações, gera e revalida a prévia do backend e exibe impactos/bloqueios. Não salva rascunhos nem aplica operações; árvore interativa e arraste ainda pendentes. Aplicação exige etapas 2–4.
 
 - Workspace dedicado com árvore atual e proposta editável, explorador de arquivos e painel de propriedades/impacto. Alternar visualização única e comparação lado a lado conforme espaço disponível.
 - Criar e renomear pastas na proposta, mover/reparentar por arraste, selecionar ramos, mover lotes, editar nomes, aplicar padrões de nomes e montar agrupamentos por assunto, autor, série, idioma, formato ou critérios combinados.
